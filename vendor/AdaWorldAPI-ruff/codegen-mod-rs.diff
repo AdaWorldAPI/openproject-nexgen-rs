@@ -1,5 +1,5 @@
 diff --git a/crates/ruff_python_dto_check/src/codegen/mod.rs b/crates/ruff_python_dto_check/src/codegen/mod.rs
-index 54cd4b4..302f3b9 100644
+index 54cd4b4..2886281 100644
 --- a/crates/ruff_python_dto_check/src/codegen/mod.rs
 +++ b/crates/ruff_python_dto_check/src/codegen/mod.rs
 @@ -15,11 +15,12 @@ pub mod columns;
@@ -16,7 +16,7 @@ index 54cd4b4..302f3b9 100644
  use crate::contract::{HandlerKind, RouteContract};
  use crate::extractors::body::OutputKind;
  
-@@ -102,6 +103,31 @@ pub struct Emitted {
+@@ -102,6 +103,34 @@ pub struct Emitted {
  
  /// Emit target source for a single contract against a target spec.
  pub fn emit(contract: &RouteContract, spec: &TargetSpec) -> Emitted {
@@ -41,6 +41,9 @@ index 54cd4b4..302f3b9 100644
 +            }
 +            HandlerKind::AjaxJson => {
 +                return sqlx_emit::ajax_json::emit_ajax_json_sqlx(contract, spec);
++            }
++            HandlerKind::CsrfFormPostEngineCall => {
++                return sqlx_emit::csrf_form_post::emit_csrf_form_post_sqlx(contract, spec);
 +            }
 +            _ => {}
 +        }

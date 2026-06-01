@@ -38,6 +38,7 @@ emit_kinds = [
     "soft_delete",
     "toggle_bool_field",
     "ajax_json",
+    "csrf_form_post_engine_call",
 ]
 
 [models.WorkPackage]
@@ -56,12 +57,16 @@ same handlers it did before.
 | `soft_delete`         | `sqlx::query` UPDATE SET active=false guarded by id + tenant_col + active=true, 204 | [`tests/golden/codegen/sqlx/expected/soft_delete.rs`](tests/golden/codegen/sqlx/expected/soft_delete.rs)             |
 | `toggle_bool_field`   | `sqlx::query_as` UPDATE … SET active = NOT active … RETURNING *, `HalResponse` wrap | [`tests/golden/codegen/sqlx/expected/toggle_bool_field.rs`](tests/golden/codegen/sqlx/expected/toggle_bool_field.rs) |
 | `ajax_json`           | HAL envelope wrap: with-model branch emits `sqlx::query_as` SELECT-by-id + `_type`/`_embedded`/`_links`; no-model branch emits a stub with `CALIBRATION` comment and `serde_json::Value::Null` placeholders keyed off `contract.output.shape` | [`tests/golden/codegen/sqlx/expected/ajax_json_with_model.rs`](tests/golden/codegen/sqlx/expected/ajax_json_with_model.rs), [`tests/golden/codegen/sqlx/expected/ajax_json_stub.rs`](tests/golden/codegen/sqlx/expected/ajax_json_stub.rs) |
+| `csrf_form_post_engine_call` | POST create handler (first WRITE kind). Form DTO struct from `inputs.form_fields` + `Json<Form>` extractor. With-model branch emits `sqlx::query_as` `INSERT … RETURNING *` and returns `(StatusCode::CREATED, HalResponse(created))`; no-model branch emits a `CALIBRATION`/`EXTRACTOR-GAP` stub returning `StatusCode::ACCEPTED` | [`tests/golden/codegen/sqlx/expected/csrf_form_post_with_model.rs`](tests/golden/codegen/sqlx/expected/csrf_form_post_with_model.rs), [`tests/golden/codegen/sqlx/expected/csrf_form_post_stub.rs`](tests/golden/codegen/sqlx/expected/csrf_form_post_stub.rs) |
 
 The seed for the implementation lives in
 [`src/codegen/sqlx_emit/list_for_tenant.rs`](src/codegen/sqlx_emit/list_for_tenant.rs);
-the other four kinds follow the same pattern and are introduced as sibling
-modules. `ajax_json` (Sprint C2 Gap 2) is the fifth; the other four landed in
-Sprint C1 Gap 1.
+the other five kinds follow the same pattern and are introduced as sibling
+modules. The first four landed in Sprint C1 Gap 1; `ajax_json` (Sprint C2
+Gap 2) is the fifth; `csrf_form_post_engine_call` (Sprint C3) is the sixth and
+the first WRITE handler — the prior five are read or scoped-mutate. It directly
+closes the create/update/delete `EXTRACTOR-GAP` flagged in the
+openproject-nexgen-rs Sprint C0 News vertical.
 
 ### AjaxJson emitter — two branches
 
@@ -88,15 +93,38 @@ on whether the route's contract resolves a `ModelMapping`:
 Both branches share the same import set modulo the model `use` line (only
 the with-model branch imports `crate::models::<module>::<Class>`).
 
+### CsrfFormPost emitter — two branches
+
+The `csrf_form_post_engine_call` kind (Sprint C3) covers POST create handlers.
+Both branches first derive a form DTO struct from `inputs.form_fields` —
+`#[derive(Debug, serde::Deserialize)] pub struct <Class>Form { ... }` with one
+`Option<T>` field per form field — and bind it via the `Json<Form>` extractor.
+It picks one of two branches per route, based on whether the route's contract
+resolves a `ModelMapping`:
+
+- **With-model branch** — when `contract.model` resolves, the emitter generates
+  a `sqlx::query_as::<_, T>` `INSERT INTO <table> (<scope cols>, <form fields>)
+  VALUES ($1, …) RETURNING *`, binding the path-scoped columns (e.g.
+  `project_id`) first and then the form fields in declaration order, and returns
+  `(StatusCode::CREATED, HalResponse(created))`. See
+  [`tests/golden/codegen/sqlx/expected/csrf_form_post_with_model.rs`](tests/golden/codegen/sqlx/expected/csrf_form_post_with_model.rs).
+- **Without-model (stub) branch** — when no `ModelMapping` resolves, the emitter
+  emits the same form DTO, acquires the pool (keeping `State<AppState>`
+  exercised), references `&form`, emits a `// CALIBRATION:` / `EXTRACTOR-GAP`
+  comment (the body invokes a service method, not a direct model write), and
+  returns `StatusCode::ACCEPTED`. Never `todo!()` (PR #102 guardrail). See
+  [`tests/golden/codegen/sqlx/expected/csrf_form_post_stub.rs`](tests/golden/codegen/sqlx/expected/csrf_form_post_stub.rs).
+
 ## What is NOT yet implemented
 
-- The other 8 kinds in the seaorm coverage table (`template_get`,
-  `get_redirect_shortcut`, `csrf_form_post_engine_call`, `form_get_post`,
-  `download_blob`, `pdf_render`, `sa_admin_view`, `signed_link_action`)
-  still route to the seaorm arm regardless of `orm = "sqlx"`. They will
-  need their own sqlx recipes. `ajax_json` was the ninth on this list and
-  landed in Sprint C2 Gap 2, closing roughly an additional 25% of the
-  OpenProject action surface that the sqlx emitter can now cover.
+- The other 7 kinds in the seaorm coverage table (`template_get`,
+  `get_redirect_shortcut`, `form_get_post`, `download_blob`, `pdf_render`,
+  `sa_admin_view`, `signed_link_action`) still route to the seaorm arm
+  regardless of `orm = "sqlx"`. They will need their own sqlx recipes.
+  `ajax_json` landed in Sprint C2 Gap 2; `csrf_form_post_engine_call` was the
+  eighth on this list and landed in Sprint C3, adding the first WRITE path and
+  closing roughly an additional slice of the OpenProject action surface that
+  the sqlx emitter can now cover.
 - View templates (`codegen/jinja.rs`, `codegen/columns.rs`) are a no-op for
   sqlx targets. The pipeline still walks them, but `views/` is empty.
 - Form DTOs (`codegen/dto.rs`) reuse the existing emitter unchanged — the DTO

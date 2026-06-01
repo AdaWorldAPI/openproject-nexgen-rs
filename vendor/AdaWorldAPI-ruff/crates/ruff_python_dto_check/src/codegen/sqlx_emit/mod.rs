@@ -19,6 +19,7 @@
 //! discipline) and inlines its small helpers; no shared `helpers.rs` yet.
 
 pub mod ajax_json;
+pub mod csrf_form_post;
 pub mod detail_for_tenant;
 pub mod list_for_tenant;
 pub mod soft_delete;

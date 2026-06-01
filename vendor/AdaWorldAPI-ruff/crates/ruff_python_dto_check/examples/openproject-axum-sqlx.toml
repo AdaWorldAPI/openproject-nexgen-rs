@@ -36,7 +36,7 @@ tenant_column = "ProjectId"
 # Sprint C2 Gap 2 with HAL envelope); remaining kinds fall back to the seaorm
 # emitter or a documented stub. See extraction-gap-proposals.md for the full
 # coverage roadmap (per-class _links, collection paging, etc.).
-emit_kinds = ["list_for_tenant", "detail_for_tenant", "soft_delete", "toggle_bool_field", "ajax_json"]
+emit_kinds = ["list_for_tenant", "detail_for_tenant", "soft_delete", "toggle_bool_field", "ajax_json", "csrf_form_post_engine_call"]
 
 # ---------------------------------------------------------------------------
 # Core domain models -- already covered by the op-models seed crate.
