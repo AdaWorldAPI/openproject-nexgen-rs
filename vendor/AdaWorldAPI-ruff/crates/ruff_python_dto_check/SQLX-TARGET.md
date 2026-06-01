@@ -37,6 +37,7 @@ emit_kinds = [
     "detail_for_tenant",
     "soft_delete",
     "toggle_bool_field",
+    "ajax_json",
 ]
 
 [models.WorkPackage]
@@ -54,20 +55,48 @@ same handlers it did before.
 | `detail_for_tenant`   | `sqlx::query_as` SELECT with WHERE id = $1 AND tenant_col = $2, `HalResponse` wrap | [`tests/golden/codegen/sqlx/expected/detail_for_tenant.rs`](tests/golden/codegen/sqlx/expected/detail_for_tenant.rs) |
 | `soft_delete`         | `sqlx::query` UPDATE SET active=false guarded by id + tenant_col + active=true, 204 | [`tests/golden/codegen/sqlx/expected/soft_delete.rs`](tests/golden/codegen/sqlx/expected/soft_delete.rs)             |
 | `toggle_bool_field`   | `sqlx::query_as` UPDATE … SET active = NOT active … RETURNING *, `HalResponse` wrap | [`tests/golden/codegen/sqlx/expected/toggle_bool_field.rs`](tests/golden/codegen/sqlx/expected/toggle_bool_field.rs) |
+| `ajax_json`           | HAL envelope wrap: with-model branch emits `sqlx::query_as` SELECT-by-id + `_type`/`_embedded`/`_links`; no-model branch emits a stub with `CALIBRATION` comment and `serde_json::Value::Null` placeholders keyed off `contract.output.shape` | [`tests/golden/codegen/sqlx/expected/ajax_json_with_model.rs`](tests/golden/codegen/sqlx/expected/ajax_json_with_model.rs), [`tests/golden/codegen/sqlx/expected/ajax_json_stub.rs`](tests/golden/codegen/sqlx/expected/ajax_json_stub.rs) |
 
 The seed for the implementation lives in
 [`src/codegen/sqlx_emit/list_for_tenant.rs`](src/codegen/sqlx_emit/list_for_tenant.rs);
-the other three kinds follow the same pattern and are introduced as sibling
-modules.
+the other four kinds follow the same pattern and are introduced as sibling
+modules. `ajax_json` (Sprint C2 Gap 2) is the fifth; the other four landed in
+Sprint C1 Gap 1.
+
+### AjaxJson emitter — two branches
+
+The `ajax_json` kind covers GET endpoints that return a JSON blob without a
+dedicated SeaORM-style model. It picks one of two branches per route, based
+on whether the route's contract resolves a `ModelMapping`:
+
+- **With-model branch** — when `contract.model` resolves through the spec's
+  `[models.*]` table, the emitter generates a `sqlx::query_as::<_, T>` SELECT
+  guarded by `WHERE id = $1`, fetches optional, maps `None` to
+  `ApiError::not_found`, and wraps the row in a HAL envelope: `_type` set to
+  the model class name, `_embedded` set to the row, and `_links.self.href`
+  built from the axum path with the path-id substituted. See
+  [`tests/golden/codegen/sqlx/expected/ajax_json_with_model.rs`](tests/golden/codegen/sqlx/expected/ajax_json_with_model.rs).
+- **Without-model (stub) branch** — when no `ModelMapping` resolves, the
+  emitter still produces a compiling handler: it acquires the pool (so the
+  `State<AppState>` extractor stays exercised), emits a `// CALIBRATION:`
+  comment naming the keys from `contract.output.shape`, and returns a
+  `HalResponse` whose body contains one `serde_json::Value::Null` per output
+  shape key plus a `_links.self.href` literal of the axum path. The stub is
+  intentionally never `todo!()` (PR #102 guardrail). See
+  [`tests/golden/codegen/sqlx/expected/ajax_json_stub.rs`](tests/golden/codegen/sqlx/expected/ajax_json_stub.rs).
+
+Both branches share the same import set modulo the model `use` line (only
+the with-model branch imports `crate::models::<module>::<Class>`).
 
 ## What is NOT yet implemented
 
-- The other 9 kinds in the seaorm coverage table (`template_get`,
+- The other 8 kinds in the seaorm coverage table (`template_get`,
   `get_redirect_shortcut`, `csrf_form_post_engine_call`, `form_get_post`,
-  `ajax_json`, `download_blob`, `pdf_render`, `sa_admin_view`,
-  `signed_link_action`) still route to the seaorm arm regardless of `orm =
-  "sqlx"`. They will need their own sqlx recipes, or — once Gap 2 lands — a
-  HAL envelope variant for `ajax_json` (planned).
+  `download_blob`, `pdf_render`, `sa_admin_view`, `signed_link_action`)
+  still route to the seaorm arm regardless of `orm = "sqlx"`. They will
+  need their own sqlx recipes. `ajax_json` was the ninth on this list and
+  landed in Sprint C2 Gap 2, closing roughly an additional 25% of the
+  OpenProject action surface that the sqlx emitter can now cover.
 - View templates (`codegen/jinja.rs`, `codegen/columns.rs`) are a no-op for
   sqlx targets. The pipeline still walks them, but `views/` is empty.
 - Form DTOs (`codegen/dto.rs`) reuse the existing emitter unchanged — the DTO

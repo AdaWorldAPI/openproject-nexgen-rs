@@ -267,6 +267,7 @@ impl TargetSpec {
                 HandlerKind::DetailForTenant.as_str().to_string(),
                 HandlerKind::SoftDelete.as_str().to_string(),
                 HandlerKind::ToggleBoolField.as_str().to_string(),
+                HandlerKind::AjaxJson.as_str().to_string(),
             ],
             orm: Orm::Sqlx,
         }

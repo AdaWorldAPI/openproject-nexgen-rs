@@ -18,6 +18,7 @@
 //! Each kind lives in its own file (file-disjoint per Sprint C1 fanout
 //! discipline) and inlines its small helpers; no shared `helpers.rs` yet.
 
+pub mod ajax_json;
 pub mod detail_for_tenant;
 pub mod list_for_tenant;
 pub mod soft_delete;
