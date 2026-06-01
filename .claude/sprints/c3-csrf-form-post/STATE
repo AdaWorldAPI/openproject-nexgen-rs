@@ -1,0 +1,28 @@
+Sprint C3 — csrf_form_post_engine_call sqlx emitter (first WRITE handler)
+========================================================================
+Started/closed: 2026-06-01 (same session)
+Base:    nexgen=48664b3 (post-PR-2 merge), ruff=5179bc0
+Workbench: /home/user/ruff-clone @ claude/openproject-sqlx-emitter
+
+Outcome: GREEN. 71/71 tests (69 prior + 2 new csrf_form_post).
+         6th sqlx-emittable kind. First WRITE handler (Json<Dto> -> INSERT
+         RETURNING -> 201). Directly closes the create/update/delete
+         EXTRACTOR-GAP flagged in Sprint C0 News vertical.
+         Coverage projection: ~78% -> ~82% of OpenProject controller actions.
+
+Fanout: 3 agents (C1 emit fn 358 LoC, C2 test 174 LoC, C3 docs +27 lines).
+        0 fix-loop iterations. Orchestrator wiring: 4 atomic edits
+        (sqlx_emit/mod.rs, codegen/mod.rs dispatch, target.rs emit_kinds,
+        examples TOML).
+
+Two branches:
+  with-model: form DTO from inputs.form_fields + INSERT INTO <table>
+              (<scope cols>, <form fields>) VALUES (...) RETURNING *
+              -> (StatusCode::CREATED, HalResponse(created))
+  no-model:   same form DTO + CALIBRATION stub -> StatusCode::ACCEPTED
+
+Policy: no patches in calibration/, PR-driven. Deliverable = vendor/ mirror
+        + docs/SPRINT_C3_REPORT.md, one sprint = one commit.
+
+Git discipline (learned): one sprint = one commit; rebase locally before first
+push; never force-push / squash-after-push / rebase-after-push; ff-only.
