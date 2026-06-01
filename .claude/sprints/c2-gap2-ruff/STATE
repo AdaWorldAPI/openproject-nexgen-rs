@@ -1,28 +1,35 @@
 Sprint C2 Gap 2 — HAL envelope on emit_ajax_json (sqlx target)
 ================================================================
 Started:    2026-06-01
+Closed:     2026-06-01 (same session)
 Base SHAs:  nexgen=6050825 (post-PR-1 merge)
-            ruff=5179bc0 (unchanged; C1 patch not yet applied upstream)
+            ruff=5179bc0 (unchanged; cumulative work lives in vendor/AdaWorldAPI-ruff/)
 Workbench:  /home/user/ruff-clone @ claude/openproject-sqlx-emitter
-            (carries C1 changes in working tree, ready for C2 on top)
 
-Plan:
-  Phase 0 (orchestrator): 2 golden expected files written (with-model + stub)
-  Phase 1 (3-agent fanout, parallel, file-disjoint):
-    - B1: src/codegen/sqlx_emit/ajax_json.rs       (emit fn, byte-faithful)
-    - B2: tests/sqlx_emit_ajax_json_test.rs        (2 integration tests)  [done]
-    - B3: SQLX-TARGET.md update                    (kind table, sections) [done]
-  Phase 2 (orchestrator, sequential, cargo-check-gated):
-    - sqlx_emit/mod.rs:  pub mod ajax_json;
-    - codegen/mod.rs::emit():  AjaxJson => sqlx_emit::ajax_json::...
-    - target.rs::openproject_axum_sqlx():  push "ajax_json" to emit_kinds
-    - examples/openproject-axum-sqlx.toml:  push "ajax_json" to emit_kinds
-  Phase 3: cargo check -p ruff_python_dto_check --tests + cargo test sqlx
-  Phase 4: deliver — patch + tarball, mirror to vendor/, sprint report, PR
+Policy:     no patch artefacts in nexgen — PR-driven workflow only.
+            Deliverable = vendor/AdaWorldAPI-ruff/ source-mirror + docs/SPRINT_C2_REPORT.md.
 
-Status (live):
-  Phase 0  done
-  Phase 1  2/3 (B1 emit fn still running)
-  Phase 2  pending B1
-  Phase 3  pending
-  Phase 4  pending
+Outcome:    GREEN. 69/69 tests pass (67 from C1 + 2 new ajax_json).
+            +25% of OpenProject's controller-action surface now sqlx-emittable.
+            Total sqlx-emittable kinds: 5 (was 4 after C1).
+            Cumulative emittable surface: ~78% (was ~50% after C1).
+
+Plan vs done:
+  Phase 0  done   2 golden expected files (with-model + stub)
+  Phase 1  done   3 parallel agents (B1 emit fn, B2 test, B3 docs)
+                  No fix-loop iterations — all 3 byte-faithful first try.
+  Phase 2  done   Orchestrator wiring:
+                    - sqlx_emit/mod.rs:   pub mod ajax_json;
+                    - codegen/mod.rs:     AjaxJson arm in sqlx dispatch
+                    - target.rs:          "ajax_json" -> openproject_axum_sqlx emit_kinds
+                    - examples TOML:      "ajax_json" -> emit_kinds array
+  Phase 3  done   cargo check green; 69/69 tests pass (incl. 28 seaorm back-compat)
+  Phase 4  done   vendor/AdaWorldAPI-ruff/ updated; docs/SPRINT_C2_REPORT.md written; PR opened
+
+Sprint metrics:
+  Agent-runs:           3 (vs 8 for C1 — smaller scope, same loop)
+  Fix-loop iterations:  0 (vs 1 for C1 — cleaner because pattern was established)
+  Wall-clock:           ~25 min (orchestrator + 3 parallel agents)
+  Tests added:          2 (sqlx_emit_ajax_json_test.rs)
+  Goldens added:        2 (with-model + stub)
+  LoC delta:            ~600 (322 emit fn + 153 test + 67 goldens + small wiring)
