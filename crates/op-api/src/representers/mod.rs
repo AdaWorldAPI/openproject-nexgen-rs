@@ -8,6 +8,7 @@ pub mod work_package;
 pub mod project;
 pub mod user;
 pub mod query;
+pub mod news;
 
 // Re-exports
 pub use hal::{HalCollection, HalEmbedded, HalError, HalLink, HalLinks, HalResource};

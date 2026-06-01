@@ -17,8 +17,10 @@ pub mod priority;
 pub mod version;
 pub mod member;
 pub mod role;
+pub mod news;
 
 // Re-exports for convenience
+pub use news::{News, CreateNewsDto, UpdateNewsDto};
 pub use user::model::{User, NewUser, UpdateUser};
 pub use project::{Project, CreateProjectDto, UpdateProjectDto, ProjectStatusCode};
 pub use work_package::model::WorkPackage;

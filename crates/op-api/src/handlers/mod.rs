@@ -19,6 +19,7 @@ pub mod relations;
 pub mod watchers;
 pub mod attachments;
 pub mod journals;
+pub mod news;
 
 pub use work_packages::*;
 pub use projects::*;

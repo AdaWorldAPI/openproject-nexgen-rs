@@ -9,7 +9,7 @@ use axum::{
 use serde::Serialize;
 
 use crate::extractors::AppState;
-use crate::handlers::{activities, attachments, categories, journals, memberships, priorities, projects, queries, relations, roles, statuses, time_entries, types, users, versions, watchers, work_packages};
+use crate::handlers::{activities, attachments, categories, journals, memberships, news, priorities, projects, queries, relations, roles, statuses, time_entries, types, users, versions, watchers, work_packages};
 
 /// Create the complete API router
 pub fn router() -> Router<AppState> {
@@ -29,6 +29,7 @@ fn api_v3_router() -> Router<AppState> {
         .nest("/roles", roles_router())
         .nest("/versions", versions_router())
         .nest("/memberships", memberships_router())
+        .nest("/news", news_router())
         .nest("/categories", categories_router())
         .nest("/time_entries", time_entries_router())
         .nest("/relations", relations_router())
@@ -71,6 +72,7 @@ fn projects_router() -> Router<AppState> {
         .route("/:id/types", get(types::list_project_types))
         .route("/:id/versions", get(versions::list_project_versions))
         .route("/:id/categories", get(categories::list_project_categories))
+        .route("/:id/news", get(news::list_news))
 }
 
 fn users_router() -> Router<AppState> {
@@ -204,6 +206,16 @@ fn journals_router() -> Router<AppState> {
         .route("/", get(journals::list_activities))
         .route("/:id", get(journals::get_activity))
         .route("/:id", patch(journals::update_activity))
+}
+
+fn news_router() -> Router<AppState> {
+    // GET /api/v3/news/:id  (show). The project-scoped list is mounted at
+    // /api/v3/projects/:id/news (see projects_router) because the seed
+    // NewsRepository exposes list_by_project, not a global list_all.
+    // EXTRACTOR-GAP: global GET /api/v3/news (project-filtered) not emitted —
+    // op-db NewsRepository lacks list_all. Resolve: add list_all + filter parse.
+    Router::new()
+        .route("/:id", get(news::get_news))
 }
 
 async fn api_root() -> axum::Json<ApiRoot> {
