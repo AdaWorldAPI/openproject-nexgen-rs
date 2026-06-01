@@ -1,0 +1,2216 @@
+diff --git a/crates/ruff_python_dto_check/SQLX-TARGET.md b/crates/ruff_python_dto_check/SQLX-TARGET.md
+new file mode 100644
+index 0000000..4f6cd24
+--- /dev/null
++++ b/crates/ruff_python_dto_check/SQLX-TARGET.md
+@@ -0,0 +1,166 @@
++# SQLX target: axum + sqlx + HAL/JSON
++
++The crate's first target, `rust-axum-seaorm`, emits server-rendered
++jinja+askama plus a SeaORM `Entity`/`ActiveModel`/`Column` DSL. That shape
++maps cleanly onto the WoA Flask app, where the route's `output` is a
++template and the data layer is SeaORM. OpenProject is the opposite point in
++the design space: an API-first backend over `sqlx::PgPool`, with HAL-JSON
++envelopes returned to an Angular SPA — no server-side template engine, no
++`Entity` DSL.
++
++The seed already in tree at `crates/op-db/src/work_packages.rs:8`
++(`use sqlx::{FromRow, PgPool, Row};`) and
++`crates/op-api/src/handlers/work_packages.rs` makes the gap concrete: nothing
++the existing emitter produces would compile against that crate layout. This
++is **Gap 1** in `openproject-nexgen-rs/extraction-gap-proposals.md` — the
++cheapest, highest-payoff close: a single ORM switch unblocks the whole
++emitter for OpenProject.
++
++The seaorm recipe set stays unchanged. The sqlx target is sibling, additive,
++and selected at spec-load time.
++
++## How to select it
++
++A new `orm` field on `TargetSpec` carries the recipe family. The dispatch in
++`codegen::emit` reads it once and routes each `HandlerKind` to either the
++existing seaorm arm or the new sqlx arm.
++
++```toml
++# target-spec/openproject-axum-sqlx.toml
++id           = "openproject-axum-sqlx"
++orm          = "sqlx"
++models_root  = "crate::models"
++tenant_column = "project_id"
++
++emit_kinds = [
++    "list_for_tenant",
++    "detail_for_tenant",
++    "soft_delete",
++    "toggle_bool_field",
++]
++
++[models.WorkPackage]
++module_path = "work_package"
++```
++
++`orm` defaults to `"seaorm"` so every existing target spec keeps emitting the
++same handlers it did before.
++
++## What each HandlerKind emits (sqlx variant)
++
++| kind                  | shape                                                                            | golden                                                                                       |
++| --------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
++| `list_for_tenant`     | `sqlx::query_as::<_, T>` paged SELECT + `query_scalar::<_, i64>` COUNT, HAL Collection envelope | [`tests/golden/codegen/sqlx/expected/list_for_tenant.rs`](tests/golden/codegen/sqlx/expected/list_for_tenant.rs)     |
++| `detail_for_tenant`   | `sqlx::query_as` SELECT with WHERE id = $1 AND tenant_col = $2, `HalResponse` wrap | [`tests/golden/codegen/sqlx/expected/detail_for_tenant.rs`](tests/golden/codegen/sqlx/expected/detail_for_tenant.rs) |
++| `soft_delete`         | `sqlx::query` UPDATE SET active=false guarded by id + tenant_col + active=true, 204 | [`tests/golden/codegen/sqlx/expected/soft_delete.rs`](tests/golden/codegen/sqlx/expected/soft_delete.rs)             |
++| `toggle_bool_field`   | `sqlx::query_as` UPDATE … SET active = NOT active … RETURNING *, `HalResponse` wrap | [`tests/golden/codegen/sqlx/expected/toggle_bool_field.rs`](tests/golden/codegen/sqlx/expected/toggle_bool_field.rs) |
++
++The seed for the implementation lives in
++[`src/codegen/sqlx_emit/list_for_tenant.rs`](src/codegen/sqlx_emit/list_for_tenant.rs);
++the other three kinds follow the same pattern and are introduced as sibling
++modules.
++
++## What is NOT yet implemented
++
++- The other 9 kinds in the seaorm coverage table (`template_get`,
++  `get_redirect_shortcut`, `csrf_form_post_engine_call`, `form_get_post`,
++  `ajax_json`, `download_blob`, `pdf_render`, `sa_admin_view`,
++  `signed_link_action`) still route to the seaorm arm regardless of `orm =
++  "sqlx"`. They will need their own sqlx recipes, or — once Gap 2 lands — a
++  HAL envelope variant for `ajax_json` (planned).
++- View templates (`codegen/jinja.rs`, `codegen/columns.rs`) are a no-op for
++  sqlx targets. The pipeline still walks them, but `views/` is empty.
++- Form DTOs (`codegen/dto.rs`) reuse the existing emitter unchanged — the DTO
++  shape is framework-neutral; the choice of `sqlx` vs `seaorm` only changes
++  the handler that consumes the DTO.
++- Multi-crate output (`op-models` / `op-db` / `op-api` split) is Gap 3 — the
++  current emitter writes one tree under a single `models_root`. The
++  goldens above assume the consumer flattens that tree into their crate.
++- PDF / blob downloads are out of scope for this target; they remain
++  documented stubs (never `todo!()` — PR #102 guardrail).
++
++## How the sqlx emitter differs from seaorm — concretely
++
++- **Model paths.** seaorm uses `ModelMapping::model_type(root)` which appends
++  `::Model` (e.g. `crate::models::work_package::Model`). The sqlx emitter
++  builds the path inline as `<models_root>::<module_path>::<Class>` — no
++  `::Model` suffix, no `::Entity`, no `::Column`. The Python class name
++  reaches the import directly (`crate::models::work_package::WorkPackage`),
++  matching the `FromRow` struct convention in the seed.
++- **SQL.** Raw string literals via `sqlx::query_as::<_, T>` (returning rows),
++  `sqlx::query_scalar::<_, i64>` (returning a count), or `sqlx::query`
++  (executing a write). No `Entity::find()`, no `ActiveModel`, no
++  `Column::Foo.eq(...)`.
++- **Tenant scoping.** The contract's tenant predicate becomes a SQL
++  `WHERE <tenant_col> = $N` clause, with the column name taken from
++  `TargetSpec::tenant_column` interpreted as a `snake_case` SQL identifier
++  (e.g. `project_id`). The seaorm arm reads the same field as a Rust
++  `Column::TenantColumn` enum variant — the data field is shared; only the
++  rendering changes.
++- **Output.** Where seaorm wraps the result in an askama `Template` impl,
++  the sqlx arm wraps in `HalResponse(...)` (from the openproject-nexgen-rs
++  idiom: `crates/op-api/src/extractors.rs`) — either a `HalResponse(item)`
++  for detail, or a `HalResponse(serde_json::json!({ "_type": "Collection",
++  ... }))` for list. Soft-delete returns `StatusCode::NO_CONTENT`.
++
++## Calibration
++
++The five existing calibration lints in `calibrate.rs` apply with two
++adjustments:
++
++- `template-context-mismatch` is N/A for sqlx targets: there is no template,
++  so `output.context_keys` has no consumer to validate against. The lint
++  short-circuits when `orm = "sqlx"`.
++- `output-kind-mismatch` widens: instead of checking
++  template-path-vs-Template return type, it checks **HAL envelope shape vs
++  `ApiResult<impl IntoResponse>`** — flag if the emitted return type and the
++  envelope (single-item vs Collection) disagree with the contract's `output`
++  classification.
++
++The other three (`unmapped-model`, `dropped-fact`, `extractor-gap`) are
++shape-agnostic and run unchanged.
++
++## Example: emit one route end-to-end
++
++Source — a Flask-style route classified as `list_for_tenant`:
++
++```python
++@bp.route("/projects/<int:project_id>/work_packages")
++@login_required
++def list_work_packages(project_id):
++    items = WorkPackage.query.filter_by(project_id=project_id).order_by(WorkPackage.id.desc()).paginate()
++    return jsonify(items)
++```
++
++Spec — `target-spec/openproject-axum-sqlx.toml` (see "How to select it"
++above) with the `WorkPackage` mapping registered.
++
++Run — `ruff-py-dto codegen --config extract.json --target
++target-spec/openproject-axum-sqlx.toml --root op/ --out generated/`.
++
++Output — the file shape matches
++[`tests/golden/codegen/sqlx/expected/list_for_tenant.rs`](tests/golden/codegen/sqlx/expected/list_for_tenant.rs)
++verbatim: paged `query_as`, scalar `COUNT`, HAL `Collection` envelope, no
++askama, no `Entity::find()`.
++
++Verify — the golden test under `tests/golden/codegen/sqlx/` compares the
++emitter's output against the four expected files; any drift (extra import,
++changed bind order, missing tenant clause) fails the test.
++
++## Calibration acceptance criteria (specific to this target)
++
++- Every `.bind(...)` call has exactly one matching `$N` placeholder in the
++  preceding SQL string, and N is contiguous from 1.
++- For tenant-scoped kinds (`list_for_tenant`, `detail_for_tenant`,
++  `soft_delete`, `toggle_bool_field`), the SQL string contains the exact
++  token `<tenant_column> = $` (post-`TargetSpec::tenant_column`
++  substitution, snake_case).
++- No emitted import contains `::Model`, `::Entity`, or `::Column` —
++  trailing-segment guard against accidental seaorm-path leak. The
++  `unmapped-model` lint already covers the unresolved case; this is the
++  inverse guard for resolved-but-wrong-shape (an `EXTRACTOR-GAP` comment
++  marks any seed that cannot yet produce the right shape).
++- `HalResponse` appears in every non-204 handler; soft-delete returns
++  `StatusCode::NO_CONTENT` and does NOT import `HalResponse`.
++- `views/` is empty after the pipeline run; `contracts/` and `handlers/`
++  are populated as for the seaorm target.
+diff --git a/crates/ruff_python_dto_check/examples/openproject-axum-sqlx.toml b/crates/ruff_python_dto_check/examples/openproject-axum-sqlx.toml
+new file mode 100644
+index 0000000..e15a5f7
+--- /dev/null
++++ b/crates/ruff_python_dto_check/examples/openproject-axum-sqlx.toml
+@@ -0,0 +1,132 @@
++# OpenProject -- axum + sqlx + HAL/JSON target spec
++#
++# Loaded by `ruff_python_dto_check::codegen::TargetSpec::from_path` via the
++# `--target` CLI flag. Built-in equivalent (when complete) will be
++# `TargetSpec::openproject_axum_sqlx()`.
++#
++# Source-of-truth: the openproject-nexgen-rs seed crate layout
++# (op-models / op-db / op-api / op-contracts). This spec tells the codegen
++# pipeline how to emit handlers + repos for OpenProject's ~44 v3 domain
++# resources in the seed idiom.
++#
++# Differences from `rust-axum-seaorm.target.toml`:
++#   - `orm = "sqlx"`: the emitter uses sqlx::query_as!/PgPool repositories
++#     (op-db style) instead of SeaORM entity macros.
++#   - `tenant_column = "ProjectId"`: OpenProject's multi-tenancy boundary is
++#     the project, not a separate tenant table. The variant name follows the
++#     seaorm-style column enum the emitter uses internally; the sqlx emitter
++#     translates this to the snake_case `project_id` column in generated SQL.
++#   - HAL/JSON serialization: list/detail handlers wrap rows in the v3
++#     `_embedded.elements` envelope (see op-api crate for the Collection<T>
++#     helper) rather than rendering askama templates.
++
++id = "openproject-axum-sqlx"
++orm = "sqlx"
++models_root = "crate::models"
++tenant_column = "ProjectId"
++
++# Filesystem root of HAL response templates. Unset by default -- the sqlx
++# emitter inlines the Collection<T> envelope from op-api rather than rendering
++# external templates. Set this when targeting a fork that ships custom HAL
++# fragments.
++# templates_root = "/path/to/hal-templates"
++
++# Kinds this target emits end-to-end. The sqlx + HAL path currently covers the
++# four high-confidence kinds below; remaining kinds fall back to the seaorm
++# emitter or a documented stub. See extraction-gap-proposals.md Gap 2 for the
++# HAL/JSON coverage roadmap (per-class _links, collection paging, etc.).
++emit_kinds = ["list_for_tenant", "detail_for_tenant", "soft_delete", "toggle_bool_field"]
++
++# ---------------------------------------------------------------------------
++# Core domain models -- already covered by the op-models seed crate.
++# Module paths mirror `crates/op-models/src/lib.rs` exactly; do NOT rename
++# without also updating the seed `pub mod` declarations.
++# ---------------------------------------------------------------------------
++
++[models.WorkPackage]
++module_path = "work_package"
++
++[models.Project]
++module_path = "project"
++
++[models.User]
++module_path = "user"
++
++[models.Status]
++module_path = "status"
++
++# Upstream class is `Type`; the seed renames the module to `type_def` because
++# `type` is a Rust keyword. The struct itself is still `Type` -- only the
++# module path is rewritten. The codegen pipeline keys on the class name on the
++# left, so handler/repo references will still resolve to `Type`.
++[models.Type]
++module_path = "type_def"
++
++[models.Priority]
++module_path = "priority"
++
++[models.Role]
++module_path = "role"
++
++[models.Version]
++module_path = "version"
++
++[models.Member]
++module_path = "member"
++
++[models.News]
++module_path = "news"
++
++# ---------------------------------------------------------------------------
++# Partial coverage -- a sqlx repository exists in `op-db` but the model
++# struct in `op-models` is still a stub or omitted. Module paths follow the
++# repository module names from `crates/op-db/src/lib.rs`, singularised to
++# match the canonical model-module convention (`activities` -> `activity`).
++# Codegen should emit the model struct alongside the handler.
++# ---------------------------------------------------------------------------
++
++[models.Activity]
++module_path = "activity"
++
++[models.Attachment]
++module_path = "attachment"
++
++[models.Category]
++module_path = "category"
++
++[models.Query]
++module_path = "query"
++
++[models.Relation]
++module_path = "relation"
++
++[models.Watcher]
++module_path = "watcher"
++
++[models.Journal]
++module_path = "journal"
++
++[models.TimeEntry]
++module_path = "time_entry"
++
++# ---------------------------------------------------------------------------
++# Absent high-value classes -- frequently referenced by the upstream Ruby
++# API but with no seed module yet. Module paths are the natural snake_case of
++# the class name; the emitter will create `crates/op-models/src/<path>/mod.rs`
++# on first generation.
++# ---------------------------------------------------------------------------
++
++[models.WikiPage]
++module_path = "wiki_page"
++
++[models.Notification]
++module_path = "notification"
++
++[models.Group]
++module_path = "group"
++
++[models.CustomField]
++module_path = "custom_field"
++
++[models.Share]
++module_path = "share"
+diff --git a/crates/ruff_python_dto_check/src/codegen/mod.rs b/crates/ruff_python_dto_check/src/codegen/mod.rs
+index 54cd4b4..e9c3569 100644
+--- a/crates/ruff_python_dto_check/src/codegen/mod.rs
++++ b/crates/ruff_python_dto_check/src/codegen/mod.rs
+@@ -15,11 +15,12 @@ pub mod columns;
+ pub mod dto;
+ pub mod jinja;
+ pub mod pipeline;
++pub mod sqlx_emit;
+ pub mod target;
+ 
+ use std::fmt::Write as _;
+ 
+-use crate::codegen::target::{ModelMapping, TargetSpec};
++use crate::codegen::target::{ModelMapping, Orm, TargetSpec};
+ use crate::contract::{HandlerKind, RouteContract};
+ use crate::extractors::body::OutputKind;
+ 
+@@ -102,6 +103,28 @@ pub struct Emitted {
+ 
+ /// Emit target source for a single contract against a target spec.
+ pub fn emit(contract: &RouteContract, spec: &TargetSpec) -> Emitted {
++    // sqlx target: route the four implemented kinds to `sqlx_emit` before
++    // the seaorm dispatch. The `can_emit` gate keeps kinds that aren't in
++    // the spec's `emit_kinds` list on the stub path (honest coverage).
++    // Kinds not implemented by sqlx_emit at all fall through — see the
++    // module docs for that footgun.
++    if spec.orm == Orm::Sqlx && spec.can_emit(contract.handler_kind) {
++        match contract.handler_kind {
++            HandlerKind::ListForTenant => {
++                return sqlx_emit::list_for_tenant::emit_list_for_tenant_sqlx(contract, spec);
++            }
++            HandlerKind::DetailForTenant => {
++                return sqlx_emit::detail_for_tenant::emit_detail_for_tenant_sqlx(contract, spec);
++            }
++            HandlerKind::SoftDelete => {
++                return sqlx_emit::soft_delete::emit_soft_delete_sqlx(contract, spec);
++            }
++            HandlerKind::ToggleBoolField => {
++                return sqlx_emit::toggle_bool_field::emit_toggle_bool_field_sqlx(contract, spec);
++            }
++            _ => {}
++        }
++    }
+     let recipe = KindRecipe::for_kind(contract.handler_kind, spec);
+     match recipe {
+         KindRecipe::ListForTenant => emit_list_for_tenant(contract, spec),
+diff --git a/crates/ruff_python_dto_check/src/codegen/sqlx_emit/detail_for_tenant.rs b/crates/ruff_python_dto_check/src/codegen/sqlx_emit/detail_for_tenant.rs
+new file mode 100644
+index 0000000..ab7db54
+--- /dev/null
++++ b/crates/ruff_python_dto_check/src/codegen/sqlx_emit/detail_for_tenant.rs
+@@ -0,0 +1,289 @@
++//! sqlx (axum + raw `sqlx::query_as`) emitter for the
++//! [`HandlerKind::DetailForTenant`] kind.
++//!
++//! The seaorm sibling at `crate::codegen::emit_detail_for_tenant`
++//! (`codegen/mod.rs:617`) emits an askama-template handler against a sea-orm
++//! `Entity::find_by_id` + `ensure_tenant` pair. This emitter is API-first
++//! (no view template) and binds the primary-key + tenant-scope columns
++//! directly into a raw SQL `query_as`. The shape is byte-faithful to the
++//! openproject-axum-sqlx target golden so the integration test trims output
++//! and compares it to the expected file under
++//! `tests/golden/codegen/sqlx/expected/detail_for_tenant.rs`.
++//!
++//! Inert until the orchestrator wires `pub mod detail_for_tenant;` into the
++//! parent `sqlx_emit` module — the file is self-contained and pulls no
++//! private helpers from `codegen::mod`.
++//!
++//! ## Tenant scoping policy
++//!
++//! The SQL column used for the tenant-scope predicate is **NOT**
++//! `spec.tenant_column`. That field is the seaorm `Column` *variant* name
++//! (PascalCase, e.g. `"ProjectId"`); in raw SQL we use the actual database
++//! column, which conventionally is the snake_case lower form of the *first*
++//! path parameter (e.g. `project_id`). Falling back to `tenant_id` keeps the
++//! emitter honest for the degenerate single-param case.
++//!
++//! ## Primary-key policy
++//!
++//! The primary key is conventionally the **last** path parameter on a
++//! detail-for-tenant route (`/projects/<project_id>/work_packages/<id>`),
++//! and gets bound to `$1`. The scope parameter(s) follow as `$2..`.
++
++use std::fmt::Write as _;
++
++use crate::codegen::Emitted;
++use crate::codegen::target::TargetSpec;
++use crate::contract::{PathParam, RouteContract};
++
++/// Emit a sqlx (axum + `sqlx::query_as`) detail-for-tenant handler for one
++/// route contract against `spec`. The output is a complete, compileable Rust
++/// file under the caller's choice of `handler_file` name; when the primary
++/// model cannot be resolved against the spec, the handler is replaced with a
++/// documented `EXTRACTOR-GAP` comment (no code), matching the seaorm
++/// emitter's `unresolved_block` policy and the sqlx `list_for_tenant`
++/// sibling.
++pub fn emit_detail_for_tenant_sqlx(contract: &RouteContract, spec: &TargetSpec) -> Emitted {
++    let fn_name = &contract.function;
++    let axum = axum_path(&contract.path);
++    let scoping = if contract.guards.is_empty() {
++        "none".to_string()
++    } else {
++        contract.guards.join(", ")
++    };
++
++    let header = format!(
++        "//! endpoint:     {endpoint}\n\
++         //! flask path:   {flask}\n\
++         //! axum path:    {axum}\n\
++         //! method:       {method}\n\
++         //! source:       {file}:{line}\n\
++         //! handler_kind: detail_for_tenant\n\
++         //! scoping:      {scoping}\n\
++         //\n\
++         // GENERATED by ruff_python_codegen — DO NOT EDIT.\n\
++         // Modify target-spec/openproject-axum-sqlx.toml instead.\n",
++        endpoint = contract.id,
++        flask = contract.path,
++        method = contract.methods.join(","),
++        file = contract.provenance.file,
++        line = contract.provenance.line_start,
++    );
++
++    let (referenced_models, body) = match primary_model(contract, spec) {
++        Some((py_class, module_path)) => {
++            // Build the model struct path inline. The sqlx target does NOT
++            // append `::Model` (that suffix is seaorm-specific); the struct
++            // *is* the row type implementing `FromRow`.
++            let model_struct = format!("{}::{}::{py_class}", spec.models_root, module_path);
++            let table = pluralize_snake(py_class);
++
++            let params: &[PathParam] = &contract.inputs.path_params;
++            let (primary_name, scope_params) = split_primary_and_scope(params);
++            let path_extractor = path_extractor(params);
++            let where_clause = where_clause(primary_name, scope_params);
++            let bindings = bind_lines(primary_name, scope_params);
++
++            let body = format!(
++                "\n\
++                 use axum::extract::{{Path, State}};\n\
++                 use axum::response::IntoResponse;\n\
++                 \n\
++                 use crate::error::{{ApiError, ApiResult}};\n\
++                 use crate::extractors::{{AppState, AuthenticatedUser, HalResponse}};\n\
++                 use {model_struct};\n\
++                 \n\
++                 pub async fn {fn_name}(\n\
++                 \x20   State(state): State<AppState>,\n\
++                 \x20   _user: AuthenticatedUser,\n\
++                 \x20   {path_extractor},\n\
++                 ) -> ApiResult<impl IntoResponse> {{\n\
++                 \x20   let pool = state.pool()?;\n\
++                 \x20   let item: {py_class} = sqlx::query_as::<_, {py_class}>(\n\
++                 \x20       r#\"SELECT * FROM {table} WHERE {where_clause}\"#,\n\
++                 \x20   )\n\
++                 {bindings}\
++                 \x20   .fetch_optional(&pool)\n\
++                 \x20   .await\n\
++                 \x20   .map_err(|e| ApiError::internal(format!(\"Database error: {{}}\", e)))?\n\
++                 \x20   .ok_or_else(|| ApiError::not_found(\"{py_class}\", {primary_name}))?;\n\
++                 \n\
++                 \x20   Ok(HalResponse(item))\n\
++                 }}\n",
++            );
++            (vec![py_class.to_string()], body)
++        }
++        None => (
++            contract.data.models.clone(),
++            unresolved_comment(contract, spec),
++        ),
++    };
++
++    Emitted {
++        handler_rs: format!("{header}{body}"),
++        view_html: None,
++        handler_file: format!("{}__{}.rs", contract.family, fn_name),
++        view_file: None,
++        referenced_models,
++        provided_context_keys: Vec::new(),
++    }
++}
++
++/// Flask `<int:foo>` / `<foo>` → axum `:foo`. Mirrors the helper in
++/// `codegen::mod` (private there); inlined to keep this module
++/// self-contained — see the file-level doc-comment.
++fn axum_path(flask_path: &str) -> String {
++    let mut out = String::with_capacity(flask_path.len());
++    let mut rest = flask_path;
++    while let Some(open) = rest.find('<') {
++        out.push_str(&rest[..open]);
++        let after = &rest[open + 1..];
++        let Some(close) = after.find('>') else {
++            out.push_str(&rest[open..]);
++            return out;
++        };
++        let inner = &after[..close];
++        let name = inner.split_once(':').map_or(inner, |(_, n)| n);
++        out.push(':');
++        out.push_str(name);
++        rest = &after[close + 1..];
++    }
++    out.push_str(rest);
++    out
++}
++
++/// Resolve the first mapped model in `contract.data.models`. Returns
++/// `(python_class, module_path)` — the python class is kept verbatim so the
++/// generated sqlx struct reference is `crate::models::<module>::<Class>`
++/// (the sqlx target does NOT append `::Model`; that suffix is seaorm-only).
++fn primary_model<'a>(
++    contract: &'a RouteContract,
++    spec: &'a TargetSpec,
++) -> Option<(&'a str, &'a str)> {
++    for m in &contract.data.models {
++        if let Some((k, v)) = spec.models.get_key_value(m) {
++            return Some((k.as_str(), v.module_path.as_str()));
++        }
++    }
++    None
++}
++
++/// Map a Flask path converter to the sqlx-bind Rust type. The sqlx target
++/// uses `i64` (Postgres `BIGINT`) for integers — distinct from the seaorm
++/// emitter which uses `i32`. Mirrors the soft-delete sibling's choice so
++/// emitted handlers compose across kinds.
++fn flask_conv_to_sqlx_rust(converter: Option<&str>) -> &'static str {
++    match converter {
++        Some("int") => "i64",
++        Some("float") => "f64",
++        _ => "String",
++    }
++}
++
++/// Build the `Path(...)` extractor line, handling 0 / 1 / N params. With one
++/// param we emit `Path(x): Path<i64>`; with several we emit the tuple form
++/// `Path((a, b)): Path<(i64, i64)>` — matching axum's tuple-destructure
++/// convention.
++fn path_extractor(params: &[PathParam]) -> String {
++    match params {
++        [] => "Path(_): Path<()>".to_string(),
++        [p] => format!(
++            "Path({}): Path<{}>",
++            p.name,
++            flask_conv_to_sqlx_rust(p.converter.as_deref())
++        ),
++        many => {
++            let names = many
++                .iter()
++                .map(|p| p.name.as_str())
++                .collect::<Vec<_>>()
++                .join(", ");
++            let tys = many
++                .iter()
++                .map(|p| flask_conv_to_sqlx_rust(p.converter.as_deref()))
++                .collect::<Vec<_>>()
++                .join(", ");
++            format!("Path(({names})): Path<({tys})>")
++        }
++    }
++}
++
++/// The primary key is conventionally the *last* path parameter on a
++/// detail-for-tenant route (`/<scope>/.../<id>`). When no path params are
++/// present, fall back to `id` so the emitted code still compiles.
++fn split_primary_and_scope(params: &[PathParam]) -> (&str, &[PathParam]) {
++    match params.split_last() {
++        Some((last, rest)) => (last.name.as_str(), rest),
++        None => ("id", &[]),
++    }
++}
++
++/// Build the SQL `WHERE` clause: `id = $1 [AND <scope> = $N]*`. Scope params
++/// are the path params *preceding* the primary key, in URL order, bound to
++/// `$2, $3, …`. The column names in SQL are the path-param names verbatim
++/// (`project_id`, `account_id`, …) — already in snake_case lower because
++/// Flask path params follow that convention.
++fn where_clause(primary_name: &str, scope_params: &[PathParam]) -> String {
++    let mut out = format!("{primary_name} = $1");
++    for (idx, p) in scope_params.iter().enumerate() {
++        let _ = write!(out, " AND {} = ${}", p.name, idx + 2);
++    }
++    out
++}
++
++/// Build the `.bind(...)` lines in `$1, $2, …` order (primary key first,
++/// then scope params in URL order). Each line includes its own leading
++/// indent and trailing newline so the call site can splice without
++/// additional formatting.
++fn bind_lines(primary_name: &str, scope_params: &[PathParam]) -> String {
++    let mut out = String::new();
++    let _ = writeln!(out, "    .bind({primary_name})");
++    for p in scope_params {
++        let _ = writeln!(out, "    .bind({})", p.name);
++    }
++    out
++}
++
++/// `WorkPackage` → `work_packages`, `Customer` → `customers`. Naïve
++/// snake_case + `s` suffix, sufficient for the contract surface this
++/// emitter targets (the spec deliberately keeps the mapping inline; a full
++/// inflector lives in the orchestrator). Already-plural roots ending in
++/// `s` survive untouched.
++fn pluralize_snake(class: &str) -> String {
++    let snake = to_snake_case(class);
++    if snake.ends_with('s') {
++        snake
++    } else {
++        format!("{snake}s")
++    }
++}
++
++fn to_snake_case(class: &str) -> String {
++    let mut out = String::with_capacity(class.len() + 4);
++    for (i, ch) in class.chars().enumerate() {
++        if ch.is_ascii_uppercase() {
++            if i > 0 {
++                out.push('_');
++            }
++            out.push(ch.to_ascii_lowercase());
++        } else {
++            out.push(ch);
++        }
++    }
++    out
++}
++
++/// EXTRACTOR-GAP comment: emitted in place of code when no mapped model is
++/// found, matching the seaorm `unresolved_block` policy (Iron Rule 1: never
++/// emit `todo!()`/`unimplemented!()` into a compilable production path).
++fn unresolved_comment(contract: &RouteContract, spec: &TargetSpec) -> String {
++    format!(
++        "// EXTRACTOR-GAP: no mapping in target {target} for models {models:?}\n\
++         //\n\
++         // The contract referenced these models but the target spec has no\n\
++         // [models.<Class>] entry. Add a mapping in target-spec/{target}.toml\n\
++         // (or extend the extractor profile if the reference was missed in\n\
++         // the AST pass). Calibration lint: unmapped-model.\n",
++        target = spec.id,
++        models = contract.data.models,
++    )
++}
+diff --git a/crates/ruff_python_dto_check/src/codegen/sqlx_emit/list_for_tenant.rs b/crates/ruff_python_dto_check/src/codegen/sqlx_emit/list_for_tenant.rs
+new file mode 100644
+index 0000000..1ff7561
+--- /dev/null
++++ b/crates/ruff_python_dto_check/src/codegen/sqlx_emit/list_for_tenant.rs
+@@ -0,0 +1,221 @@
++//! sqlx (axum + raw `sqlx::query_as`) emitter for the
++//! [`HandlerKind::ListForTenant`] kind.
++//!
++//! The seaorm emitter in `crate::codegen` produces an askama-template handler
++//! against a sea-orm `Entity`; this emitter is API-first (no view) and binds
++//! the tenant column + pagination directly into a raw SQL `query_as`. The
++//! shape is byte-faithful to the openproject-axum-sqlx target golden so the
++//! integration test trims output and the spec compares it to the expected
++//! file under `tests/golden/codegen/sqlx/expected/`.
++//!
++//! Inert until the orchestrator wires `pub mod list_for_tenant;` into the
++//! parent module — the file is self-contained and pulls no private helpers
++//! from `codegen::mod`.
++
++use crate::codegen::Emitted;
++use crate::codegen::target::TargetSpec;
++use crate::contract::RouteContract;
++
++/// Emit a sqlx (axum + `sqlx::query_as`) list-for-tenant handler for one
++/// route contract against `spec`. The output is a complete, compileable Rust
++/// file under the caller's choice of `handler_file` name; when the primary
++/// model cannot be resolved against the spec, the handler is replaced with a
++/// documented `EXTRACTOR-GAP` comment (no code), matching the seaorm
++/// emitter's `unresolved_block` policy.
++pub fn emit_list_for_tenant_sqlx(contract: &RouteContract, spec: &TargetSpec) -> Emitted {
++    let fn_name = &contract.function;
++    let axum = axum_path(&contract.path);
++    let method = contract.methods.join(",");
++    let scoping = if contract.guards.is_empty() {
++        "none".to_string()
++    } else {
++        contract.guards.join(", ")
++    };
++
++    let header = format!(
++        "//! endpoint:     {endpoint}\n\
++         //! flask path:   {flask}\n\
++         //! axum path:    {axum}\n\
++         //! method:       {method}\n\
++         //! source:       {file}:{line}\n\
++         //! handler_kind: list_for_tenant\n\
++         //! scoping:      {scoping}\n\
++         //\n\
++         // GENERATED by ruff_python_codegen — DO NOT EDIT.\n\
++         // Modify target-spec/{target_id}.toml instead.\n\
++         \n",
++        endpoint = contract.id,
++        flask = contract.path,
++        file = contract.provenance.file,
++        line = contract.provenance.line_start,
++        target_id = spec.id,
++    );
++
++    let (referenced_models, body) = match primary_model(contract, spec) {
++        Some((py_class, module_path)) => {
++            let model_struct = format!("{}::{}::{py_class}", spec.models_root, module_path);
++            let model_use = model_struct.clone();
++            let table = pluralize(&pascal_to_snake(py_class));
++            let tenant_col = pascal_to_snake(&spec.tenant_column);
++            let path_param = path_param_for_binding(contract, &tenant_col);
++            let order_col = contract.data.order_by.as_deref().unwrap_or("id");
++            let order_dir = contract
++                .data
++                .order_dir
++                .as_deref()
++                .unwrap_or("asc")
++                .to_uppercase();
++
++            let body = format!(
++                "use axum::extract::{{Path, State}};\n\
++                 use axum::response::IntoResponse;\n\
++                 \n\
++                 use crate::error::{{ApiError, ApiResult}};\n\
++                 use crate::extractors::{{AppState, AuthenticatedUser, HalResponse, Pagination}};\n\
++                 use {model_use};\n\
++                 \n\
++                 pub async fn {fn_name}(\n\
++                 \x20   State(state): State<AppState>,\n\
++                 \x20   _user: AuthenticatedUser,\n\
++                 \x20   Path({path_param}): Path<i64>,\n\
++                 \x20   pagination: Pagination,\n\
++                 ) -> ApiResult<impl IntoResponse> {{\n\
++                 \x20   let pool = state.pool()?;\n\
++                 \x20   let items: Vec<{py_class}> = sqlx::query_as::<_, {py_class}>(\n\
++                 \x20       r#\"SELECT * FROM {table} WHERE {tenant_col} = $1 ORDER BY {order_col} {order_dir} LIMIT $2 OFFSET $3\"#,\n\
++                 \x20   )\n\
++                 \x20   .bind({path_param})\n\
++                 \x20   .bind(pagination.page_size as i64)\n\
++                 \x20   .bind(pagination.offset as i64)\n\
++                 \x20   .fetch_all(&pool)\n\
++                 \x20   .await\n\
++                 \x20   .map_err(|e| ApiError::internal(format!(\"Database error: {{}}\", e)))?;\n\
++                 \n\
++                 \x20   let total: i64 = sqlx::query_scalar::<_, i64>(\n\
++                 \x20       r#\"SELECT COUNT(*) FROM {table} WHERE {tenant_col} = $1\"#,\n\
++                 \x20   )\n\
++                 \x20   .bind({path_param})\n\
++                 \x20   .fetch_one(&pool)\n\
++                 \x20   .await\n\
++                 \x20   .map_err(|e| ApiError::internal(format!(\"Database error: {{}}\", e)))?;\n\
++                 \n\
++                 \x20   Ok(HalResponse(serde_json::json!({{\n\
++                 \x20       \"_type\": \"Collection\",\n\
++                 \x20       \"total\": total,\n\
++                 \x20       \"count\": items.len(),\n\
++                 \x20       \"pageSize\": pagination.page_size,\n\
++                 \x20       \"offset\": pagination.offset,\n\
++                 \x20       \"_embedded\": {{ \"elements\": items }},\n\
++                 \x20   }})))\n\
++                 }}\n",
++            );
++            (vec![py_class.to_string()], body)
++        }
++        None => (contract.data.models.clone(), unresolved_comment(contract, spec)),
++    };
++
++    Emitted {
++        handler_rs: format!("{header}{body}"),
++        view_html: None,
++        handler_file: format!("{}__{}.rs", contract.family, fn_name),
++        view_file: None,
++        referenced_models,
++        provided_context_keys: Vec::new(),
++    }
++}
++
++/// Flask `<int:foo>` / `<foo>` → axum `:foo`. Mirrors the helper in
++/// `codegen::mod` (private there); inlined here to keep this module
++/// self-contained — see the file-level doc-comment.
++fn axum_path(flask_path: &str) -> String {
++    let mut out = String::with_capacity(flask_path.len());
++    let mut rest = flask_path;
++    while let Some(open) = rest.find('<') {
++        out.push_str(&rest[..open]);
++        let after = &rest[open + 1..];
++        let Some(close) = after.find('>') else {
++            out.push_str(&rest[open..]);
++            return out;
++        };
++        let inner = &after[..close];
++        let name = inner.split_once(':').map_or(inner, |(_, n)| n);
++        out.push(':');
++        out.push_str(name);
++        rest = &after[close + 1..];
++    }
++    out.push_str(rest);
++    out
++}
++
++/// Resolve the first mapped model in `contract.data.models`. Returns
++/// `(python_class, module_path)` — the python class is kept verbatim so the
++/// generated sqlx struct reference is `crate::models::<module>::<Class>`
++/// (the sqlx target does NOT append `::Model`; that suffix is seaorm-only).
++fn primary_model<'a>(
++    contract: &'a RouteContract,
++    spec: &'a TargetSpec,
++) -> Option<(&'a str, &'a str)> {
++    for m in &contract.data.models {
++        if let Some((k, v)) = spec.models.get_key_value(m) {
++            return Some((k.as_str(), v.module_path.as_str()));
++        }
++    }
++    None
++}
++
++/// Pick the path-param name to bind into the tenant filter. The first path
++/// param is the natural choice; if the contract has no path params, fall
++/// back to the tenant-column name itself (a degenerate case the
++/// `list_for_tenant` classifier excludes, but kept honest here).
++fn path_param_for_binding(contract: &RouteContract, fallback: &str) -> String {
++    contract
++        .inputs
++        .path_params
++        .first()
++        .map(|p| p.name.clone())
++        .unwrap_or_else(|| fallback.to_string())
++}
++
++/// `PascalCase` → `snake_case`. Inlined (the existing
++/// `codegen::snake_to_pascal` is the inverse direction).
++fn pascal_to_snake(s: &str) -> String {
++    let mut out = String::with_capacity(s.len() + 2);
++    for (i, c) in s.chars().enumerate() {
++        if c.is_ascii_uppercase() {
++            if i > 0 {
++                out.push('_');
++            }
++            out.push(c.to_ascii_lowercase());
++        } else {
++            out.push(c);
++        }
++    }
++    out
++}
++
++/// Naive English pluralizer for table names. Sufficient for the WoA-rs /
++/// openproject model surface, where the historical seaorm port also assumes
++/// trivial `+s` and already-plural roots like `news` survive untouched.
++fn pluralize(snake: &str) -> String {
++    if snake.ends_with('s') {
++        snake.to_string()
++    } else {
++        format!("{snake}s")
++    }
++}
++
++/// EXTRACTOR-GAP comment: emitted in place of code when no mapped model is
++/// found, matching the seaorm `unresolved_block` policy (Iron Rule 1: never
++/// emit `todo!()`/`unimplemented!()` into a compilable production path).
++fn unresolved_comment(contract: &RouteContract, spec: &TargetSpec) -> String {
++    format!(
++        "// EXTRACTOR-GAP: no mapping in target {target} for models {models:?}\n\
++         //\n\
++         // The contract referenced these models but the target spec has no\n\
++         // [models.<Class>] entry. Add a mapping in target-spec/{target}.toml\n\
++         // (or extend the extractor profile if the reference was missed in\n\
++         // the AST pass). Calibration lint: unmapped-model.\n",
++        target = spec.id,
++        models = contract.data.models,
++    )
++}
+diff --git a/crates/ruff_python_dto_check/src/codegen/sqlx_emit/mod.rs b/crates/ruff_python_dto_check/src/codegen/sqlx_emit/mod.rs
+new file mode 100644
+index 0000000..662e327
+--- /dev/null
++++ b/crates/ruff_python_dto_check/src/codegen/sqlx_emit/mod.rs
+@@ -0,0 +1,24 @@
++//! sqlx (axum + raw `sqlx::query_as`) emitter family.
++//!
++//! Sibling to the seaorm dispatch in `crate::codegen`. Selected by setting
++//! `orm = "sqlx"` on the TOML spec (or constructing a [`crate::codegen::target::TargetSpec`]
++//! with `Orm::Sqlx`). The parent `codegen::emit` routes the four supported
++//! kinds here:
++//!
++//! - [`list_for_tenant::emit_list_for_tenant_sqlx`]
++//! - [`detail_for_tenant::emit_detail_for_tenant_sqlx`]
++//! - [`soft_delete::emit_soft_delete_sqlx`]
++//! - [`toggle_bool_field::emit_toggle_bool_field_sqlx`]
++//!
++//! Kinds not listed in the spec's `emit_kinds` receive the standard
++//! `emit_stub`. Kinds not implemented in this module at all currently fall
++//! through to the seaorm dispatch — flag this with a calibration warning if
++//! it produces wrong output for your target (see SQLX-TARGET.md).
++//!
++//! Each kind lives in its own file (file-disjoint per Sprint C1 fanout
++//! discipline) and inlines its small helpers; no shared `helpers.rs` yet.
++
++pub mod detail_for_tenant;
++pub mod list_for_tenant;
++pub mod soft_delete;
++pub mod toggle_bool_field;
+diff --git a/crates/ruff_python_dto_check/src/codegen/sqlx_emit/soft_delete.rs b/crates/ruff_python_dto_check/src/codegen/sqlx_emit/soft_delete.rs
+new file mode 100644
+index 0000000..5004ea2
+--- /dev/null
++++ b/crates/ruff_python_dto_check/src/codegen/sqlx_emit/soft_delete.rs
+@@ -0,0 +1,248 @@
++//! sqlx variant of the `soft_delete` emitter.
++//!
++//! Mirrors the shape of [`crate::codegen::emit_soft_delete`] (see
++//! `codegen/mod.rs:437`) but targets an API-first axum + plain `sqlx::query`
++//! handler instead of the seaorm + server-rendered redirect flavor. The
++//! generated handler runs a single `UPDATE … SET active = false` against the
++//! pool and returns `204 No Content` (or `ApiError::not_found` when the row
++//! is already inactive or missing).
++//!
++//! This module is intentionally inert: it is only reachable once the codegen
++//! orchestrator wires `sqlx_emit::soft_delete::emit_soft_delete_sqlx` into the
++//! `KindRecipe` dispatcher for the openproject-axum-sqlx target.
++
++use std::fmt::Write as _;
++
++use crate::codegen::target::TargetSpec;
++use crate::codegen::Emitted;
++use crate::contract::{PathParam, RouteContract};
++
++/// Emit a 204-style sqlx soft-delete handler for `contract` against `spec`.
++///
++/// The generated handler shape (verified against
++/// `tests/golden/codegen/sqlx/expected/soft_delete.rs`):
++///
++/// * extracts `(State, AuthenticatedUser, Path<(..)>)`;
++/// * runs `UPDATE <table> SET active = false WHERE id = $1 AND
++///   <scope> = $2 AND active = true` so only currently-active rows flip;
++/// * returns `Err(ApiError::not_found(<Class>, id))` when `rows_affected == 0`
++///   (covers both "already inactive" and "doesn't exist");
++/// * returns `Ok(StatusCode::NO_CONTENT)` otherwise — the openproject API-first
++///   convention, vs the seaorm emitter's `Redirect` (which targets a
++///   server-rendered web app).
++pub fn emit_soft_delete_sqlx(contract: &RouteContract, spec: &TargetSpec) -> Emitted {
++    let _ = spec;
++
++    let fn_name = contract.function.clone();
++    let axum = axum_path(&contract.path);
++
++    let primary_class = contract
++        .data
++        .models
++        .first()
++        .cloned()
++        .unwrap_or_else(|| "Row".to_string());
++    let table = pluralize_snake(&primary_class);
++
++    // The primary key parameter is the *last* path param (e.g.
++    // `/projects/<project_id>/work_packages/<id>/archive` ⇒ `id`); the
++    // earlier params are the tenant/owner scope (`project_id`).
++    let params: &[PathParam] = &contract.inputs.path_params;
++    let (primary_name, scope_params) = split_primary_and_scope(params);
++
++    let path_extractor = path_extractor(params);
++    let where_clause = where_clause(primary_name, scope_params);
++    let bindings = bind_lines(primary_name, scope_params);
++
++    let header = format!(
++        "//! endpoint:     {endpoint}\n\
++         //! flask path:   {flask}\n\
++         //! axum path:    {axum}\n\
++         //! method:       {methods}\n\
++         //! source:       {file}:{line}\n\
++         //! handler_kind: soft_delete\n\
++         //! scoping:      {guards}\n\
++         //\n\
++         // GENERATED by ruff_python_codegen — DO NOT EDIT.\n\
++         // Modify target-spec/openproject-axum-sqlx.toml instead.\n",
++        endpoint = contract.id,
++        flask = contract.path,
++        methods = contract.methods.join(","),
++        file = contract.provenance.file,
++        line = contract.provenance.line_start,
++        guards = if contract.guards.is_empty() {
++            "none".to_string()
++        } else {
++            contract.guards.join(", ")
++        },
++    );
++
++    let imports = "\n\
++        use axum::extract::{Path, State};\n\
++        use axum::http::StatusCode;\n\
++        use axum::response::IntoResponse;\n\
++        \n\
++        use crate::error::{ApiError, ApiResult};\n\
++        use crate::extractors::{AppState, AuthenticatedUser};\n";
++
++    let mut body = String::new();
++    let _ = writeln!(body);
++    let _ = writeln!(body, "pub async fn {fn_name}(");
++    let _ = writeln!(body, "    State(state): State<AppState>,");
++    let _ = writeln!(body, "    _user: AuthenticatedUser,");
++    let _ = writeln!(body, "    {path_extractor},");
++    let _ = writeln!(body, ") -> ApiResult<impl IntoResponse> {{");
++    let _ = writeln!(body, "    let pool = state.pool()?;");
++    let _ = writeln!(body, "    let rows = sqlx::query(");
++    let _ = writeln!(
++        body,
++        "        r#\"UPDATE {table} SET active = false WHERE {where_clause}\"#,"
++    );
++    let _ = writeln!(body, "    )");
++    body.push_str(&bindings);
++    let _ = writeln!(body, "    .execute(&pool)");
++    let _ = writeln!(body, "    .await");
++    let _ = writeln!(
++        body,
++        "    .map_err(|e| ApiError::internal(format!(\"Database error: {{}}\", e)))?"
++    );
++    let _ = writeln!(body, "    .rows_affected();");
++    let _ = writeln!(body);
++    let _ = writeln!(body, "    if rows == 0 {{");
++    let _ = writeln!(
++        body,
++        "        return Err(ApiError::not_found(\"{primary_class}\", {primary_name}));"
++    );
++    let _ = writeln!(body, "    }}");
++    let _ = writeln!(body, "    Ok(StatusCode::NO_CONTENT)");
++    let _ = writeln!(body, "}}");
++
++    let handler_rs = format!("{header}{imports}{body}");
++
++    Emitted {
++        handler_rs,
++        view_html: None,
++        handler_file: format!("{}__{}.rs", contract.family, contract.function),
++        view_file: None,
++        referenced_models: vec![primary_class],
++        provided_context_keys: Vec::new(),
++    }
++}
++
++/// Translate a Flask URL pattern to an axum-style pattern. Mirrors the helper
++/// in `codegen/mod.rs:138` so the emitted header matches the seaorm one
++/// character-for-character on the shared lines.
++fn axum_path(flask_path: &str) -> String {
++    let mut out = String::with_capacity(flask_path.len());
++    let mut rest = flask_path;
++    while let Some(open) = rest.find('<') {
++        out.push_str(&rest[..open]);
++        let after = &rest[open + 1..];
++        let Some(close) = after.find('>') else {
++            out.push_str(&rest[open..]);
++            return out;
++        };
++        let inner = &after[..close];
++        let name = inner.split_once(':').map_or(inner, |(_, n)| n);
++        out.push(':');
++        out.push_str(name);
++        rest = &after[close + 1..];
++    }
++    out.push_str(rest);
++    out
++}
++
++/// Map a Flask path converter to the sqlx-bind Rust type. The sqlx target
++/// uses `i64` (Postgres `BIGINT`) for integers — distinct from the seaorm
++/// emitter which uses `i32`.
++fn flask_conv_to_sqlx_rust(converter: Option<&str>) -> &'static str {
++    match converter {
++        Some("int") => "i64",
++        Some("float") => "f64",
++        _ => "String",
++    }
++}
++
++/// Build the `Path(...)` extractor line (zero/one/many params).
++fn path_extractor(params: &[PathParam]) -> String {
++    match params {
++        [] => "Path(_): Path<()>".to_string(),
++        [p] => format!(
++            "Path({}): Path<{}>",
++            p.name,
++            flask_conv_to_sqlx_rust(p.converter.as_deref())
++        ),
++        many => {
++            let names = many
++                .iter()
++                .map(|p| p.name.as_str())
++                .collect::<Vec<_>>()
++                .join(", ");
++            let tys = many
++                .iter()
++                .map(|p| flask_conv_to_sqlx_rust(p.converter.as_deref()))
++                .collect::<Vec<_>>()
++                .join(", ");
++            format!("Path(({names})): Path<({tys})>")
++        }
++    }
++}
++
++/// The primary key is conventionally the *last* path parameter on a
++/// soft-delete route (`/<scope>/<id>/archive`). When no path params are
++/// present, fall back to `id` so the emitted code still compiles.
++fn split_primary_and_scope(params: &[PathParam]) -> (&str, &[PathParam]) {
++    match params.split_last() {
++        Some((last, rest)) => (last.name.as_str(), rest),
++        None => ("id", &[]),
++    }
++}
++
++/// Build the SQL `WHERE` clause: `id = $1 [AND <scope> = $N]* AND active = true`.
++fn where_clause(primary_name: &str, scope_params: &[PathParam]) -> String {
++    let mut out = format!("{primary_name} = $1");
++    for (idx, p) in scope_params.iter().enumerate() {
++        let _ = write!(out, " AND {} = ${}", p.name, idx + 2);
++    }
++    out.push_str(" AND active = true");
++    out
++}
++
++/// Build the `.bind(...)` lines in `$1, $2, …` order (primary first, then
++/// scope params in URL order).
++fn bind_lines(primary_name: &str, scope_params: &[PathParam]) -> String {
++    let mut out = String::new();
++    let _ = writeln!(out, "    .bind({primary_name})");
++    for p in scope_params {
++        let _ = writeln!(out, "    .bind({})", p.name);
++    }
++    out
++}
++
++/// `WorkPackage` → `work_packages`, `Customer` → `customers`. Naïve
++/// snake_case + `s` suffix, sufficient for the contract surface this emitter
++/// targets (the spec deliberately keeps the mapping inline; a full
++/// inflector lives in the orchestrator).
++fn pluralize_snake(class: &str) -> String {
++    let snake = to_snake_case(class);
++    if snake.ends_with('s') {
++        snake
++    } else {
++        format!("{snake}s")
++    }
++}
++
++fn to_snake_case(class: &str) -> String {
++    let mut out = String::with_capacity(class.len() + 4);
++    for (i, ch) in class.chars().enumerate() {
++        if ch.is_ascii_uppercase() {
++            if i > 0 {
++                out.push('_');
++            }
++            out.push(ch.to_ascii_lowercase());
++        } else {
++            out.push(ch);
++        }
++    }
++    out
++}
+diff --git a/crates/ruff_python_dto_check/src/codegen/sqlx_emit/toggle_bool_field.rs b/crates/ruff_python_dto_check/src/codegen/sqlx_emit/toggle_bool_field.rs
+new file mode 100644
+index 0000000..336f54f
+--- /dev/null
++++ b/crates/ruff_python_dto_check/src/codegen/sqlx_emit/toggle_bool_field.rs
+@@ -0,0 +1,263 @@
++//! sqlx emitter for the `toggle_bool_field` handler kind.
++//!
++//! Sister to `crate::codegen::emit_toggle_bool_field` (sea-orm). The sqlx
++//! variant flips the bool atomically via `UPDATE ... SET active = NOT active
++//! WHERE id = $1 AND <scope> = $2 RETURNING *`, maps a missing row to a
++//! `404`, and returns the updated resource as HAL JSON. Self-contained: no
++//! shared helpers are imported, so this file can be wired in by the
++//! orchestrator without touching `mod.rs`.
++//!
++//! The function is currently inert — it is not referenced from the codegen
++//! dispatcher until the orchestrator wires the sqlx target.
++
++use crate::codegen::Emitted;
++use crate::codegen::target::TargetSpec;
++use crate::contract::{PathParam, RouteContract};
++
++/// Emit a sqlx handler that flips a single bool column on a tenant-scoped row
++/// and returns the updated resource as HAL JSON. Mirrors the sea-orm
++/// `emit_toggle_bool_field` shape but uses raw SQL + `sqlx::query_as` instead
++/// of an `ActiveModel` round-trip.
++pub fn emit_toggle_bool_field_sqlx(contract: &RouteContract, spec: &TargetSpec) -> Emitted {
++    let fn_name = &contract.function;
++    let axum = axum_path(&contract.path);
++
++    let (referenced_models, body) = match primary_model(contract, spec) {
++        Some((py_class, module_path)) => {
++            let class = py_class.to_string();
++            let model_use = format!("{root}::{}::{class}", module_path, root = spec.models_root);
++            let table = table_name(&class);
++            let path_extractor = path_extractor(&contract.inputs.path_params);
++            let scope_col = scope_column(contract);
++            let (sql, binds) = update_sql_and_binds(&table, &scope_col);
++
++            let block = format!(
++                "use axum::extract::{{Path, State}};\n\
++                 use axum::response::IntoResponse;\n\
++                 \n\
++                 use crate::error::{{ApiError, ApiResult}};\n\
++                 use crate::extractors::{{AppState, AuthenticatedUser, HalResponse}};\n\
++                 use {model_use};\n\
++                 \n\
++                 pub async fn {fn_name}(\n\
++                 \x20   State(state): State<AppState>,\n\
++                 \x20   _user: AuthenticatedUser,\n\
++                 {path_extractor}\
++                 ) -> ApiResult<impl IntoResponse> {{\n\
++                 \x20   let pool = state.pool()?;\n\
++                 \x20   let updated: {class} = sqlx::query_as::<_, {class}>(\n\
++                 \x20       r#\"{sql}\"#,\n\
++                 \x20   )\n\
++                 {binds}\
++                 \x20   .fetch_optional(&pool)\n\
++                 \x20   .await\n\
++                 \x20   .map_err(|e| ApiError::internal(format!(\"Database error: {{}}\", e)))?\n\
++                 \x20   .ok_or_else(|| ApiError::not_found(\"{class}\", id))?;\n\
++                 \n\
++                 \x20   Ok(HalResponse(updated))\n\
++                 }}\n",
++            );
++            let _ = axum; // axum route shape is encoded in the header only.
++            (vec![class], block)
++        }
++        None => (contract.data.models.clone(), unresolved_block(contract, spec)),
++    };
++
++    let header = sqlx_header(contract, &axum);
++    Emitted {
++        handler_rs: format!("{header}{body}"),
++        view_html: None,
++        handler_file: format!("{}__{}.rs", contract.family, fn_name),
++        view_file: None,
++        referenced_models,
++        provided_context_keys: Vec::new(),
++    }
++}
++
++/// Render the file-level header doc block exactly like the sqlx goldens
++/// (`endpoint`, `flask path`, `axum path`, `method`, `source`, `handler_kind`,
++/// `scoping`), followed by the boilerplate generated-by banner.
++fn sqlx_header(contract: &RouteContract, axum: &str) -> String {
++    let endpoint = &contract.id;
++    let flask = &contract.path;
++    let method = contract.methods.first().cloned().unwrap_or_default();
++    let file = &contract.provenance.file;
++    let line = contract.provenance.line_start;
++    let scoping = if contract.guards.is_empty() {
++        "none".to_string()
++    } else {
++        contract.guards.join(", ")
++    };
++    format!(
++        "//! endpoint:     {endpoint}\n\
++         //! flask path:   {flask}\n\
++         //! axum path:    {axum}\n\
++         //! method:       {method}\n\
++         //! source:       {file}:{line}\n\
++         //! handler_kind: toggle_bool_field\n\
++         //! scoping:      {scoping}\n\
++         //\n\
++         // GENERATED by ruff_python_codegen — DO NOT EDIT.\n\
++         // Modify target-spec/openproject-axum-sqlx.toml instead.\n\
++         \n",
++    )
++}
++
++/// Honest stub when the primary model has no spec mapping: emit a documented
++/// `compile_error!` so the missing mapping is visible at the consumer side
++/// rather than producing wrong code (Iron Rule: no silent fallback).
++fn unresolved_block(contract: &RouteContract, spec: &TargetSpec) -> String {
++    let models = contract.data.models.join(", ");
++    format!(
++        "// Unresolved primary model for sqlx target `{target}`.\n\
++         // Observed models: [{models}]. Add a `[models.<Class>]` entry to the\n\
++         // target-spec TOML so the emitter can resolve a module path.\n\
++         compile_error!(\"sqlx toggle_bool_field: no model mapping for `{models}`\");\n",
++        target = spec.id,
++    )
++}
++
++/// Build the `Path(...)` extractor line. 0 params → empty; 1 → `Path(name)`;
++/// 2+ → tuple-destructured `Path((a, b, ...))` with `i64` per int converter
++/// and `String` otherwise. Trailing newline + 4-space indent included so the
++/// caller can splice into a function signature directly.
++fn path_extractor(params: &[PathParam]) -> String {
++    if params.is_empty() {
++        return String::new();
++    }
++    if params.len() == 1 {
++        let p = &params[0];
++        let ty = rust_ty(p);
++        return format!("    Path({name}): Path<{ty}>,\n", name = p.name);
++    }
++    let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
++    let tys: Vec<String> = params.iter().map(rust_ty).collect();
++    format!(
++        "    Path(({names_csv})): Path<({tys_csv})>,\n",
++        names_csv = names.join(", "),
++        tys_csv = tys.join(", "),
++    )
++}
++
++/// Map a path-param converter to its Rust extractor type. `int` → `i64`,
++/// `float` → `f64`, everything else (`string`/`path`/`uuid`/`None`) → `String`.
++fn rust_ty(p: &PathParam) -> String {
++    match p.converter.as_deref() {
++        Some("int") => "i64".to_string(),
++        Some("float") => "f64".to_string(),
++        _ => "String".to_string(),
++    }
++}
++
++/// Resolve the primary model: first contract model with a target mapping.
++/// Returns `(python_class, module_path)` — the caller composes the full
++/// `crate::models::<module>::<Class>` import path itself, per the file's
++/// "build the model struct path inline" hard rule.
++fn primary_model<'a>(contract: &'a RouteContract, spec: &'a TargetSpec) -> Option<(&'a str, &'a str)> {
++    for m in &contract.data.models {
++        if let Some(mapping) = spec.resolve_model(m) {
++            return Some((m.as_str(), mapping.module_path.as_str()));
++        }
++    }
++    None
++}
++
++/// Snake_case + naive English plural of a PascalCase class.
++///
++/// `WorkPackage` → `work_packages`; `Activity` → `activities`; `Address` →
++/// `addresses`. Sufficient for the openproject domain's model names.
++fn table_name(class: &str) -> String {
++    pluralize(&pascal_to_snake(class))
++}
++
++fn pascal_to_snake(s: &str) -> String {
++    let mut out = String::with_capacity(s.len() + 4);
++    for (i, c) in s.chars().enumerate() {
++        if c.is_ascii_uppercase() {
++            if i > 0 {
++                out.push('_');
++            }
++            out.push(c.to_ascii_lowercase());
++        } else {
++            out.push(c);
++        }
++    }
++    out
++}
++
++fn pluralize(s: &str) -> String {
++    if s.ends_with('y') && !ends_with_vowel_y(s) {
++        format!("{}ies", &s[..s.len() - 1])
++    } else if s.ends_with('s') || s.ends_with('x') || s.ends_with("ch") || s.ends_with("sh") {
++        format!("{s}es")
++    } else {
++        format!("{s}s")
++    }
++}
++
++fn ends_with_vowel_y(s: &str) -> bool {
++    let bytes = s.as_bytes();
++    if bytes.len() < 2 {
++        return false;
++    }
++    matches!(bytes[bytes.len() - 2], b'a' | b'e' | b'i' | b'o' | b'u')
++}
++
++/// Pick the tenant/parent scope column from the path params (the first param
++/// that is not the primary `id`). Snake_case is preserved verbatim from the
++/// Flask converter name, so `project_id` stays `project_id`.
++fn scope_column(contract: &RouteContract) -> Option<String> {
++    contract
++        .inputs
++        .path_params
++        .iter()
++        .find(|p| p.name != "id")
++        .map(|p| p.name.clone())
++}
++
++/// Compose the `UPDATE ... SET active = NOT active WHERE ... RETURNING *`
++/// statement plus the `.bind(...)` chain (primary `id` first, then optional
++/// scope param). The two are returned together so the caller doesn't have to
++/// re-derive bind order from the SQL.
++fn update_sql_and_binds(table: &str, scope: &Option<String>) -> (String, String) {
++    match scope {
++        Some(col) => {
++            let sql = format!(
++                "UPDATE {table} SET active = NOT active WHERE id = $1 AND {col} = $2 RETURNING *",
++            );
++            let binds = "    .bind(id)\n    .bind(".to_string() + col + ")\n";
++            (sql, binds)
++        }
++        None => {
++            let sql = format!("UPDATE {table} SET active = NOT active WHERE id = $1 RETURNING *");
++            let binds = "    .bind(id)\n".to_string();
++            (sql, binds)
++        }
++    }
++}
++
++// ---------------------------------------------------------------------------
++// Local copy of the Flask→axum path translator. Kept inline so this module is
++// self-contained per the wiring brief; the sister sea-orm emitter has its own
++// copy under the same name in `codegen::mod`.
++// ---------------------------------------------------------------------------
++
++fn axum_path(flask_path: &str) -> String {
++    let mut out = String::with_capacity(flask_path.len());
++    let mut rest = flask_path;
++    while let Some(open) = rest.find('<') {
++        out.push_str(&rest[..open]);
++        let after = &rest[open + 1..];
++        let Some(close) = after.find('>') else {
++            out.push_str(&rest[open..]);
++            return out;
++        };
++        let inner = &after[..close];
++        let name = inner.split_once(':').map_or(inner, |(_, n)| n);
++        out.push(':');
++        out.push_str(name);
++        rest = &after[close + 1..];
++    }
++    out.push_str(rest);
++    out
++}
+diff --git a/crates/ruff_python_dto_check/src/codegen/target.rs b/crates/ruff_python_dto_check/src/codegen/target.rs
+index a2b9d9a..c5fdb60 100644
+--- a/crates/ruff_python_dto_check/src/codegen/target.rs
++++ b/crates/ruff_python_dto_check/src/codegen/target.rs
+@@ -12,6 +12,22 @@ use serde::Deserialize;
+ 
+ use crate::contract::HandlerKind;
+ 
++/// Which ORM the target emits against. Selects between the seaorm dispatch
++/// (`rust-axum-seaorm` — the historical default) and the sqlx dispatch
++/// (`openproject-axum-sqlx` — added in Sprint C1 Gap 1). The variant is read
++/// from the spec at runtime by `codegen::emit` and gates which set of emit
++/// functions is invoked. Defaults to `Seaorm` so existing specs that omit
++/// the field continue to parse unchanged.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
++#[serde(rename_all = "lowercase")]
++pub enum Orm {
++    /// sea-orm `Entity::find()` + `ActiveModel` (back-compat default).
++    #[default]
++    Seaorm,
++    /// raw `sqlx::query_as` against an owned `PgPool`.
++    Sqlx,
++}
++
+ /// A model mapping entry: how a Python model class resolves to a target model
+ /// module path.
+ ///
+@@ -19,7 +35,7 @@ use crate::contract::HandlerKind;
+ /// models live at `crate::models::<module>::Model` (NOT
+ /// `crate::models::<module>::<module>::Model`), while ERP models are genuinely
+ /// nested at `crate::models::erp::<k>::<inner>::Model`.
+-#[derive(Debug, Clone, Deserialize)]
++#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+ pub struct ModelMapping {
+     /// Path fragment after `crate::models::` up to (but not including) `Model`.
+     /// For a flat model this is just the module (`customer`); for a nested ERP
+@@ -68,6 +84,10 @@ pub struct TargetSpec {
+     /// coverage). Stored as the kind's `snake_case` string.
+     #[serde(default)]
+     pub emit_kinds: Vec<String>,
++    /// Which ORM dispatch the target uses (`seaorm` default, `sqlx` for
++    /// the openproject target). See [`Orm`].
++    #[serde(default)]
++    pub orm: Orm,
+ }
+ 
+ fn default_tenant_column() -> String {
+@@ -192,6 +212,63 @@ impl TargetSpec {
+                 HandlerKind::SaAdminView.as_str().to_string(),
+                 HandlerKind::SignedLinkAction.as_str().to_string(),
+             ],
++            orm: Orm::Seaorm,
++        }
++    }
++
++    /// Built-in `openproject-axum-sqlx` target — for the OpenProject Rails
++    /// → axum+sqlx port (Sprint C1 Gap 1). See
++    /// `examples/openproject-axum-sqlx.toml` for the equivalent declarative
++    /// form; this constructor is the in-code mirror of that file.
++    ///
++    /// Covers the 10 v3 domain resources the seed already implements plus
++    /// 8 partially-covered resources (op-db row types). The emit_kinds list
++    /// is restricted to the 4 sqlx-implemented kinds; other kinds receive
++    /// the standard `emit_stub` via the `can_emit` gate.
++    pub fn openproject_axum_sqlx() -> Self {
++        let mut models = BTreeMap::new();
++        for (class, module_path) in [
++            // Core v3 domain (op-models — fully covered in the seed).
++            ("WorkPackage", "work_package"),
++            ("Project", "project"),
++            ("User", "user"),
++            ("Status", "status"),
++            ("Type", "type_def"), // `type` is a Rust keyword
++            ("Priority", "priority"),
++            ("Role", "role"),
++            ("Version", "version"),
++            ("Member", "member"),
++            ("News", "news"),
++            // Partial coverage (op-db row types; full models pending).
++            ("Activity", "activity"),
++            ("Attachment", "attachment"),
++            ("Category", "category"),
++            ("Query", "query"),
++            ("Relation", "relation"),
++            ("Watcher", "watcher"),
++            ("Journal", "journal"),
++            ("TimeEntry", "time_entry"),
++        ] {
++            models.insert(
++                class.to_string(),
++                ModelMapping {
++                    module_path: module_path.to_string(),
++                },
++            );
++        }
++        TargetSpec {
++            id: "openproject-axum-sqlx".to_string(),
++            models_root: "crate::models".to_string(),
++            models,
++            tenant_column: "ProjectId".to_string(),
++            templates_root: None,
++            emit_kinds: vec![
++                HandlerKind::ListForTenant.as_str().to_string(),
++                HandlerKind::DetailForTenant.as_str().to_string(),
++                HandlerKind::SoftDelete.as_str().to_string(),
++                HandlerKind::ToggleBoolField.as_str().to_string(),
++            ],
++            orm: Orm::Sqlx,
+         }
+     }
+ 
+@@ -221,7 +298,7 @@ impl TargetSpec {
+ /// `module_path` string + a top-level `emit_kinds` array). Avoids adding a
+ /// `toml` workspace dependency for one config file.
+ mod toml_lite {
+-    use super::{ModelMapping, TargetSpec};
++    use super::{ModelMapping, Orm, TargetSpec};
+     use std::collections::BTreeMap;
+ 
+     pub(super) fn parse_target(text: &str) -> TargetSpec {
+@@ -231,6 +308,7 @@ mod toml_lite {
+         let mut templates_root: Option<String> = None;
+         let mut emit_kinds: Vec<String> = Vec::new();
+         let mut models: BTreeMap<String, ModelMapping> = BTreeMap::new();
++        let mut orm = Orm::Seaorm;
+ 
+         let mut current_model: Option<String> = None;
+ 
+@@ -266,6 +344,12 @@ mod toml_lite {
+                 (None, "tenant_column") => tenant_column = unquote(value),
+                 (None, "templates_root") => templates_root = Some(unquote(value)),
+                 (None, "emit_kinds") => emit_kinds = parse_array(value),
++                (None, "orm") => {
++                    orm = match unquote(value).as_str() {
++                        "sqlx" => Orm::Sqlx,
++                        _ => Orm::Seaorm,
++                    };
++                }
+                 _ => {}
+             }
+         }
+@@ -277,6 +361,7 @@ mod toml_lite {
+             tenant_column,
+             templates_root,
+             emit_kinds,
++            orm,
+         }
+     }
+ 
+diff --git a/crates/ruff_python_dto_check/tests/golden/codegen/sqlx/expected/detail_for_tenant.rs b/crates/ruff_python_dto_check/tests/golden/codegen/sqlx/expected/detail_for_tenant.rs
+new file mode 100644
+index 0000000..354b138
+--- /dev/null
++++ b/crates/ruff_python_dto_check/tests/golden/codegen/sqlx/expected/detail_for_tenant.rs
+@@ -0,0 +1,36 @@
++//! endpoint:     projects.get_work_package
++//! flask path:   /projects/<int:project_id>/work_packages/<int:id>
++//! axum path:    /projects/:project_id/work_packages/:id
++//! method:       GET
++//! source:       lib/api/v3/projects/projects_api.rb:84
++//! handler_kind: detail_for_tenant
++//! scoping:      login_required
++//
++// GENERATED by ruff_python_codegen — DO NOT EDIT.
++// Modify target-spec/openproject-axum-sqlx.toml instead.
++
++use axum::extract::{Path, State};
++use axum::response::IntoResponse;
++
++use crate::error::{ApiError, ApiResult};
++use crate::extractors::{AppState, AuthenticatedUser, HalResponse};
++use crate::models::work_package::WorkPackage;
++
++pub async fn get_work_package(
++    State(state): State<AppState>,
++    _user: AuthenticatedUser,
++    Path((project_id, id)): Path<(i64, i64)>,
++) -> ApiResult<impl IntoResponse> {
++    let pool = state.pool()?;
++    let item: WorkPackage = sqlx::query_as::<_, WorkPackage>(
++        r#"SELECT * FROM work_packages WHERE id = $1 AND project_id = $2"#,
++    )
++    .bind(id)
++    .bind(project_id)
++    .fetch_optional(&pool)
++    .await
++    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
++    .ok_or_else(|| ApiError::not_found("WorkPackage", id))?;
++
++    Ok(HalResponse(item))
++}
+diff --git a/crates/ruff_python_dto_check/tests/golden/codegen/sqlx/expected/list_for_tenant.rs b/crates/ruff_python_dto_check/tests/golden/codegen/sqlx/expected/list_for_tenant.rs
+new file mode 100644
+index 0000000..e1bf458
+--- /dev/null
++++ b/crates/ruff_python_dto_check/tests/golden/codegen/sqlx/expected/list_for_tenant.rs
+@@ -0,0 +1,52 @@
++//! endpoint:     projects.list_work_packages
++//! flask path:   /projects/<int:project_id>/work_packages
++//! axum path:    /projects/:project_id/work_packages
++//! method:       GET
++//! source:       lib/api/v3/projects/projects_api.rb:42
++//! handler_kind: list_for_tenant
++//! scoping:      login_required
++//
++// GENERATED by ruff_python_codegen — DO NOT EDIT.
++// Modify target-spec/openproject-axum-sqlx.toml instead.
++
++use axum::extract::{Path, State};
++use axum::response::IntoResponse;
++
++use crate::error::{ApiError, ApiResult};
++use crate::extractors::{AppState, AuthenticatedUser, HalResponse, Pagination};
++use crate::models::work_package::WorkPackage;
++
++pub async fn list_work_packages(
++    State(state): State<AppState>,
++    _user: AuthenticatedUser,
++    Path(project_id): Path<i64>,
++    pagination: Pagination,
++) -> ApiResult<impl IntoResponse> {
++    let pool = state.pool()?;
++    let items: Vec<WorkPackage> = sqlx::query_as::<_, WorkPackage>(
++        r#"SELECT * FROM work_packages WHERE project_id = $1 ORDER BY id DESC LIMIT $2 OFFSET $3"#,
++    )
++    .bind(project_id)
++    .bind(pagination.page_size as i64)
++    .bind(pagination.offset as i64)
++    .fetch_all(&pool)
++    .await
++    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
++
++    let total: i64 = sqlx::query_scalar::<_, i64>(
++        r#"SELECT COUNT(*) FROM work_packages WHERE project_id = $1"#,
++    )
++    .bind(project_id)
++    .fetch_one(&pool)
++    .await
++    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
++
++    Ok(HalResponse(serde_json::json!({
++        "_type": "Collection",
++        "total": total,
++        "count": items.len(),
++        "pageSize": pagination.page_size,
++        "offset": pagination.offset,
++        "_embedded": { "elements": items },
++    })))
++}
+diff --git a/crates/ruff_python_dto_check/tests/golden/codegen/sqlx/expected/soft_delete.rs b/crates/ruff_python_dto_check/tests/golden/codegen/sqlx/expected/soft_delete.rs
+new file mode 100644
+index 0000000..24c2aa3
+--- /dev/null
++++ b/crates/ruff_python_dto_check/tests/golden/codegen/sqlx/expected/soft_delete.rs
+@@ -0,0 +1,39 @@
++//! endpoint:     projects.archive_work_package
++//! flask path:   /projects/<int:project_id>/work_packages/<int:id>/archive
++//! axum path:    /projects/:project_id/work_packages/:id/archive
++//! method:       POST
++//! source:       lib/api/v3/projects/projects_api.rb:120
++//! handler_kind: soft_delete
++//! scoping:      login_required
++//
++// GENERATED by ruff_python_codegen — DO NOT EDIT.
++// Modify target-spec/openproject-axum-sqlx.toml instead.
++
++use axum::extract::{Path, State};
++use axum::http::StatusCode;
++use axum::response::IntoResponse;
++
++use crate::error::{ApiError, ApiResult};
++use crate::extractors::{AppState, AuthenticatedUser};
++
++pub async fn archive_work_package(
++    State(state): State<AppState>,
++    _user: AuthenticatedUser,
++    Path((project_id, id)): Path<(i64, i64)>,
++) -> ApiResult<impl IntoResponse> {
++    let pool = state.pool()?;
++    let rows = sqlx::query(
++        r#"UPDATE work_packages SET active = false WHERE id = $1 AND project_id = $2 AND active = true"#,
++    )
++    .bind(id)
++    .bind(project_id)
++    .execute(&pool)
++    .await
++    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
++    .rows_affected();
++
++    if rows == 0 {
++        return Err(ApiError::not_found("WorkPackage", id));
++    }
++    Ok(StatusCode::NO_CONTENT)
++}
+diff --git a/crates/ruff_python_dto_check/tests/golden/codegen/sqlx/expected/toggle_bool_field.rs b/crates/ruff_python_dto_check/tests/golden/codegen/sqlx/expected/toggle_bool_field.rs
+new file mode 100644
+index 0000000..4c177cb
+--- /dev/null
++++ b/crates/ruff_python_dto_check/tests/golden/codegen/sqlx/expected/toggle_bool_field.rs
+@@ -0,0 +1,36 @@
++//! endpoint:     projects.toggle_work_package_active
++//! flask path:   /projects/<int:project_id>/work_packages/<int:id>/toggle
++//! axum path:    /projects/:project_id/work_packages/:id/toggle
++//! method:       POST
++//! source:       lib/api/v3/projects/projects_api.rb:155
++//! handler_kind: toggle_bool_field
++//! scoping:      login_required
++//
++// GENERATED by ruff_python_codegen — DO NOT EDIT.
++// Modify target-spec/openproject-axum-sqlx.toml instead.
++
++use axum::extract::{Path, State};
++use axum::response::IntoResponse;
++
++use crate::error::{ApiError, ApiResult};
++use crate::extractors::{AppState, AuthenticatedUser, HalResponse};
++use crate::models::work_package::WorkPackage;
++
++pub async fn toggle_work_package_active(
++    State(state): State<AppState>,
++    _user: AuthenticatedUser,
++    Path((project_id, id)): Path<(i64, i64)>,
++) -> ApiResult<impl IntoResponse> {
++    let pool = state.pool()?;
++    let updated: WorkPackage = sqlx::query_as::<_, WorkPackage>(
++        r#"UPDATE work_packages SET active = NOT active WHERE id = $1 AND project_id = $2 RETURNING *"#,
++    )
++    .bind(id)
++    .bind(project_id)
++    .fetch_optional(&pool)
++    .await
++    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
++    .ok_or_else(|| ApiError::not_found("WorkPackage", id))?;
++
++    Ok(HalResponse(updated))
++}
+diff --git a/crates/ruff_python_dto_check/tests/sqlx_emit_test.rs b/crates/ruff_python_dto_check/tests/sqlx_emit_test.rs
+new file mode 100644
+index 0000000..4dc2f14
+--- /dev/null
++++ b/crates/ruff_python_dto_check/tests/sqlx_emit_test.rs
+@@ -0,0 +1,265 @@
++//! Integration tests for the four sqlx-target handler emitters.
++//!
++//! Each test constructs a [`RouteContract`] programmatically, runs the matching
++//! `emit_*_sqlx` function against a small [`TargetSpec`] that maps only
++//! `WorkPackage` → `work_package`, and asserts the produced handler matches the
++//! golden file at `tests/golden/codegen/sqlx/expected/<kind>.rs` (trimmed).
++//!
++//! Currently failing on purpose: the `sqlx_emit` module is not yet wired in
++//! `crate::codegen::mod` (no `pub mod sqlx_emit;` declaration). Once the
++//! orchestrator wires it the tests run for real — they are NOT `#[ignore]`d.
++//! The helpers below use the full `ruff_python_dto_check::codegen::sqlx_emit::*`
++//! paths so the failure is "function not found" rather than a wrong assertion.
++
++use std::collections::BTreeMap;
++
++use ruff_python_dto_check::codegen::target::{ModelMapping, Orm, TargetSpec};
++use ruff_python_dto_check::contract::{
++    Data, HandlerKind, Inputs, PathParam, Provenance, RouteContract,
++};
++use ruff_python_dto_check::extractors::body::OutputKind;
++
++// ---------------------------------------------------------------------------
++// Shared fixture: TargetSpec with just WorkPackage → work_package mapped.
++// ---------------------------------------------------------------------------
++
++fn test_spec() -> TargetSpec {
++    let mut models = BTreeMap::new();
++    models.insert(
++        "WorkPackage".to_string(),
++        ModelMapping {
++            module_path: "work_package".to_string(),
++        },
++    );
++    TargetSpec {
++        id: "openproject-axum-sqlx".to_string(),
++        models_root: "crate::models".to_string(),
++        models,
++        tenant_column: "ProjectId".to_string(),
++        templates_root: None,
++        emit_kinds: vec![
++            "list_for_tenant".to_string(),
++            "detail_for_tenant".to_string(),
++            "soft_delete".to_string(),
++            "toggle_bool_field".to_string(),
++        ],
++        orm: Orm::Sqlx,
++    }
++}
++
++// ---------------------------------------------------------------------------
++// Per-kind contract constructors.
++// ---------------------------------------------------------------------------
++
++fn list_for_tenant_contract() -> RouteContract {
++    RouteContract {
++        id: "projects.list_work_packages".to_string(),
++        function: "list_work_packages".to_string(),
++        family: "projects".to_string(),
++        methods: vec!["GET".to_string()],
++        path: "/projects/<int:project_id>/work_packages".to_string(),
++        inputs: Inputs {
++            path_params: vec![PathParam {
++                name: "project_id".to_string(),
++                converter: Some("int".to_string()),
++            }],
++            query_reads: vec![],
++            form_fields: vec![],
++        },
++        data: Data {
++            models: vec!["WorkPackage".to_string()],
++            order_by: Some("id".to_string()),
++            order_dir: Some("desc".to_string()),
++            tenant_scoped: true,
++            mutates: false,
++            soft_delete: false,
++        },
++        output: OutputKind::Json { shape: Vec::new() },
++        guards: vec!["login_required".to_string()],
++        handler_kind: HandlerKind::ListForTenant,
++        classification_reason: "tenant-scoped list query".to_string(),
++        provenance: Provenance {
++            file: "lib/api/v3/projects/projects_api.rb".to_string(),
++            line_start: 42,
++            line_end: 60,
++        },
++    }
++}
++
++fn detail_for_tenant_contract() -> RouteContract {
++    RouteContract {
++        id: "projects.get_work_package".to_string(),
++        function: "get_work_package".to_string(),
++        family: "projects".to_string(),
++        methods: vec!["GET".to_string()],
++        path: "/projects/<int:project_id>/work_packages/<int:id>".to_string(),
++        inputs: Inputs {
++            path_params: vec![
++                PathParam {
++                    name: "project_id".to_string(),
++                    converter: Some("int".to_string()),
++                },
++                PathParam {
++                    name: "id".to_string(),
++                    converter: Some("int".to_string()),
++                },
++            ],
++            query_reads: vec![],
++            form_fields: vec![],
++        },
++        data: Data {
++            models: vec!["WorkPackage".to_string()],
++            order_by: None,
++            order_dir: None,
++            tenant_scoped: true,
++            mutates: false,
++            soft_delete: false,
++        },
++        output: OutputKind::Json { shape: Vec::new() },
++        guards: vec!["login_required".to_string()],
++        handler_kind: HandlerKind::DetailForTenant,
++        classification_reason: "scoped find_by_id".to_string(),
++        provenance: Provenance {
++            file: "lib/api/v3/projects/projects_api.rb".to_string(),
++            line_start: 84,
++            line_end: 100,
++        },
++    }
++}
++
++fn soft_delete_contract() -> RouteContract {
++    RouteContract {
++        id: "projects.archive_work_package".to_string(),
++        function: "archive_work_package".to_string(),
++        family: "projects".to_string(),
++        methods: vec!["POST".to_string()],
++        path: "/projects/<int:project_id>/work_packages/<int:id>/archive".to_string(),
++        inputs: Inputs {
++            path_params: vec![
++                PathParam {
++                    name: "project_id".to_string(),
++                    converter: Some("int".to_string()),
++                },
++                PathParam {
++                    name: "id".to_string(),
++                    converter: Some("int".to_string()),
++                },
++            ],
++            query_reads: vec![],
++            form_fields: vec![],
++        },
++        data: Data {
++            models: vec!["WorkPackage".to_string()],
++            order_by: None,
++            order_dir: None,
++            tenant_scoped: true,
++            mutates: true,
++            soft_delete: true,
++        },
++        output: OutputKind::Redirect {
++            target: "/projects".to_string(),
++        },
++        guards: vec!["login_required".to_string()],
++        handler_kind: HandlerKind::SoftDelete,
++        classification_reason: "scoped find_by_id".to_string(),
++        provenance: Provenance {
++            file: "lib/api/v3/projects/projects_api.rb".to_string(),
++            line_start: 120,
++            line_end: 140,
++        },
++    }
++}
++
++fn toggle_bool_field_contract() -> RouteContract {
++    RouteContract {
++        id: "projects.toggle_work_package_active".to_string(),
++        function: "toggle_work_package_active".to_string(),
++        family: "projects".to_string(),
++        methods: vec!["POST".to_string()],
++        path: "/projects/<int:project_id>/work_packages/<int:id>/toggle".to_string(),
++        inputs: Inputs {
++            path_params: vec![
++                PathParam {
++                    name: "project_id".to_string(),
++                    converter: Some("int".to_string()),
++                },
++                PathParam {
++                    name: "id".to_string(),
++                    converter: Some("int".to_string()),
++                },
++            ],
++            query_reads: vec![],
++            form_fields: vec![],
++        },
++        data: Data {
++            models: vec!["WorkPackage".to_string()],
++            order_by: None,
++            order_dir: None,
++            tenant_scoped: true,
++            mutates: true,
++            soft_delete: false,
++        },
++        output: OutputKind::Redirect {
++            target: "/projects".to_string(),
++        },
++        guards: vec!["login_required".to_string()],
++        handler_kind: HandlerKind::ToggleBoolField,
++        classification_reason: "scoped find_by_id".to_string(),
++        provenance: Provenance {
++            file: "lib/api/v3/projects/projects_api.rb".to_string(),
++            line_start: 155,
++            line_end: 170,
++        },
++    }
++}
++
++// ---------------------------------------------------------------------------
++// Golden tests — one per kind.
++// ---------------------------------------------------------------------------
++
++#[test]
++fn test_list_for_tenant_sqlx() {
++    let contract = list_for_tenant_contract();
++    let spec = test_spec();
++    let emitted =
++        ruff_python_dto_check::codegen::sqlx_emit::list_for_tenant::emit_list_for_tenant_sqlx(
++            &contract, &spec,
++        );
++    let expected = include_str!("golden/codegen/sqlx/expected/list_for_tenant.rs");
++    assert_eq!(emitted.handler_rs.trim(), expected.trim());
++}
++
++#[test]
++fn test_detail_for_tenant_sqlx() {
++    let contract = detail_for_tenant_contract();
++    let spec = test_spec();
++    let emitted =
++        ruff_python_dto_check::codegen::sqlx_emit::detail_for_tenant::emit_detail_for_tenant_sqlx(
++            &contract, &spec,
++        );
++    let expected = include_str!("golden/codegen/sqlx/expected/detail_for_tenant.rs");
++    assert_eq!(emitted.handler_rs.trim(), expected.trim());
++}
++
++#[test]
++fn test_soft_delete_sqlx() {
++    let contract = soft_delete_contract();
++    let spec = test_spec();
++    let emitted = ruff_python_dto_check::codegen::sqlx_emit::soft_delete::emit_soft_delete_sqlx(
++        &contract, &spec,
++    );
++    let expected = include_str!("golden/codegen/sqlx/expected/soft_delete.rs");
++    assert_eq!(emitted.handler_rs.trim(), expected.trim());
++}
++
++#[test]
++fn test_toggle_bool_field_sqlx() {
++    let contract = toggle_bool_field_contract();
++    let spec = test_spec();
++    let emitted =
++        ruff_python_dto_check::codegen::sqlx_emit::toggle_bool_field::emit_toggle_bool_field_sqlx(
++            &contract, &spec,
++        );
++    let expected = include_str!("golden/codegen/sqlx/expected/toggle_bool_field.rs");
++    assert_eq!(emitted.handler_rs.trim(), expected.trim());
++}
+diff --git a/crates/ruff_python_dto_check/tests/sqlx_target_spec_test.rs b/crates/ruff_python_dto_check/tests/sqlx_target_spec_test.rs
+new file mode 100644
+index 0000000..5cfa0be
+--- /dev/null
++++ b/crates/ruff_python_dto_check/tests/sqlx_target_spec_test.rs
+@@ -0,0 +1,171 @@
++//! Integration tests for the new sqlx target spec wiring.
++//!
++//! These tests exercise:
++//!   1. TOML round-trip for `examples/openproject-axum-sqlx.toml` via
++//!      [`TargetSpec::from_path`].
++//!   2. The built-in [`TargetSpec::openproject_axum_sqlx`] constructor.
++//!   3. Back-compat for [`TargetSpec::rust_axum_seaorm`] (default `Orm::Seaorm`).
++//!   4. Parser tolerance for a minimal TOML (`id` + `orm` only, all else
++//!      defaults).
++//!
++//! NOTE: This file deliberately references API surface that does not yet
++//! exist in `target.rs`:
++//!   - the `Orm` enum (with `Orm::Sqlx`, `Orm::Seaorm` variants),
++//!   - the `orm` field on [`TargetSpec`],
++//!   - the [`TargetSpec::openproject_axum_sqlx`] associated function.
++//!
++//! These are added by the Wave 2 orchestrator pass in `target.rs`. Until
++//! that lands, this file will fail to compile -- that is the intended
++//! signal so the orchestrator knows the test is exercising the new
++//! surface as soon as it is wired. Do NOT silence the compile error by
++//! editing this file; fix it by wiring `target.rs`.
++//!
++//! No external crate dependencies (no `tempfile`); the minimal-TOML test
++//! writes to a deterministic path under `std::env::temp_dir()` so the
++//! crate's `Cargo.toml` stays untouched.
++
++use std::collections::BTreeMap;
++use std::path::PathBuf;
++
++use ruff_python_dto_check::codegen::target::{Orm, TargetSpec};
++
++/// Absolute path to `examples/openproject-axum-sqlx.toml` relative to the
++/// crate root. A sibling fanout agent writes this file; if it is not yet
++/// on disk the corresponding test skips gracefully (see comment below).
++fn example_sqlx_toml() -> PathBuf {
++    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/openproject-axum-sqlx.toml")
++}
++
++#[test]
++fn example_toml_loads_with_sqlx_orm_and_expected_fields() {
++    // The example TOML is being authored by a sibling fanout agent in this
++    // wave. If it is not present yet, skip with a clear message rather than
++    // failing -- the wave's orchestrator validates the file separately.
++    let path = example_sqlx_toml();
++    if !path.exists() {
++        eprintln!(
++            "skipping: {} not yet written (sibling fanout pending)",
++            path.display()
++        );
++        return;
++    }
++
++    let spec = TargetSpec::from_path(&path).expect("openproject-axum-sqlx.toml parses");
++
++    assert_eq!(
++        spec.id, "openproject-axum-sqlx",
++        "id field must round-trip from TOML"
++    );
++    assert_eq!(
++        spec.orm,
++        Orm::Sqlx,
++        "orm field must parse as Orm::Sqlx from `orm = \"sqlx\"`"
++    );
++    assert_eq!(
++        spec.models_root, "crate::models",
++        "models_root field must round-trip"
++    );
++
++    let work_package = spec
++        .models
++        .get("WorkPackage")
++        .expect("WorkPackage mapping present in example TOML");
++    assert_eq!(
++        work_package.module_path, "work_package",
++        "WorkPackage.module_path must round-trip"
++    );
++
++    assert!(
++        spec.emit_kinds.iter().any(|k| k == "list_for_tenant"),
++        "emit_kinds must contain `list_for_tenant`; got {:?}",
++        spec.emit_kinds
++    );
++}
++
++#[test]
++fn builtin_openproject_axum_sqlx_returns_non_trivial_spec() {
++    let spec = TargetSpec::openproject_axum_sqlx();
++
++    assert_eq!(
++        spec.id, "openproject-axum-sqlx",
++        "built-in spec must use the canonical id"
++    );
++    assert_eq!(
++        spec.orm,
++        Orm::Sqlx,
++        "built-in openproject_axum_sqlx must declare Orm::Sqlx"
++    );
++    assert!(
++        spec.models.len() >= 10,
++        "expected at least 10 model mappings in the built-in sqlx spec; got {}",
++        spec.models.len()
++    );
++    assert!(
++        spec.emit_kinds.len() >= 4,
++        "expected at least 4 emit_kinds entries; got {} ({:?})",
++        spec.emit_kinds.len(),
++        spec.emit_kinds
++    );
++}
++
++#[test]
++fn builtin_rust_axum_seaorm_still_defaults_to_seaorm_orm() {
++    // Back-compat guardrail: adding the `orm` field must NOT break the
++    // existing rust-axum-seaorm built-in target. Its `orm` must default to
++    // `Orm::Seaorm` so all current consumers continue to behave identically.
++    let spec = TargetSpec::rust_axum_seaorm();
++    assert_eq!(
++        spec.orm,
++        Orm::Seaorm,
++        "rust_axum_seaorm built-in must keep Orm::Seaorm after the orm field is added"
++    );
++    assert_eq!(
++        spec.id, "rust-axum-seaorm",
++        "rust_axum_seaorm id must remain stable"
++    );
++}
++
++#[test]
++fn minimal_toml_with_only_id_and_orm_takes_field_defaults() {
++    // Parser tolerance: a TOML containing only `id` and `orm` must parse
++    // without panic and every other field must take its documented default
++    // (`models_root = "crate::models"`, empty `models`, empty `emit_kinds`).
++    let toml_text = "id = \"x\"\norm = \"sqlx\"\n";
++
++    // `TargetSpec::from_path` takes a Path, so we write the snippet to a
++    // deterministic location under the OS temp dir. Using a per-process pid
++    // suffix keeps parallel `cargo nextest` runs isolated.
++    let mut tmp = std::env::temp_dir();
++    tmp.push(format!(
++        "ruff_python_dto_check_sqlx_minimal_{}.toml",
++        std::process::id()
++    ));
++    std::fs::write(&tmp, toml_text).expect("write minimal toml to temp dir");
++
++    let spec = TargetSpec::from_path(&tmp).expect("minimal toml parses");
++
++    // Best-effort cleanup; ignore the result so a failed unlink does not
++    // mask the real assertion failure.
++    let _ = std::fs::remove_file(&tmp);
++
++    assert_eq!(spec.id, "x", "id field must round-trip");
++    assert_eq!(
++        spec.orm,
++        Orm::Sqlx,
++        "orm field must parse from `orm = \"sqlx\"`"
++    );
++    assert_eq!(
++        spec.models_root, "crate::models",
++        "models_root must default to crate::models when absent"
++    );
++    assert_eq!(
++        spec.models,
++        BTreeMap::new(),
++        "models must default to empty BTreeMap when no [models.X] tables are present"
++    );
++    assert!(
++        spec.emit_kinds.is_empty(),
++        "emit_kinds must default to empty Vec when absent; got {:?}",
++        spec.emit_kinds
++    );
++}

@@ -1,0 +1,66 @@
+# target-spec/rust-axum-sqlx.toml
+#
+# Sprint C0 / Ticket C0-03 — TargetSpec for the OpenProject codegen target.
+#
+# Derived from the openproject-rs seed crate structure (the manual Rust port),
+# NOT written from scratch. The seed's crate layout IS the TargetSpec template:
+#   models   -> crate `op-models`    (op_models::<module>::<Type>)
+#   handlers -> crate `op-api`       (op_api::handlers::<resource>)   [seed reality]
+#   dtos     -> crate `op-contracts` (op_contracts::<resource>)
+#   services -> crate `op-services`
+#
+# SCHEMA NOTE (read before editing):
+# Consumed by ruff_python_dto_check::codegen::target::TargetSpec via `from_path`
+# -> `toml_lite::parse_target`, a line-based mini-parser that recognises ONLY:
+#   id, models_root, tenant_column, templates_root, emit_kinds (MUST be one line),
+#   and [models.<Class>] tables each with a `module_path` string.
+# Unknown keys are SILENTLY IGNORED. Do not add fields the engine cannot read
+# (e.g. a per-crate `handlers_root`) — it would look meaningful but do nothing.
+# Multi-crate emit destinations are the codegen `--out` dir's job, not this spec.
+
+id = "rust-axum-sqlx"
+
+# Root module path the emitter prepends to each model's module_path. The seed
+# exposes models from the `op-models` crate, so generated handlers in op-api
+# reference them as `op_models::<module_path>::<Type>`.
+models_root = "op_models"
+
+# OpenProject scopes domain rows by PROJECT (op-core exposes a `ProjectScoped`
+# trait), not by a global tenant. The list/detail emitters use this as the
+# scope-filter column. NOTE: not every model is project-scoped (User is not) —
+# per-model scope resolution is an EXTRACTOR-GAP (see extraction-gap-proposals).
+tenant_column = "ProjectId"
+
+# templates_root is intentionally UNSET. OpenProject's frontend is an Angular
+# SPA over a HAL+JSON API (see op-api/src/representers), and its server views are
+# ERB, not jinja — so the jinja column extractor does not apply. The dominant
+# output kind here is `ajax_json`, not server-rendered templates. This divergence
+# from the WoA template-heavy profile is a key C0 finding.
+
+# Handler kinds emitted end-to-end, ordered by expected frequency for an
+# API-first app. Kinds omitted here (template_get, pdf_render, sa_admin_view)
+# emit a documented stub, never todo!(). The ACTUAL distribution is measured in
+# coverage-report.md (C0-08); this ordering is a hypothesis to be calibrated.
+emit_kinds = ["ajax_json", "detail_for_tenant", "list_for_tenant", "csrf_form_post_engine_call", "form_get_post", "soft_delete", "toggle_bool_field", "download_blob", "get_redirect_shortcut", "signed_link_action"]
+
+# --- Model mappings (Sprint C0 reference slice: WorkPackage, Project, User) ---
+#
+# module_path is the fragment between models_root and the model type. The ruff
+# engine currently appends `::Model`/`::Entity`/`::Column` (SeaORM convention).
+# The seed is SQLx: types are named `<Class>` (e.g. `WorkPackage`) with NO
+# Entity/Column. This seaorm-vs-sqlx mismatch is the HEADLINE target-gap for C0
+# — a faithful sqlx target needs new emitter recipes in ruff_python_codegen
+# (see extraction-gap-proposals.md), not just this spec. The module_path values
+# below point at the real seed modules so a future sqlx emitter resolves them.
+
+[models.WorkPackage]
+# op_models::work_package::model::WorkPackage  (struct, #[derive(sqlx::FromRow)])
+module_path = "work_package::model"
+
+[models.Project]
+# op_models::project::Project  (re-exported from the project module)
+module_path = "project"
+
+[models.User]
+# op_models::user::model::User
+module_path = "user::model"

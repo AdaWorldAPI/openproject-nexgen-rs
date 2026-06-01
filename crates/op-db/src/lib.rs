@@ -42,6 +42,7 @@ pub mod watchers;
 pub mod attachments;
 pub mod queries;
 pub mod journals;
+pub mod news;
 
 // Re-exports
 pub use pool::{Database, DatabaseConfig, PoolStats};
