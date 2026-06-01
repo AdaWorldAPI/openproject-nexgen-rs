@@ -1,0 +1,41 @@
+Sprint C4 — Ruby/Rails frontend (ruff_ruby_spo), Gap 4
+======================================================
+Started/closed: 2026-06-01 (same session)
+Base: nexgen=430aa9c (post-PR-3 merge), ruff=5179bc0
+Workbench: /home/user/ruff-clone @ claude/openproject-sqlx-emitter
+
+Outcome: GREEN. 21/21 tests (18 lib unit + 3 end-to-end integration).
+         Gap 4 closed: ruff_ruby_spo went from 3 todo!() stubs to a working
+         line-based Ruby/Rails extractor (ZERO external parser deps, per the
+         scaffold's stated intent). extract() over a fixture app/models tree +
+         db/schema.rb now produces the locked SPO triple shape.
+
+This is the independent track (SPO-triplet pipeline), not the axum codegen
+emitter (C1-C3). It's the real unlock for an end-to-end run against
+OpenProject's Ruby source.
+
+Structure (refactored the single-file scaffold into modules for file-disjoint
+fanout):
+  src/lib.rs        extract() + RubyClass (added `columns` field) + module wiring
+  src/scan.rs       shared primitives (orchestrator): strip_comment, macro_symbols,
+                    def_blocks (Ruby keyword-depth block matcher), ivar_assignments
+                    — with 5 unit tests. The keystone the 3 extractors share.
+  src/parse.rs      parse_models: walk app/models/*.rb + db/schema.rb -> RubyClass
+  src/fields.rs     extract_fields: schema columns + memoized @ivar derived attrs
+  src/functions.rs  extract_functions: def bodies (reads/raises/traverses) +
+                    synthetic _validate guard for declarative validations
+  tests/ruby_extract_test.rs + tests/fixtures/openproject/  the end-to-end spec
+
+Fanout: Phase 0 (orchestrator, heavy): scan.rs (verified, 5 unit tests) +
+        fixtures + integration test + lib.rs restructure. Phase 1: 4 agents
+        file-disjoint (parse, fields, functions, RUBY-FRONTEND.md). 0 fanout
+        fix-loop iterations — integration test passed first try after wiring.
+
+Decision: line-based scanner, NOT lib-ruby-parser. Reasons: crate Cargo.toml
+        explicitly values "zero external parser deps so the target shape can be
+        locked first"; avoids registry/offline risk; Rails models are regular
+        enough for the standard subset. Honest gap list (heredocs, metaprogramming,
+        multi-line chains, concerns, scope lambdas) documented in RUBY-FRONTEND.md.
+
+Policy: PR-driven, no patches in calibration/. Deliverable = vendor/ mirror +
+        docs/SPRINT_C4_REPORT.md. One sprint = one commit.
