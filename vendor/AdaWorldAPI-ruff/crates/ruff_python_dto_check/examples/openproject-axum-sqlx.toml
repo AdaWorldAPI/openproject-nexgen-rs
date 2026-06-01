@@ -1,0 +1,132 @@
+# OpenProject -- axum + sqlx + HAL/JSON target spec
+#
+# Loaded by `ruff_python_dto_check::codegen::TargetSpec::from_path` via the
+# `--target` CLI flag. Built-in equivalent (when complete) will be
+# `TargetSpec::openproject_axum_sqlx()`.
+#
+# Source-of-truth: the openproject-nexgen-rs seed crate layout
+# (op-models / op-db / op-api / op-contracts). This spec tells the codegen
+# pipeline how to emit handlers + repos for OpenProject's ~44 v3 domain
+# resources in the seed idiom.
+#
+# Differences from `rust-axum-seaorm.target.toml`:
+#   - `orm = "sqlx"`: the emitter uses sqlx::query_as!/PgPool repositories
+#     (op-db style) instead of SeaORM entity macros.
+#   - `tenant_column = "ProjectId"`: OpenProject's multi-tenancy boundary is
+#     the project, not a separate tenant table. The variant name follows the
+#     seaorm-style column enum the emitter uses internally; the sqlx emitter
+#     translates this to the snake_case `project_id` column in generated SQL.
+#   - HAL/JSON serialization: list/detail handlers wrap rows in the v3
+#     `_embedded.elements` envelope (see op-api crate for the Collection<T>
+#     helper) rather than rendering askama templates.
+
+id = "openproject-axum-sqlx"
+orm = "sqlx"
+models_root = "crate::models"
+tenant_column = "ProjectId"
+
+# Filesystem root of HAL response templates. Unset by default -- the sqlx
+# emitter inlines the Collection<T> envelope from op-api rather than rendering
+# external templates. Set this when targeting a fork that ships custom HAL
+# fragments.
+# templates_root = "/path/to/hal-templates"
+
+# Kinds this target emits end-to-end. The sqlx + HAL path currently covers the
+# four high-confidence kinds below; remaining kinds fall back to the seaorm
+# emitter or a documented stub. See extraction-gap-proposals.md Gap 2 for the
+# HAL/JSON coverage roadmap (per-class _links, collection paging, etc.).
+emit_kinds = ["list_for_tenant", "detail_for_tenant", "soft_delete", "toggle_bool_field"]
+
+# ---------------------------------------------------------------------------
+# Core domain models -- already covered by the op-models seed crate.
+# Module paths mirror `crates/op-models/src/lib.rs` exactly; do NOT rename
+# without also updating the seed `pub mod` declarations.
+# ---------------------------------------------------------------------------
+
+[models.WorkPackage]
+module_path = "work_package"
+
+[models.Project]
+module_path = "project"
+
+[models.User]
+module_path = "user"
+
+[models.Status]
+module_path = "status"
+
+# Upstream class is `Type`; the seed renames the module to `type_def` because
+# `type` is a Rust keyword. The struct itself is still `Type` -- only the
+# module path is rewritten. The codegen pipeline keys on the class name on the
+# left, so handler/repo references will still resolve to `Type`.
+[models.Type]
+module_path = "type_def"
+
+[models.Priority]
+module_path = "priority"
+
+[models.Role]
+module_path = "role"
+
+[models.Version]
+module_path = "version"
+
+[models.Member]
+module_path = "member"
+
+[models.News]
+module_path = "news"
+
+# ---------------------------------------------------------------------------
+# Partial coverage -- a sqlx repository exists in `op-db` but the model
+# struct in `op-models` is still a stub or omitted. Module paths follow the
+# repository module names from `crates/op-db/src/lib.rs`, singularised to
+# match the canonical model-module convention (`activities` -> `activity`).
+# Codegen should emit the model struct alongside the handler.
+# ---------------------------------------------------------------------------
+
+[models.Activity]
+module_path = "activity"
+
+[models.Attachment]
+module_path = "attachment"
+
+[models.Category]
+module_path = "category"
+
+[models.Query]
+module_path = "query"
+
+[models.Relation]
+module_path = "relation"
+
+[models.Watcher]
+module_path = "watcher"
+
+[models.Journal]
+module_path = "journal"
+
+[models.TimeEntry]
+module_path = "time_entry"
+
+# ---------------------------------------------------------------------------
+# Absent high-value classes -- frequently referenced by the upstream Ruby
+# API but with no seed module yet. Module paths are the natural snake_case of
+# the class name; the emitter will create `crates/op-models/src/<path>/mod.rs`
+# on first generation.
+# ---------------------------------------------------------------------------
+
+[models.WikiPage]
+module_path = "wiki_page"
+
+[models.Notification]
+module_path = "notification"
+
+[models.Group]
+module_path = "group"
+
+[models.CustomField]
+module_path = "custom_field"
+
+[models.Share]
+module_path = "share"
