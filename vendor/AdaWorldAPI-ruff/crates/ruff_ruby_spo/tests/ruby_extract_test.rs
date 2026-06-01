@@ -102,6 +102,26 @@ fn declarative_validation_becomes_a_raising_guard() {
 }
 
 #[test]
+fn schema_index_lines_do_not_leak_into_columns() {
+    // Codex PR #4 P2: `t.index ["work_package_id"], name: ...` and
+    // `t.foreign_key "work_packages", ...` lines must NOT contribute fake
+    // columns to the TimeEntry table. The fixture's TimeEntry columns are
+    // exactly: work_package_id, user_id, hours, spent_on.
+    let graph = extract(&fixture_tree());
+    let te = graph
+        .models
+        .iter()
+        .find(|m| m.name == "TimeEntry")
+        .expect("TimeEntry extracted");
+    let names: Vec<&str> = te.fields.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["work_package_id", "user_id", "hours", "spent_on"],
+        "non-column helpers (t.index, t.foreign_key) must be skipped — got {names:?}"
+    );
+}
+
+#[test]
 fn all_subjects_are_namespaced() {
     let graph = extract(&fixture_tree());
     let triples = expand(&graph);

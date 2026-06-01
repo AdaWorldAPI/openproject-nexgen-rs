@@ -13,5 +13,8 @@ ActiveRecord::Schema.define(version: 2026_06_01_000000) do
     t.integer "user_id"
     t.float   "hours"
     t.datetime "spent_on"
+    t.index ["work_package_id"], name: "index_time_entries_on_work_package_id"
+    t.index ["user_id"], name: "index_time_entries_on_user_id"
+    t.foreign_key "work_packages", column: "work_package_id"
   end
 end

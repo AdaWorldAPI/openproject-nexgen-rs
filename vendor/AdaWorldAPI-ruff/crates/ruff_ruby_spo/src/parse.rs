@@ -185,15 +185,29 @@ fn create_table_name(code: &str) -> Option<String> {
     first_string_literal(rest)
 }
 
+/// Non-column `t.*` helpers seen in real `db/schema.rb` files. The first
+/// string literal on these lines names an index, a referenced table, etc. —
+/// not a column on the current table — so they must be skipped before reading
+/// any string literal (Codex PR #4 P2: `t.index ["work_package_id"], name:
+/// "idx_wp"` was leaking `work_package_id` as a duplicate column).
+const NON_COLUMN_HELPERS: &[&str] = &[
+    "index",
+    "foreign_key",
+    "references",
+    "belongs_to",
+    "primary_key",
+    "check_constraint",
+    "timestamps", // `t.timestamps` adds created_at/updated_at; not a single named column.
+];
+
 /// If `code` is a column declaration (`t.<type> "<col>"…`), return `<col>`.
-/// The `t.index`/`t.foreign_key` etc. helpers don't take a leading column
-/// name as their first string in the shape we target, but in the fixture every
-/// `t.<scalar> "<col>"` is a real column, which is what we collect.
+/// The `t.index`/`t.foreign_key` etc. helpers are skipped via
+/// [`NON_COLUMN_HELPERS`] so their referenced names are never mistaken for
+/// columns of the current table.
 fn column_name(code: &str) -> Option<String> {
     let rest = code.strip_prefix("t.")?;
-    // Skip the type token (`string`, `integer`, `datetime`, …).
     let (kind, after) = split_identifier(rest);
-    if kind.is_empty() {
+    if kind.is_empty() || NON_COLUMN_HELPERS.iter().any(|h| *h == kind) {
         return None;
     }
     first_string_literal(after)
@@ -264,4 +278,32 @@ fn pluralize(word: &str) -> String {
 
 fn is_vowel(c: char) -> bool {
     matches!(c, 'a' | 'e' | 'i' | 'o' | 'u')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn column_name_accepts_scalar_columns() {
+        assert_eq!(column_name(r#"t.string "subject", null: false"#).as_deref(), Some("subject"));
+        assert_eq!(column_name(r#"t.integer "status_id""#).as_deref(), Some("status_id"));
+        assert_eq!(column_name(r#"t.datetime "created_at""#).as_deref(), Some("created_at"));
+    }
+
+    #[test]
+    fn column_name_skips_non_column_helpers() {
+        // Codex PR #4 P2: real schema.rb has `t.index [...]` lines whose first
+        // string is an index name (or, with `["work_package_id"]`, the first
+        // member of a multi-column index). Neither is a column on the table.
+        assert_eq!(column_name(r#"t.index ["work_package_id"], name: "idx_wp_id""#), None);
+        assert_eq!(column_name(r#"t.foreign_key "users", column: "author_id""#), None);
+        assert_eq!(column_name(r#"t.references "project", null: false"#), None);
+        assert_eq!(column_name(r#"t.primary_key "id""#), None);
+        assert_eq!(column_name(r#"t.check_constraint "x > 0", name: "x_pos""#), None);
+        assert_eq!(column_name(r#"t.timestamps null: false"#), None);
+        // `belongs_to` inside create_table is the schema-helper shape, not the
+        // association macro of the same name. Same skip.
+        assert_eq!(column_name(r#"t.belongs_to "author""#), None);
+    }
 }
