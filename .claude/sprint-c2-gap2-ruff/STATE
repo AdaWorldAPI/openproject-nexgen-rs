@@ -1,0 +1,28 @@
+Sprint C2 Gap 2 — HAL envelope on emit_ajax_json (sqlx target)
+================================================================
+Started:    2026-06-01
+Base SHAs:  nexgen=6050825 (post-PR-1 merge)
+            ruff=5179bc0 (unchanged; C1 patch not yet applied upstream)
+Workbench:  /home/user/ruff-clone @ claude/openproject-sqlx-emitter
+            (carries C1 changes in working tree, ready for C2 on top)
+
+Plan:
+  Phase 0 (orchestrator): 2 golden expected files written (with-model + stub)
+  Phase 1 (3-agent fanout, parallel, file-disjoint):
+    - B1: src/codegen/sqlx_emit/ajax_json.rs       (emit fn, byte-faithful)
+    - B2: tests/sqlx_emit_ajax_json_test.rs        (2 integration tests)  [done]
+    - B3: SQLX-TARGET.md update                    (kind table, sections) [done]
+  Phase 2 (orchestrator, sequential, cargo-check-gated):
+    - sqlx_emit/mod.rs:  pub mod ajax_json;
+    - codegen/mod.rs::emit():  AjaxJson => sqlx_emit::ajax_json::...
+    - target.rs::openproject_axum_sqlx():  push "ajax_json" to emit_kinds
+    - examples/openproject-axum-sqlx.toml:  push "ajax_json" to emit_kinds
+  Phase 3: cargo check -p ruff_python_dto_check --tests + cargo test sqlx
+  Phase 4: deliver — patch + tarball, mirror to vendor/, sprint report, PR
+
+Status (live):
+  Phase 0  done
+  Phase 1  2/3 (B1 emit fn still running)
+  Phase 2  pending B1
+  Phase 3  pending
+  Phase 4  pending
