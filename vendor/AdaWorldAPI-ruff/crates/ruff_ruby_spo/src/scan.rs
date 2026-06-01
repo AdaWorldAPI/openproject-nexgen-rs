@@ -90,22 +90,31 @@ pub(crate) struct DefBlock {
     pub body: String,
 }
 
-const BLOCK_OPENERS: &[&str] = &[
-    "def ", "if ", "unless ", "case ", "while ", "until ", "for ", "begin",
-    "class ", "module ", "do",
+/// Leading block keywords whose presence as a *prefix* of a line opens a
+/// block. Each entry ends with a separator (space) so `do_cleanup` / `define`
+/// / `case_id` cannot false-open a block by starting with `do` / `def` / `case`.
+const BLOCK_OPENERS_PREFIX: &[&str] = &[
+    "def ", "if ", "unless ", "case ", "while ", "until ", "for ",
+    "class ", "module ",
 ];
 
+/// Block keywords that legitimately appear alone on a line. `begin` is the
+/// only common one (`begin … rescue … end`). It must be tested via exact
+/// match — `begin_audit` is a method name, not a block opener.
+const BLOCK_OPENERS_EXACT: &[&str] = &["begin"];
+
 fn opens_block(trimmed: &str) -> bool {
-    // A leading block keyword opens a block. Postfix modifiers (`x if y`)
-    // never start the line, so "starts-with" is a sound discriminator.
-    if BLOCK_OPENERS.iter().any(|kw| {
-        trimmed == kw.trim_end() || trimmed.starts_with(kw)
-    }) {
+    if BLOCK_OPENERS_PREFIX.iter().any(|kw| trimmed.starts_with(kw)) {
         return true;
     }
-    // Trailing `do` / `do |x|` (block form: `time_entries.each do |t|`).
+    if BLOCK_OPENERS_EXACT.iter().any(|kw| trimmed == *kw) {
+        return true;
+    }
+    // Trailing `do` / `do |x|` (block form: `time_entries.each do |t|`). We
+    // require a whitespace boundary before `do` so a method name like
+    // `do_cleanup` cannot masquerade as a block opener.
     let code = trimmed.trim_end();
-    code.ends_with(" do") || code.ends_with("|") && code.contains(" do |")
+    code.ends_with(" do") || (code.ends_with('|') && code.contains(" do |"))
 }
 
 fn closes_block(trimmed: &str) -> bool {
@@ -247,5 +256,41 @@ mod tests {
         assert_eq!(ivar_assignments("  @x = 1\n  @y ||= 2\n"), ["x", "y"]);
         // `==` is a comparison, not an assignment.
         assert_eq!(ivar_assignments("  @x == 1\n").len(), 0);
+    }
+
+    #[test]
+    fn def_blocks_handles_method_names_starting_with_block_keywords() {
+        // Regression: a body line like `do_cleanup` must NOT false-open a
+        // block. Codex PR #4 P2: `trimmed.starts_with("do")` was matching
+        // method-name prefixes (`do_cleanup`, `download_attachment`,
+        // `define_method`, `begin_audit`), so every following method in the
+        // class was silently dropped.
+        let body = "  def first\n\
+                    \x20   do_cleanup if pending?\n\
+                    \x20   download_attachment(@id)\n\
+                    \x20   define_method(:foo) { }\n\
+                    \x20   begin_audit\n\
+                    \x20 end\n\
+                    \n  def second\n\
+                    \x20   :ok\n\
+                    \x20 end\n";
+        let blocks = def_blocks(body);
+        assert_eq!(
+            blocks.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(),
+            ["first", "second"],
+            "both methods must be emitted — block-keyword prefixes in method names must not open a block"
+        );
+        // The standalone `begin … end` form still opens a block correctly.
+        let begun = "  def with_begin\n\
+                     \x20   begin\n\
+                     \x20     do_stuff\n\
+                     \x20   rescue => e\n\
+                     \x20     log(e)\n\
+                     \x20   end\n\
+                     \x20 end\n";
+        let blocks = def_blocks(begun);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].name, "with_begin");
+        assert!(blocks[0].body.contains("rescue => e"));
     }
 }
