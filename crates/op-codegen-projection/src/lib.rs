@@ -56,16 +56,65 @@ pub struct DefineTable {
     pub fields: Vec<DefineField>,
 }
 
-/// One `DEFINE FIELD <name> ON TABLE <table> TYPE [option<any>|any]` stub.
+/// One `DEFINE FIELD <name> ON TABLE <table> TYPE <kind>` stub.
+///
+/// `kind` is the inferred SurrealQL primitive (see [`ColumnKind`]); the
+/// emitted text wraps it in `option<>` when [`Self::required`] is `false`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DefineField {
     /// Field name (e.g. `subject`).
     pub name: String,
     /// `true` when the field is required (declared by the synthetic
     /// `_validate` function on the same table — corresponds to an
-    /// ActiveRecord `validates :col, presence: true` declaration). Emitted
-    /// as `TYPE any`; `false` becomes `TYPE option<any>`.
+    /// ActiveRecord `validates :col, presence: true` declaration).
     pub required: bool,
+    /// The SurrealQL primitive inferred for this field — currently by
+    /// name-suffix convention (see [`ColumnKind::infer`]). Future sprints
+    /// will replace the heuristic with the upstream `has_type` predicate.
+    pub kind: ColumnKind,
+}
+
+/// SurrealQL primitive type for a [`DefineField`].
+///
+/// Today this is derived from the field name by [`Self::infer`] (a
+/// stopgap until the upstream `ruff_spo_triplet` vocabulary grows a
+/// `has_type` predicate — see C12 PR body). When a future sprint adds
+/// that vocabulary, the projection's third pass will replace the
+/// heuristic with triple lookups; the enum surface stays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColumnKind {
+    /// Unknown / heterogeneous (`any` in SurrealQL).
+    Any,
+    /// Integer (`int` in SurrealQL). Inferred from the canonical Rails
+    /// foreign-key naming `*_id`.
+    Int,
+}
+
+impl ColumnKind {
+    /// The SurrealQL type token (inside any `option<…>` wrapper).
+    #[must_use]
+    pub const fn surreal_token(self) -> &'static str {
+        match self {
+            Self::Any => "any",
+            Self::Int => "int",
+        }
+    }
+
+    /// Infer the column kind from a field name. Rules (closed list,
+    /// expanded only when the convention is ironclad in Rails):
+    ///
+    /// - `*_id` → [`Self::Int`] (ActiveRecord foreign-key convention; any
+    ///   `<assoc>_id` column on an AR table is the integer id of a
+    ///   related record).
+    /// - everything else → [`Self::Any`].
+    #[must_use]
+    pub fn infer(field_name: &str) -> Self {
+        if field_name.ends_with("_id") {
+            Self::Int
+        } else {
+            Self::Any
+        }
+    }
 }
 
 /// The Const form of [`OpSurrealProjection`]. Carries the structured DDL IR
@@ -196,6 +245,7 @@ impl TripletProjection for OpSurrealProjection {
                     .into_iter()
                     .map(|field_name| DefineField {
                         required: required.contains(&(table_name.clone(), field_name.clone())),
+                        kind: ColumnKind::infer(&field_name),
                         name: field_name,
                     })
                     .collect();
@@ -227,22 +277,36 @@ impl TripletProjection for OpSurrealProjection {
 /// statements. Trailing newline, deterministic ordering (alphabetical by
 /// table, alphabetical by field within each table).
 ///
-/// Field type emission:
-/// - `required = true` (declared by the synthetic `_validate` function)
-///   becomes `TYPE any` — SurrealQL rejects `NONE` for this type, matching
-///   the ActiveRecord `validates :col, presence: true` semantics.
-/// - `required = false` becomes `TYPE option<any>`.
+/// Field type emission combines two axes:
 ///
-/// Future-emitter widening targets (typed columns from schema.rb, FK
-/// record links, ASSERT clauses, indexes, PERMISSIONS) extend this fn
-/// without changing the projection's `roundtrip_eq` contract.
+/// - Kind (from [`DefineField::kind`] / [`ColumnKind::surreal_token`]) —
+///   today inferred by name convention (`*_id` → `int`, else `any`);
+///   future widening targets (proper `has_type` triples from
+///   `ruff_spo_triplet`, FK record links, datetime, bool) extend the
+///   enum without touching this fn's structure.
+/// - Optionality (from [`DefineField::required`]) — wraps the kind in
+///   `option<…>` when the field is NOT required.
+///
+/// Examples:
+///
+/// | required | kind | emission |
+/// |---|---|---|
+/// | true  | `Any` | `TYPE any`           |
+/// | false | `Any` | `TYPE option<any>`   |
+/// | true  | `Int` | `TYPE int`           |
+/// | false | `Int` | `TYPE option<int>`   |
 #[must_use]
 pub fn surreal_text(c: &OpSurrealConst) -> String {
     let mut out = String::new();
     for table in &c.tables {
         out.push_str(&format!("DEFINE TABLE {} SCHEMAFULL;\n", table.name));
         for field in &table.fields {
-            let ty = if field.required { "any" } else { "option<any>" };
+            let kind = field.kind.surreal_token();
+            let ty = if field.required {
+                kind.to_string()
+            } else {
+                format!("option<{kind}>")
+            };
             out.push_str(&format!(
                 "DEFINE FIELD {} ON TABLE {} TYPE {};\n",
                 field.name, table.name, ty,
@@ -517,5 +581,106 @@ DEFINE FIELD subject ON TABLE WorkPackage TYPE any;
         // trip remains strict.
         roundtrip_eq::<OpSurrealProjection>(&fixture_with_validates())
             .expect("validation triples round-trip via the opaque trail");
+    }
+
+    // ----- C12: ColumnKind inference (`*_id` -> Int) -----
+
+    #[test]
+    fn column_kind_infer_recognises_id_suffix_as_int() {
+        // The single ironclad Rails convention this sprint enacts.
+        assert_eq!(ColumnKind::infer("status_id"), ColumnKind::Int);
+        assert_eq!(ColumnKind::infer("work_package_id"), ColumnKind::Int);
+        assert_eq!(ColumnKind::infer("user_id"), ColumnKind::Int);
+    }
+
+    #[test]
+    fn column_kind_infer_defaults_to_any_for_non_id_columns() {
+        assert_eq!(ColumnKind::infer("subject"), ColumnKind::Any);
+        assert_eq!(ColumnKind::infer("hours"), ColumnKind::Any);
+        // Bare "id" without underscore: defensible either way. The rule is
+        // SUFFIX `_id` so a column literally named "id" stays Any (it is
+        // typically the primary key anyway and Surreal handles that via
+        // RECORD ids, not user-declared fields).
+        assert_eq!(ColumnKind::infer("id"), ColumnKind::Any);
+        // Identifier-like substring in the middle / start: not matched.
+        assert_eq!(ColumnKind::infer("id_check"), ColumnKind::Any);
+        assert_eq!(ColumnKind::infer("identifier"), ColumnKind::Any);
+    }
+
+    #[test]
+    fn column_kind_surreal_token_is_lowercase() {
+        // The DEFINE FIELD … TYPE <kind> rendering. Stable; never reformat.
+        assert_eq!(ColumnKind::Any.surreal_token(), "any");
+        assert_eq!(ColumnKind::Int.surreal_token(), "int");
+    }
+
+    #[test]
+    fn project_marks_id_suffixed_columns_as_int_kind() {
+        // End-to-end: the inference fires at project-time so consumers
+        // walking c.tables see typed fields without re-running the rule.
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType", 1.0, 0.9),
+            t("openproject:WorkPackage.subject", "rdf:type", "ogit:Property", 1.0, 0.9),
+            t("openproject:WorkPackage.status_id", "rdf:type", "ogit:Property", 1.0, 0.9),
+        ];
+        let c = OpSurrealProjection::project(&triples);
+        let wp = c.tables.iter().find(|t| t.name == "WorkPackage").unwrap();
+        let status_id = wp.fields.iter().find(|f| f.name == "status_id").unwrap();
+        let subject = wp.fields.iter().find(|f| f.name == "subject").unwrap();
+        assert_eq!(status_id.kind, ColumnKind::Int);
+        assert_eq!(subject.kind, ColumnKind::Any);
+    }
+
+    #[test]
+    fn surreal_text_combines_required_and_kind_axes() {
+        // The four-cell matrix from surreal_text's doc table, all in one
+        // fixture: subject (required + Any), status (optional + Any),
+        // status_id (optional + Int), parent_id (required + Int).
+        let mut triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType", 1.0, 0.9),
+            t("openproject:WorkPackage.subject", "rdf:type", "ogit:Property", 1.0, 0.9),
+            t("openproject:WorkPackage.status", "rdf:type", "ogit:Property", 1.0, 0.9),
+            t("openproject:WorkPackage.status_id", "rdf:type", "ogit:Property", 1.0, 0.9),
+            t("openproject:WorkPackage.parent_id", "rdf:type", "ogit:Property", 1.0, 0.9),
+        ];
+        // _validate marks subject AND parent_id as required.
+        triples.push(t(
+            "openproject:WorkPackage._validate",
+            "reads_field",
+            "openproject:WorkPackage.subject",
+            1.0,
+            0.7,
+        ));
+        triples.push(t(
+            "openproject:WorkPackage._validate",
+            "reads_field",
+            "openproject:WorkPackage.parent_id",
+            1.0,
+            0.7,
+        ));
+
+        let c = OpSurrealProjection::project(&triples);
+        let text = surreal_text(&c);
+
+        let expected = "\
+DEFINE TABLE WorkPackage SCHEMAFULL;
+DEFINE FIELD parent_id ON TABLE WorkPackage TYPE int;
+DEFINE FIELD status ON TABLE WorkPackage TYPE option<any>;
+DEFINE FIELD status_id ON TABLE WorkPackage TYPE option<int>;
+DEFINE FIELD subject ON TABLE WorkPackage TYPE any;
+";
+        assert_eq!(text, expected);
+    }
+
+    #[test]
+    fn roundtrip_eq_passes_with_id_fields() {
+        // Inference is a projection-only concern; the opaque triple trail
+        // is unaffected and the C6 contract gate still holds.
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType", 1.0, 0.9),
+            t("openproject:WorkPackage.status_id", "rdf:type", "ogit:Property", 1.0, 0.9),
+        ];
+        roundtrip_eq::<OpSurrealProjection>(&triples)
+            .expect("kind inference does not perturb roundtrip");
     }
 }

@@ -96,13 +96,15 @@ fn full_pipeline_emits_expected_surql_from_filesystem() {
     assert!(hours.required, "validates :hours -> required");
     assert!(!wp_id.required, "no validates on work_package_id -> optional");
 
-    // Emission asserts: required -> TYPE any, optional -> TYPE option<any>.
+    // Emission asserts. Combines:
+    //   - C10 required (validates :col -> TYPE any) — hours / subject
+    //   - C12 kind inference (*_id -> int) — status_id / work_package_id
     assert!(text.contains("DEFINE TABLE TimeEntry SCHEMAFULL;"));
     assert!(text.contains("DEFINE TABLE WorkPackage SCHEMAFULL;"));
     assert!(text.contains("DEFINE FIELD hours ON TABLE TimeEntry TYPE any;"));
     assert!(text.contains("DEFINE FIELD subject ON TABLE WorkPackage TYPE any;"));
-    assert!(text.contains("DEFINE FIELD status_id ON TABLE WorkPackage TYPE option<any>;"));
-    assert!(text.contains("DEFINE FIELD work_package_id ON TABLE TimeEntry TYPE option<any>;"));
+    assert!(text.contains("DEFINE FIELD status_id ON TABLE WorkPackage TYPE option<int>;"));
+    assert!(text.contains("DEFINE FIELD work_package_id ON TABLE TimeEntry TYPE option<int>;"));
 
     // Non-core model must not appear anywhere.
     assert!(!text.contains("AdhocThing"));
