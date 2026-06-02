@@ -1487,6 +1487,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "op-codegen-pipeline"
+version = "0.1.0"
+dependencies = [
+ "lance-graph-contract",
+ "op-codegen-projection",
+ "ruff_openproject",
+ "ruff_spo_triplet",
+]
+
+[[package]]
 name = "op-codegen-projection"
 version = "0.1.0"
 dependencies = [
@@ -2097,6 +2107,29 @@ dependencies = [
  "spki",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "ruff_openproject"
+version = "0.1.0"
+dependencies = [
+ "ruff_ruby_spo",
+ "ruff_spo_triplet",
+]
+
+[[package]]
+name = "ruff_ruby_spo"
+version = "0.1.0"
+dependencies = [
+ "ruff_spo_triplet",
+]
+
+[[package]]
+name = "ruff_spo_triplet"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -19,6 +19,18 @@ members = [
     "crates/op-server",
     "crates/op-codegen-bucket",
     "crates/op-codegen-projection",
+    "crates/op-codegen-pipeline",
+]
+
+# Vendor mirrors have their own standalone workspaces (see
+# vendor/*/Cargo.toml). Excluding them stops cargo from sucking their member
+# crates into nexgen's workspace — which otherwise breaks `workspace = true`
+# inheritance in those crates' manifests (they inherit from the vendor
+# workspace, not from nexgen). Path-deps into the vendor still work
+# normally; they bypass workspace-member discovery.
+exclude = [
+    "vendor/AdaWorldAPI-ruff",
+    "vendor/AdaWorldAPI-lance-graph",
 ]
 
 [workspace.package]

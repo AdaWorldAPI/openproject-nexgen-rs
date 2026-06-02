@@ -1,0 +1,17 @@
+[package]
+name = "op-codegen-pipeline"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "OpenProject end-to-end codegen pipeline: Rails IR → ruff SPO triples → lance-graph spine triples → OpSurrealProjection → SurrealQL DDL text. The third concrete consumer of C6 — wires the C5 extraction crates to the C8 projection crate with a single bridge function. Zero new vocabulary; existing types compose."
+
+[lib]
+name = "op_codegen_pipeline"
+
+[dependencies]
+ruff_openproject       = { path = "../../vendor/AdaWorldAPI-ruff/crates/ruff_openproject" }
+ruff_spo_triplet       = { path = "../../vendor/AdaWorldAPI-ruff/crates/ruff_spo_triplet" }
+op-codegen-projection  = { path = "../op-codegen-projection" }
+lance-graph-contract   = { path = "../../vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" }

@@ -1,0 +1,76 @@
+Sprint C9 — op-codegen-pipeline: end-to-end Rails → SurrealQL
+=================================================================
+Started/closed: 2026-06-02 (same session)
+Base: nexgen=4b21c8a (post-C8 commit, stacked on open PR #12)
+Workbench: nexgen workspace directly
+
+Outcome: GREEN. 8/8 tests pass in op-codegen-pipeline.
+         Third concrete consumer of C6 (after op-codegen-bucket + op-codegen-projection).
+         Wires C5 extraction (ruff_openproject) to C8 projection (op-codegen-projection)
+         with a single bridge function. End-to-end demo of the architecture.
+
+What landed (additive):
+  crates/op-codegen-pipeline/Cargo.toml   new crate
+  crates/op-codegen-pipeline/src/lib.rs   bridge + pipeline + 8 tests
+  Cargo.toml workspace.members            add op-codegen-pipeline
+  Cargo.toml workspace.exclude            add vendor/AdaWorldAPI-ruff,
+                                              vendor/AdaWorldAPI-lance-graph
+
+Public surface:
+  pub fn bridge_triples(&[ruff::Triple]) -> Vec<spine::Triple>
+  pub fn render_surreal_from_ruff(&[ruff::Triple]) -> (OpSurrealConst, String)
+  // + re-exports from ruff_openproject + op_codegen_projection so
+  //   consumers depend on this one crate not five.
+
+Why a bridge function instead of changing one of the types:
+  - ruff_spo_triplet::Triple and lance_graph_contract::Triple are
+    field-for-field IDENTICAL (s,p,o,f,c) and both are upstream-neutral
+    crates whose definitions should not couple to a downstream project.
+  - A 5-line per-field clone in this crate is the seam: downstream pays
+    for the bridge, upstream stays clean.
+
+The workspace.exclude fix:
+  - Vendor mirrors have their OWN standalone workspace roots (added in
+    codex PR #6 P1 and Sprint C7). The ruff vendor's crates use
+    `workspace = true` deps that resolve against the vendor workspace.
+  - Without `exclude`, nexgen's `cargo` walks into the vendor dir and
+    tries to inherit those `workspace = true` references from nexgen's
+    workspace.dependencies, which doesn't define them.
+  - lance-graph-contract didn't hit this earlier (Sprint C7) because its
+    Cargo.toml uses NO workspace inheritance. The ruff crates do.
+  - exclude = [vendor/...] tells cargo to leave both vendor trees to
+    their own workspace roots; path-deps into the vendor still work.
+
+Tests (8):
+  Bridge:
+    - bridge_preserves_all_five_fields
+    - bridge_preserves_order_and_count
+  Pipeline:
+    - synthetic_graph_renders_expected_surql (the full e2e assertion)
+    - pipeline_const_carries_structured_ir_and_triple_trail
+    - pipeline_roundtrip_eq_on_real_ruff_output (contract gate on
+      authentic ruff::expand() output, not hand-rolled triples)
+    - pipeline_handles_compute_graph_without_emitting_extra_tables
+      (compute graph triples must round-trip via opaque trail but
+      MUST NOT introduce phantom tables in structured IR)
+  Filter:
+    - filter_to_core_keeps_known_models_through_pipeline
+  Re-exports:
+    - re_exports_match_upstream_constants
+
+Regression check:
+  op-codegen-bucket       7/7 pass (unchanged)
+  op-codegen-projection   8/8 pass (unchanged)
+
+Discipline:
+  - additive: new crate; zero edits to op-codegen-bucket /
+    op-codegen-projection / op-* / vendor mirrors / ruff
+  - one fix-loop iteration: workspace.exclude was needed because the
+    ruff vendor crates use `workspace = true` and cargo was resolving
+    against nexgen instead of the vendor workspace. Discovered on first
+    cargo check; fix added; check passed.
+  - stacked on open PR #12: this commit's parent is C8 (4b21c8a).
+    Branch tip is now C8 + C9. PR body documents the stack honestly.
+  - one sprint = one commit = one PR; ff push only; no force/rebase/squash
+
+Policy: PR-driven, no patches in calibration/.
