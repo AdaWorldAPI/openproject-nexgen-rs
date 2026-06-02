@@ -406,8 +406,14 @@ pub trait RouteBucketTyped {
 /// seam — existing consumers that only know about `RouteBucket` continue to
 /// work, and new generic code can take `RouteBucketTyped` and accept both.
 ///
+/// The `T: ?Sized` bound is load-bearing: without it the blanket only covers
+/// sized implementors, which leaves the documented `&dyn RouteBucket` shape
+/// outside the bridge. Codex PR #8 P2 flagged the gap. With `?Sized` an
+/// existing `&dyn RouteBucket` is usable as `&dyn RouteBucketTyped<Kind = OdooMethodKind>`,
+/// or through a `?Sized`-bounded generic.
+///
 /// [impl_blanket]: #impl-RouteBucketTyped-for-T
-impl<T: RouteBucket> RouteBucketTyped for T {
+impl<T: RouteBucket + ?Sized> RouteBucketTyped for T {
     type Kind = OdooMethodKind;
 
     fn kind(&self) -> OdooMethodKind {
@@ -812,5 +818,40 @@ mod tests {
             id: "x.y",
         };
         assert_eq!(name(&b), "iter_records_compute_from_related");
+    }
+
+    #[test]
+    fn route_bucket_blanket_impl_covers_dyn_route_bucket() {
+        // Codex PR #8 P2: an erased `&dyn RouteBucket` must also be usable
+        // through the new trait. The fix is `T: ?Sized` on the blanket; the
+        // call shape codex named is a `?Sized`-bounded generic accepting
+        // the erased trait object.
+        //
+        // (Note: Rust does NOT permit direct trait-object-to-trait-object
+        // coercion `&dyn RouteBucket -> &dyn RouteBucketTyped<...>` even with
+        // the blanket — that would require trait-object upcasting, which is
+        // a separate feature. The legitimate / supported reach is the
+        // `?Sized`-bounded generic below; with `T: Sized` (the pre-fix shape)
+        // this `label(erased)` call would not compile.)
+        let concrete = OdooBucketCompat {
+            kind: OdooMethodKind::PassOverride,
+            id: "account.move._compute_amount",
+        };
+        let erased: &dyn RouteBucket = &concrete;
+
+        fn label<B: RouteBucketTyped<Kind = OdooMethodKind> + ?Sized>(b: &B) -> String {
+            format!("{}={}", b.id(), b.kind().id())
+        }
+        assert_eq!(
+            label(erased),
+            "account.move._compute_amount=pass_override"
+        );
+
+        // Bonus: same generic accepts a sized concrete implementor, ensuring
+        // the `?Sized` widening did not break the original Sized path.
+        assert_eq!(
+            label(&concrete),
+            "account.move._compute_amount=pass_override"
+        );
     }
 }
