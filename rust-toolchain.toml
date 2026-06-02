@@ -1,0 +1,12 @@
+[toolchain]
+# AdaWorldAPI ecosystem-wide pin: rust 1.95.
+#
+# Matches the pin in `AdaWorldAPI/surrealdb` and `AdaWorldAPI/ndarray`.
+# See `.claude/sprints/c16d-toolchain-pin/STATE` for the sprint context.
+#
+# Don't add a patch number to the channel string (`1.95.1` etc.) — that
+# is not a valid toolchain identifier and breaks rust-analyzer plus the
+# `rustup show` path. Specifying only the minor version already routes
+# to the latest patch automatically.
+channel = "1.95"
+components = ["rustfmt", "clippy"]
