@@ -1487,6 +1487,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "op-codegen-projection"
+version = "0.1.0"
+dependencies = [
+ "lance-graph-contract",
+]
+
+[[package]]
 name = "op-contracts"
 version = "0.1.0"
 dependencies = [
