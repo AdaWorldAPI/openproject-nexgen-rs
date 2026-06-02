@@ -1,0 +1,97 @@
+Sprint C13 — op-codegen-projection: FK record link inference via known-tables join
+=====================================================================================
+Started/closed: 2026-06-02 (same session)
+Base: nexgen=380cacf (post-C12 merge of PR #16)
+
+Outcome: GREEN. 45/45 tests across the codegen family (bucket 7 +
+         projection 23 + pipeline 15; was 41, +4 new tests in projection,
+         +1 assertion update in pipeline integration).
+
+What landed (additive within our own codegen family):
+  crates/op-codegen-projection/src/lib.rs
+    - ColumnKind gains Record(String) variant (target table name)
+    - ColumnKind drops Copy (Record carries String)
+    - ColumnKind::surreal_token now takes &self, returns String
+      (Record(target) -> "record<{target}>")
+    - ColumnKind::infer signature gains a &BTreeSet<String> (known
+      tables): `*_id` field whose snake-stripped + Pascal-cased name is
+      a known table -> Record(name); else -> Int (the C12 fallback)
+    - New helper: snake_to_pascal("work_package") -> "WorkPackage"
+    - project() snapshots known_tables from the first pass's BTreeMap
+      keys before the consuming iteration, passes to infer()
+    - 4 new tests
+    - 3 existing C12 tests updated to pass &BTreeSet via a no_tables()
+      convenience fn (semantic-equivalent: empty set reduces inference
+      to the C12 Int fallback)
+  crates/op-codegen-pipeline/tests/rails_fixture.rs
+    - 1 assertion update: work_package_id on TimeEntry now expected as
+      option<record<WorkPackage>> (was option<int>); status_id on
+      WorkPackage stays option<int> because Status is NOT a known model
+      in the rails_mini fixture
+
+The promotion rule:
+  field name ends with `_id`:
+    stem = strip `_id`
+    target = snake_to_pascal(stem)
+    if target in known_tables:
+      Record(target)        -> TYPE record<target>
+    else:
+      Int                   -> TYPE int   (C12 fallback)
+  else:
+    Any                     -> TYPE any   (C12 default)
+
+Real-world e2e through rails_mini fixture (filesystem-driven):
+  TimeEntry has work_package_id -> WorkPackage is in the fixture's
+  app/models/ -> emitted as option<record<WorkPackage>>.
+  WorkPackage has status_id -> Status is NOT in the fixture -> stays
+  option<int>. Asymmetric promotion demonstrates the join correctly.
+
+Tests added in projection (4):
+  - column_kind_infer_promotes_known_target_to_record  (the new rule)
+  - snake_to_pascal_handles_multi_word_and_single_word  (helper unit;
+    pinned because the round-trip from Rails table names to model class
+    names is load-bearing for FK inference)
+  - project_promotes_fk_to_record_when_target_table_present  (e2e via
+    project(); asymmetric: WorkPackage table known -> Record; no Status
+    table -> Int fallback)
+  - surreal_text_emits_record_link_when_target_known  (emission shape;
+    full expected-string assertion incl. C10 required interacting with
+    Record kind to produce `TYPE record<...>` without option<>)
+
+Tests updated in projection (3):
+  - column_kind_infer_recognises_id_suffix_as_int  (renamed:
+    `_when_target_unknown`; takes &no_tables())
+  - column_kind_infer_defaults_to_any_for_non_id_columns  (takes
+    &no_tables())
+  - column_kind_surreal_token_is_lowercase  (renamed:
+    `_renders_each_variant`; +1 assert for Record)
+
+Tests updated in pipeline (1 assertion):
+  - rails_fixture::full_pipeline_emits_expected_surql_from_filesystem
+    work_package_id assertion: option<int> -> option<record<WorkPackage>>
+
+Test counts:
+  op-codegen-bucket       7/7   (unchanged)
+  op-codegen-projection   23/23 (was 19, +4 new)
+  op-codegen-pipeline     9 unit + 6 integration = 15  (unchanged count;
+                                                       1 assertion updated)
+                          ----
+  total                   45/45
+
+Discipline note:
+  - Public API changes: ColumnKind dropped Copy (Record(String) ->
+    not Copy); surreal_token now takes &self and returns String.
+    Within this repo only this crate constructs ColumnKind / calls
+    surreal_token, so no external break. The C12 surface (Any, Int)
+    is preserved; this sprint adds a third variant.
+  - additive within our own codegen family
+  - no cross-repo coordination (the proper `references` predicate
+    from ruff_spo_triplet would be the principled C-X replacement;
+    deferred until cross-repo coordination is appropriate)
+  - one sprint = one commit = one PR; ff push only; no force/rebase/squash
+  - fix-loop iterations: 2 (1: C12 tests' single-arg infer calls had
+    to migrate to the 2-arg form, caught on first cargo check; 2: the
+    pipeline integration test's work_package_id assertion correctly
+    failed on first run, caught on first cargo test)
+
+Policy: PR-driven, no patches in calibration/.

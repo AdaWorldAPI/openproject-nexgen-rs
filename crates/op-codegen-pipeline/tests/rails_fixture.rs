@@ -98,13 +98,19 @@ fn full_pipeline_emits_expected_surql_from_filesystem() {
 
     // Emission asserts. Combines:
     //   - C10 required (validates :col -> TYPE any) — hours / subject
-    //   - C12 kind inference (*_id -> int) — status_id / work_package_id
+    //   - C12 kind inference (*_id -> int) — status_id (target table
+    //     `Status` is NOT a known model in the fixture, so it stays Int)
+    //   - C13 FK record link inference — work_package_id resolves
+    //     `work_package` -> WorkPackage which IS a known model, so the
+    //     field is promoted from option<int> to option<record<WorkPackage>>
     assert!(text.contains("DEFINE TABLE TimeEntry SCHEMAFULL;"));
     assert!(text.contains("DEFINE TABLE WorkPackage SCHEMAFULL;"));
     assert!(text.contains("DEFINE FIELD hours ON TABLE TimeEntry TYPE any;"));
     assert!(text.contains("DEFINE FIELD subject ON TABLE WorkPackage TYPE any;"));
     assert!(text.contains("DEFINE FIELD status_id ON TABLE WorkPackage TYPE option<int>;"));
-    assert!(text.contains("DEFINE FIELD work_package_id ON TABLE TimeEntry TYPE option<int>;"));
+    assert!(text.contains(
+        "DEFINE FIELD work_package_id ON TABLE TimeEntry TYPE option<record<WorkPackage>>;"
+    ));
 
     // Non-core model must not appear anywhere.
     assert!(!text.contains("AdhocThing"));
