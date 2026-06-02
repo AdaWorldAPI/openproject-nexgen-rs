@@ -1,0 +1,2 @@
+class AdhocThing < ApplicationRecord
+end
