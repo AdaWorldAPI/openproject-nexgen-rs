@@ -1,0 +1,70 @@
+Sprint C12 — op-codegen-projection: ColumnKind inference (`*_id` → int)
+==========================================================================
+Started/closed: 2026-06-02 (same session)
+Base: nexgen=607f20a (post-C11 merge of PR #15)
+
+Outcome: GREEN. 41/41 tests across the codegen family (bucket 7 +
+         projection 19 + pipeline 15; was 35, +6 new).
+
+What landed (additive within our own codegen family):
+  crates/op-codegen-projection/src/lib.rs
+    - New pub enum ColumnKind { Any, Int }
+    - New impls: ColumnKind::infer(field_name) -> Self
+                 ColumnKind::surreal_token(self) -> &'static str
+    - DefineField gains pub kind: ColumnKind
+    - project() fills kind via ColumnKind::infer at DefineField construction
+    - surreal_text(): emits TYPE <kind> for required, TYPE option<<kind>>
+      for optional; doc has the full 4-cell matrix
+    - 6 new tests
+  crates/op-codegen-pipeline/tests/rails_fixture.rs
+    - 2 assertions updated: status_id / work_package_id now expected as
+      `TYPE option<int>` instead of `TYPE option<any>`
+
+Why this C12 and not the cross-repo ones:
+  PR #15 listed 3 candidates: cross-repo schema-types, cross-repo
+  fk-predicate, cross-repo lance-graph PR. All three require coordinated
+  vendor mirror edits + upstream PRs to AdaWorldAPI/ruff or
+  AdaWorldAPI/lance-graph. This sprint stays in-repo: it widens the
+  SurrealQL emission to typed `int` for the ironclad Rails `*_id`
+  foreign-key naming convention. Pure projection-side work, no upstream
+  coordination, and the heuristic is explicitly framed as a stopgap
+  the proper `has_type` predicate from upstream will replace.
+
+The inference rule (closed, ironclad):
+  - field name ends with `_id` -> ColumnKind::Int
+  - everything else            -> ColumnKind::Any
+  No other heuristics. `*_at` -> datetime, `is_*` -> bool, etc. are
+  TEMPTING but introduce ambiguity (e.g. `paid_at` is datetime in some
+  schemas, plain string in others). Defer until we have real upstream
+  type triples.
+
+Tests added (6, all in op-codegen-projection):
+  - column_kind_infer_recognises_id_suffix_as_int  (the happy path)
+  - column_kind_infer_defaults_to_any_for_non_id_columns  (bare `id`,
+    `id_check`, `identifier` all stay Any -- SUFFIX-only)
+  - column_kind_surreal_token_is_lowercase
+  - project_marks_id_suffixed_columns_as_int_kind  (e2e through project)
+  - surreal_text_combines_required_and_kind_axes   (4-cell matrix:
+    required+Any, optional+Any, optional+Int, required+Int)
+  - roundtrip_eq_passes_with_id_fields  (C6 contract gate still holds —
+    inference is projection-side; opaque trail is untouched)
+
+Tests updated (2 lines in op-codegen-pipeline/tests/rails_fixture.rs):
+  - status_id assertion:        option<any> -> option<int>
+  - work_package_id assertion:  option<any> -> option<int>
+
+Regression check:
+  All 23 previously-passing projection + pipeline tests still pass
+  (1 transient pipeline-integration fail caught on first cargo test;
+  expected — see assertion updates above; no actual logic regression).
+  op-codegen-bucket unchanged (7/7).
+
+Discipline kept:
+  - additive within our own codegen family; zero edits to op-* legacy
+    crates or vendor mirrors
+  - no cross-repo coordination required (vs. the deferred C12 candidates)
+  - one sprint = one commit = one PR; ff push only
+  - fix-loop iterations: 1 (the expected assertion update for the
+    pipeline integration test; caught on first cargo test)
+
+Policy: PR-driven, no patches in calibration/.
