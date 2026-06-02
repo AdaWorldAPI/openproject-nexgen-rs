@@ -112,6 +112,19 @@ fn full_pipeline_emits_expected_surql_from_filesystem() {
         "DEFINE FIELD work_package_id ON TABLE TimeEntry TYPE option<record<WorkPackage>>;"
     ));
 
+    // C14: every FK-shaped field (kind = Int or Record(_)) gets a
+    // non-unique DEFINE INDEX immediately after its DEFINE FIELD.
+    // Both Int-kind status_id AND Record-kind work_package_id qualify.
+    assert!(text.contains(
+        "DEFINE INDEX idx_WorkPackage_status_id ON TABLE WorkPackage FIELDS status_id;"
+    ));
+    assert!(text.contains(
+        "DEFINE INDEX idx_TimeEntry_work_package_id ON TABLE TimeEntry FIELDS work_package_id;"
+    ));
+    // Non-FK fields (subject / hours) must NOT have indexes.
+    assert!(!text.contains("idx_WorkPackage_subject"));
+    assert!(!text.contains("idx_TimeEntry_hours"));
+
     // Non-core model must not appear anywhere.
     assert!(!text.contains("AdhocThing"));
     assert!(!text.contains("adhoc_things"));

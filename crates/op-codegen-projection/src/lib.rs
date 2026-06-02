@@ -319,17 +319,18 @@ impl TripletProjection for OpSurrealProjection {
 // SurrealQL emission
 // ---------------------------------------------------------------------------
 
-/// Render the structured DDL IR to SurrealQL `DEFINE TABLE` / `DEFINE FIELD`
-/// statements. Trailing newline, deterministic ordering (alphabetical by
-/// table, alphabetical by field within each table).
+/// Render the structured DDL IR to SurrealQL `DEFINE TABLE` /
+/// `DEFINE FIELD` / `DEFINE INDEX` statements. Trailing newline,
+/// deterministic ordering (alphabetical by table, alphabetical by field
+/// within each table; index follows its field).
 ///
 /// Field type emission combines two axes:
 ///
 /// - Kind (from [`DefineField::kind`] / [`ColumnKind::surreal_token`]) —
-///   today inferred by name convention (`*_id` → `int`, else `any`);
-///   future widening targets (proper `has_type` triples from
-///   `ruff_spo_triplet`, FK record links, datetime, bool) extend the
-///   enum without touching this fn's structure.
+///   today inferred by name convention (`*_id` → `int` / `record<Target>`,
+///   else `any`); future widening targets (proper `has_type` triples from
+///   `ruff_spo_triplet`, datetime, bool) extend the enum without
+///   touching this fn's structure.
 /// - Optionality (from [`DefineField::required`]) — wraps the kind in
 ///   `option<…>` when the field is NOT required.
 ///
@@ -337,10 +338,21 @@ impl TripletProjection for OpSurrealProjection {
 ///
 /// | required | kind | emission |
 /// |---|---|---|
-/// | true  | `Any` | `TYPE any`           |
-/// | false | `Any` | `TYPE option<any>`   |
-/// | true  | `Int` | `TYPE int`           |
-/// | false | `Int` | `TYPE option<int>`   |
+/// | true  | `Any`              | `TYPE any`                    |
+/// | false | `Any`              | `TYPE option<any>`            |
+/// | true  | `Int`              | `TYPE int`                    |
+/// | false | `Int`              | `TYPE option<int>`            |
+/// | true  | `Record("WP")`     | `TYPE record<WP>`             |
+/// | false | `Record("WP")`     | `TYPE option<record<WP>>`     |
+///
+/// Index emission: every field with kind `Int` or `Record(_)` (the
+/// FK-shaped fields detected by [`ColumnKind::infer`]) also emits a
+/// non-unique `DEFINE INDEX idx_<Table>_<col> ON TABLE <Table>
+/// FIELDS <col>;` on the line after its `DEFINE FIELD`. This matches
+/// the conventional Postgres-on-Rails pattern (every `*_id` column has
+/// a btree index for the FK lookup). `has_one` 1:1 relations would
+/// warrant `UNIQUE`, but that signal isn't in the current ruff
+/// vocabulary; non-unique is the safe default.
 #[must_use]
 pub fn surreal_text(c: &OpSurrealConst) -> String {
     let mut out = String::new();
@@ -357,9 +369,26 @@ pub fn surreal_text(c: &OpSurrealConst) -> String {
                 "DEFINE FIELD {} ON TABLE {} TYPE {};\n",
                 field.name, table.name, ty,
             ));
+            if is_fk_indexable(&field.kind) {
+                out.push_str(&format!(
+                    "DEFINE INDEX idx_{table}_{col} ON TABLE {table} FIELDS {col};\n",
+                    table = table.name,
+                    col = field.name,
+                ));
+            }
         }
     }
     out
+}
+
+/// `true` for FK-shaped columns that warrant an index — currently the
+/// kinds [`ColumnKind::Int`] and [`ColumnKind::Record`], both produced
+/// by [`ColumnKind::infer`] when the field name ends in `_id`. Centralised
+/// so the predicate stays single-source-of-truth even as the kind enum
+/// grows (e.g. a future `Datetime` would not be FK-shaped).
+#[must_use]
+fn is_fk_indexable(kind: &ColumnKind) -> bool {
+    matches!(kind, ColumnKind::Int | ColumnKind::Record(_))
 }
 
 #[cfg(test)]
@@ -720,11 +749,15 @@ DEFINE FIELD subject ON TABLE WorkPackage TYPE any;
         let c = OpSurrealProjection::project(&triples);
         let text = surreal_text(&c);
 
+        // C14: both parent_id and status_id are FK-shaped (kind=Int)
+        // -> each gets a DEFINE INDEX line immediately after its field.
         let expected = "\
 DEFINE TABLE WorkPackage SCHEMAFULL;
 DEFINE FIELD parent_id ON TABLE WorkPackage TYPE int;
+DEFINE INDEX idx_WorkPackage_parent_id ON TABLE WorkPackage FIELDS parent_id;
 DEFINE FIELD status ON TABLE WorkPackage TYPE option<any>;
 DEFINE FIELD status_id ON TABLE WorkPackage TYPE option<int>;
+DEFINE INDEX idx_WorkPackage_status_id ON TABLE WorkPackage FIELDS status_id;
 DEFINE FIELD subject ON TABLE WorkPackage TYPE any;
 ";
         assert_eq!(text, expected);
@@ -838,13 +871,57 @@ DEFINE FIELD subject ON TABLE WorkPackage TYPE any;
         let c = OpSurrealProjection::project(&triples);
         let text = surreal_text(&c);
 
+        // C14: the Record-kind work_package_id is FK-shaped -> DEFINE
+        // INDEX line follows. The required+Record cell renders without
+        // option<> wrapper. The Any-kind hours has no index.
         let expected = "\
 DEFINE TABLE TimeEntry SCHEMAFULL;
 DEFINE FIELD hours ON TABLE TimeEntry TYPE option<any>;
 DEFINE FIELD work_package_id ON TABLE TimeEntry TYPE record<WorkPackage>;
+DEFINE INDEX idx_TimeEntry_work_package_id ON TABLE TimeEntry FIELDS work_package_id;
 DEFINE TABLE WorkPackage SCHEMAFULL;
 ";
         assert_eq!(text, expected);
+    }
+
+    // ----- C14: DEFINE INDEX on FK-shaped columns -----
+
+    #[test]
+    fn is_fk_indexable_covers_int_and_record_but_not_any() {
+        assert!(is_fk_indexable(&ColumnKind::Int));
+        assert!(is_fk_indexable(&ColumnKind::Record("WP".to_string())));
+        assert!(!is_fk_indexable(&ColumnKind::Any));
+    }
+
+    #[test]
+    fn surreal_text_emits_define_index_for_int_kind_column() {
+        // Plain Int FK (target not a known table) -> still gets an index.
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType", 1.0, 0.9),
+            t(
+                "openproject:WorkPackage.status_id",
+                "rdf:type",
+                "ogit:Property",
+                1.0,
+                0.9,
+            ),
+        ];
+        let c = OpSurrealProjection::project(&triples);
+        let text = surreal_text(&c);
+        assert!(text.contains(
+            "DEFINE INDEX idx_WorkPackage_status_id ON TABLE WorkPackage FIELDS status_id;"
+        ));
+    }
+
+    #[test]
+    fn surreal_text_emits_no_index_for_any_kind_columns() {
+        // Plain Any fields (no _id suffix) MUST NOT get an index.
+        let c = OpSurrealProjection::project(&fixture_triples());
+        let text = surreal_text(&c);
+        assert!(
+            !text.contains("DEFINE INDEX"),
+            "fixture has no FK-shaped fields; expected no INDEX lines"
+        );
     }
 
     #[test]

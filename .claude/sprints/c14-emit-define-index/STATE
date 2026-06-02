@@ -1,0 +1,97 @@
+Sprint C14 — op-codegen-projection: DEFINE INDEX for FK-shaped columns
+==========================================================================
+Started/closed: 2026-06-02 (same session)
+Base: nexgen=b96b7c6 (post-C13 merge of PR #17)
+
+Outcome: GREEN. 48/48 tests across the codegen family (bucket 7 +
+         projection 26 + pipeline 15; was 45, +3 new in projection,
+         +4 assertions in pipeline integration).
+
+What landed (purely emission-side; no API break):
+  crates/op-codegen-projection/src/lib.rs
+    - surreal_text() emits one
+      `DEFINE INDEX idx_<Table>_<col> ON TABLE <Table> FIELDS <col>;`
+      line immediately AFTER each DEFINE FIELD whose kind is Int or
+      Record(_) (the FK-shaped detection from C12/C13).
+    - New private helper: is_fk_indexable(&ColumnKind) -> bool
+      Single-source-of-truth predicate that stays accurate as the
+      enum grows (a future Datetime variant would not be FK-shaped).
+    - Doc table on surreal_text widened with the C13 Record cells and
+      a new section spelling out the index-emission policy.
+    - 2 existing expected-string tests updated for new INDEX lines.
+    - 3 new C14 tests appended to the projection's test module.
+  crates/op-codegen-pipeline/tests/rails_fixture.rs
+    - 4 new assertions on the e2e text output:
+      * idx_WorkPackage_status_id (Int-kind FK)
+      * idx_TimeEntry_work_package_id (Record-kind FK)
+      * !idx_WorkPackage_subject (Any-kind, no index)
+      * !idx_TimeEntry_hours (Any-kind, no index)
+
+Index emission policy:
+  fk_indexable(kind):   kind ∈ { Int, Record(_) }
+  for each fk-indexable field on a table:
+    emit DEFINE INDEX idx_<Table>_<col> ON TABLE <Table> FIELDS <col>;
+    immediately after the field line
+  index is NON-UNIQUE by default:
+    `has_one` 1:1 relations would warrant UNIQUE but that signal is
+    not in the current ruff vocabulary; non-unique is safe.
+
+Index naming:
+  idx_<Table>_<col>  e.g. idx_TimeEntry_work_package_id
+  - Table stays PascalCase (matches SurrealDB DEFINE TABLE name)
+  - col stays snake_case (matches the field name)
+  - mixed casing is fine in SurrealDB identifiers; the consistent
+    pattern (table identifier as emitted, field identifier as emitted)
+    keeps the index name a deterministic function of the inputs.
+
+Tests added in projection (3):
+  - is_fk_indexable_covers_int_and_record_but_not_any
+    (the centralised predicate, direct unit)
+  - surreal_text_emits_define_index_for_int_kind_column
+    (Int-only fixture; assert INDEX line present)
+  - surreal_text_emits_no_index_for_any_kind_columns
+    (Any-only fixture; assert NO INDEX lines anywhere)
+
+Tests updated in projection (2 existing expected-string tests):
+  - surreal_text_combines_required_and_kind_axes
+    (parent_id + status_id both Int-kind -> both get INDEX lines now;
+     expected string grows by 2 lines)
+  - surreal_text_emits_record_link_when_target_known
+    (work_package_id is Record-kind -> gets INDEX line;
+     expected string grows by 1 line)
+
+Tests added in pipeline integration (4 assertions, same test):
+  - assert DEFINE INDEX idx_WorkPackage_status_id present
+  - assert DEFINE INDEX idx_TimeEntry_work_package_id present
+  - assert !contains idx_WorkPackage_subject
+  - assert !contains idx_TimeEntry_hours
+
+Real-world emission from rails_mini fixture (filesystem-driven):
+  DEFINE TABLE TimeEntry SCHEMAFULL;
+  DEFINE FIELD hours ON TABLE TimeEntry TYPE any;
+  DEFINE FIELD work_package_id ON TABLE TimeEntry TYPE option<record<WorkPackage>>;
+  DEFINE INDEX idx_TimeEntry_work_package_id ON TABLE TimeEntry FIELDS work_package_id;
+  DEFINE TABLE WorkPackage SCHEMAFULL;
+  DEFINE FIELD status_id ON TABLE WorkPackage TYPE option<int>;
+  DEFINE INDEX idx_WorkPackage_status_id ON TABLE WorkPackage FIELDS status_id;
+  DEFINE FIELD subject ON TABLE WorkPackage TYPE any;
+
+Test counts:
+  op-codegen-bucket       7/7   (unchanged)
+  op-codegen-projection   26/26 (was 23, +3 new)
+  op-codegen-pipeline     9 unit + 6 integration = 15  (unchanged count;
+                                                       1 test gained 4 asserts)
+                          ----
+  total                   48/48
+
+Discipline kept:
+  - No API break: surreal_text signature unchanged; ColumnKind enum
+    unchanged. Pure additive emission widening.
+  - additive within our own codegen family
+  - no cross-repo coordination
+  - one sprint = one commit = one PR; ff push only; no force/rebase/squash
+  - fix-loop iterations: 1 (the two existing expected-string tests
+    correctly failed because the INDEX lines are now in the output;
+    updated to include them, then green)
+
+Policy: PR-driven, no patches in calibration/.
