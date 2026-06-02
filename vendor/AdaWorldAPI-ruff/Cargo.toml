@@ -1,0 +1,55 @@
+# vendor/AdaWorldAPI-ruff/Cargo.toml
+#
+# Standalone workspace root for the vendored ruff crate slice.
+#
+# WHY THIS FILE EXISTS
+# Codex PR #6 P1: the three vendored crates (ruff_openproject, ruff_ruby_spo,
+# ruff_spo_triplet) each use `{ workspace = true }` for their deps and lints —
+# matching the upstream AdaWorldAPI/ruff layout BYTE-EXACT (that's the point of
+# a mirror). Without a workspace root here, cargo walks up to nexgen's root
+# Cargo.toml, whose [workspace.dependencies] doesn't define ruff_ruby_spo /
+# ruff_spo_triplet / serde / serde_json — so the manifests fail to parse under
+# nexgen. This file gives the vendor a SEPARATE, nearest-ancestor workspace
+# root, supplying exactly the deps + lints those `workspace = true` references
+# resolve to. The vendored crate Cargo.tomls themselves stay unchanged from
+# upstream.
+#
+# SCOPE
+# This is a parsing/review aid, not a production build. The vendor mirror is
+# the source-of-truth for code review on PRs and for upstream re-application;
+# `cargo check --manifest-path vendor/AdaWorldAPI-ruff/Cargo.toml` should
+# parse cleanly here, but the full upstream ruff workspace (90+ crates) is not
+# vendored. To actually develop in the ruff fork, clone AdaWorldAPI/ruff and
+# work there — this directory is intentionally a slice.
+#
+# OUT OF SCOPE
+# nexgen's root [workspace] is unaffected. vendor/ is not a member of nexgen's
+# workspace (members are explicit, no glob), so the two workspaces do not
+# overlap and cargo treats each independently based on which manifest is
+# entered.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/ruff_openproject",
+    "crates/ruff_ruby_spo",
+    "crates/ruff_spo_triplet",
+]
+
+[workspace.dependencies]
+# Internal crates, path-resolved within this vendor slice.
+ruff_ruby_spo    = { path = "crates/ruff_ruby_spo" }
+ruff_spo_triplet = { path = "crates/ruff_spo_triplet" }
+# External crates the vendor needs. Versions match what upstream ruff's
+# root workspace pins (Cargo.toml lines 18-19 at the snapshot mirrored).
+serde            = { version = "1.0.197", features = ["derive"] }
+serde_json       = { version = "1.0.113" }
+
+# Empty lints tables so that `[lints] workspace = true` in the member
+# crates resolves to a no-op locally. The actual upstream ruff lints
+# (`unsafe_code = "warn"`, the clippy::pedantic set, etc.) are NOT mirrored
+# here — vendor parsing is the goal, not enforcing ruff's lint policy on
+# what is fundamentally a snapshot.
+[workspace.lints.rust]
+
+[workspace.lints.clippy]
