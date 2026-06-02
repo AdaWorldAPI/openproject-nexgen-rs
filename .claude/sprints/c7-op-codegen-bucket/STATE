@@ -1,0 +1,57 @@
+Sprint C7 — op-codegen-bucket: first concrete consumer of C6 + PR #8 P2 fix
+============================================================================
+Started/closed: 2026-06-02 (same session)
+Base: nexgen=075638c (post-PR-8 merge) + 65cd22d (PR #9 ?Sized fix, still open)
+Workbench: /home/user/lance-graph (read-only) + nexgen workspace itself
+
+Stack note: this sprint's single commit lands on top of the PR #9 fix-commit
+(both on `claude/beautiful-gates-dJo0u`). PR #9 will therefore show this
+commit too in its diff; reviewer can either merge them together or hold #9
+and let me re-orient C7 onto main if preferred. Stated in PR body.
+
+Outcome: GREEN. 7/7 tests pass in op-codegen-bucket. End-to-end demonstration
+         that C6 + PR #8 P2 do what they were designed to do.
+
+What landed (additive, all in nexgen):
+
+1. vendor/AdaWorldAPI-lance-graph/Cargo.toml         standalone workspace root
+2. vendor/AdaWorldAPI-lance-graph/crates/
+     lance-graph-contract/Cargo.toml                 minimal package manifest
+                          /src/lib.rs                exposes codegen_spine only
+                                                     (already-mirrored single
+                                                     file is now buildable)
+3. crates/op-codegen-bucket/Cargo.toml               new nexgen crate, path-dep
+                                                     on the vendor contract
+4. crates/op-codegen-bucket/src/lib.rs               OpHandlerKind enum (6
+                                                     sqlx kinds) + OpBucket
+                                                     struct + RouteBucketTyped
+                                                     impl + 7 tests
+5. Cargo.toml workspace.members                      add "crates/op-codegen-bucket"
+
+OpHandlerKind variants mirror the sqlx emit_kinds in target-spec/
+openproject-axum-sqlx.toml (Sprints C1-C3). When a future sprint adds a 7th
+sqlx kind (e.g. form_get_post, signed_link_action), add a variant; downstream
+matches stay valid.
+
+OpBucket impls RouteBucketTyped<Kind = OpHandlerKind> but NOT the legacy
+RouteBucket trait — per the C6 coherence rule, a type wanting Kind ≠
+OdooMethodKind must avoid RouteBucket. Documented in module + test prose.
+
+Test coverage demonstrates the four shapes the C6+P2 design promised:
+
+  - sized OpBucket through a generic over Kind=OpHandlerKind   [OK]
+  - erased &dyn RouteBucketTyped<Kind=OpHandlerKind>           [OK]
+  - sized legacy RouteBucket impl through Kind=OdooMethodKind  [OK]
+  - erased &dyn RouteBucket through Kind=OdooMethodKind        [OK]
+                                  (PR #8 P2 fix exercised here too)
+
+Discipline:
+  - additive: zero edits to ruff_openproject; zero edits to existing op-*
+    crates; new crate is a sibling
+  - vendor partial mirror is buildable; original codegen_spine file is
+    byte-exact to what lands in upstream
+  - one sprint = one commit (= this commit, stacked on PR #9's fix-commit)
+  - ff push only; no force/rebase/squash
+
+Policy: PR-driven, no patches in calibration/. Vendor partial-mirror + new
+nexgen crate are the reviewable form.

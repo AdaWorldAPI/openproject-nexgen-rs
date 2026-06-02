@@ -17,6 +17,7 @@ members = [
     "crates/op-queries",
     "crates/op-cli",
     "crates/op-server",
+    "crates/op-codegen-bucket",
 ]
 
 [workspace.package]
