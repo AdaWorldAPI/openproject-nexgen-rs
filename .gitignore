@@ -2,3 +2,4 @@ target/
 
 # Sprint C0 orchestration logs / A2A bus (ephemeral)
 .sprint/
+vendor/AdaWorldAPI-ruff/Cargo.lock
