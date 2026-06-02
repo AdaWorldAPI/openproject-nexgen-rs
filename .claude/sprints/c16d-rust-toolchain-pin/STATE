@@ -1,0 +1,38 @@
+# Sprint C16d — nexgen rust-toolchain pin
+
+## Why
+The AdaWorldAPI ecosystem is pinned to rust 1.95 (with the rest of the
+stack on lance 7.0.0, lance-index 7.0.0, lancedb 0.30.0, datafusion 53,
+arrow 58, ndarray fork with std+hpc-extras for crate::simd::*).
+Surrealdb fork already has rust-toolchain.toml with channel="1.95".
+Ndarray fork too. Nexgen was the odd one out — no rust-toolchain.toml,
+no rust-version field in [workspace.package]. Container default was
+1.94.1, so builds were running on a non-spec toolchain.
+
+## What landed
+- rust-toolchain.toml — `channel = "1.95"` (no patch; matches surrealdb
+  fork pattern, which explicitly warns against patch versions)
+- Cargo.toml `[workspace.package].rust-version = "1.95"` — propagates
+  to every sub-crate via workspace inheritance
+
+## Verified
+- rustup auto-installed 1.95.0 on toolchain pickup
+- All 72 codegen-family tests pass on 1.95:
+  bucket 7 + projection 26 + pipeline 9+6 + cli 7 + ast 17 = 72
+
+## Cross-references
+- Surrealdb fork: rust-toolchain.toml already at `channel = "1.95"`
+- Ndarray fork: rust-toolchain.toml at `channel = "1.95.0"` (with
+  patch — minor inconsistency with surrealdb's "no patch" rule, not
+  fixed in this sprint)
+- Knowledge doc on the ecosystem pin matrix: lives in surrealdb fork
+  at `.claude/knowledge/adaworldapi-pinning.md` (commit 07b1e2a on
+  the surrealdb fork claude/beautiful-gates-dJo0u branch)
+
+## Out of scope for this sprint
+- Surrealdb fork pin updates: not needed — already on spec. PR #33
+  for C16b has the verification table in its body.
+- Nexgen direct deps on lance/arrow/datafusion: nexgen doesn't pull
+  them today (op-codegen pipeline is pure rust). When C16c adds a
+  dep on surrealdb-core, those pins inherit transitively from
+  surrealdb-core's Cargo.toml.
