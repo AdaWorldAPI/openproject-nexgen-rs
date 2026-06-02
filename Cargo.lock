@@ -1502,6 +1502,7 @@ name = "op-codegen-projection"
 version = "0.1.0"
 dependencies = [
  "lance-graph-contract",
+ "op-surreal-ast",
 ]
 
 [[package]]
@@ -1647,6 +1648,10 @@ dependencies = [
  "tokio",
  "tracing",
 ]
+
+[[package]]
+name = "op-surreal-ast"
+version = "0.1.0"
 
 [[package]]
 name = "op-users"
