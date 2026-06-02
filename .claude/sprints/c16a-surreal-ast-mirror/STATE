@@ -1,0 +1,54 @@
+# Sprint C16a — op-surreal-ast Mirror
+
+## Goal
+Replace format!-based DDL emission in op-codegen-projection with a typed
+AST (op-surreal-ast), structurally mirroring surrealdb-core's
+catalog::TableDefinition / FieldDefinition / IndexDefinition DDL slots.
+
+## Why mirror, not import canonical
+- surrealdb-core::sql::statements::DefineTableStatement is pub(crate)
+- catalog::TableDefinition is pub but fields are pub(crate), constructor
+  demands runtime IDs (namespace_id, database_id, table_id) + cache UUIDs
+- surrealdb-core's full build is heavy (rust 1.95, tokio, async-graphql,
+  optional lance/rocksdb deps) — disproportional for "emit DDL"
+
+Mirror is the bridge: typed slots that match canonical shape so a future
+`From<op_surreal_ast::TableDefinition> for catalog::TableDefinition` impl
+(once C16b adds DDL-friendly setters in the surrealdb fork) is mechanical.
+
+## Public API
+  op_surreal_ast::ToSql              — trait (mirror of surrealdb_types::ToSql)
+  op_surreal_ast::SqlFormat          — enum (SingleLine | Indented(u8))
+  op_surreal_ast::Kind               — Any | Int | Record(Vec<String>) | Option(Box<Kind>)
+  op_surreal_ast::TableDefinition    — DDL slots only (no runtime/cache fields)
+  op_surreal_ast::FieldDefinition    — DDL slots only
+  op_surreal_ast::IndexDefinition    — DDL slots only
+  op_surreal_ast::Schema             — top-level container
+
+## Tests
+  72/72 green
+    bucket     7   (unchanged)
+    projection 26  (unchanged — same e2e expectations, typed mechanics inside)
+    pipeline   15  (unchanged)
+    cli        7   (unchanged)
+    ast        17  (new — Kind, Field, Index, Table, Schema each + e2e against
+                    the C9-C15 reference output byte-for-byte)
+
+## Verified hands-on
+  op-codegen rails_mini output is BYTE-IDENTICAL to PR #19 reference.
+
+## C16b follow-up (needs PAT for surrealdb fork)
+Patch AdaWorldAPI/surrealdb on claude/beautiful-gates-dJo0u:
+  1. Add DDL-friendly setters to catalog::TableDefinition (with_schemafull,
+     with_view, with_table_type, etc.)
+  2. Add new_for_ddl(name) constructor that supplies dummy
+     namespace_id/database_id/table_id and now() cache UUIDs
+  3. Either keep field-level pub(crate) and rely on setters, OR flip
+     pub(crate) → pub on DDL slots — TBD
+
+Then in op-surreal-ast: add `From<TableDefinition> for catalog::TableDefinition`
+and switch op-codegen-projection to render through the canonical path.
+
+## Cargo check on surrealdb-core (background, this sprint)
+  surrealdb-core --no-default-features → exit 0 in 5m 45s
+  → confirms minimal compile is viable for future C16b dep

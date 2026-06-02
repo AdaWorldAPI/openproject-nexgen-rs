@@ -1,0 +1,10 @@
+[package]
+name = "op-surreal-ast"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "op_surreal_ast"
+
+[dependencies]

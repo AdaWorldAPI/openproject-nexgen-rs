@@ -355,30 +355,58 @@ impl TripletProjection for OpSurrealProjection {
 /// vocabulary; non-unique is the safe default.
 #[must_use]
 pub fn surreal_text(c: &OpSurrealConst) -> String {
-    let mut out = String::new();
+    use op_surreal_ast::ToSql;
+    build_ast_schema(c).to_sql()
+}
+
+/// Lower the projection IR to a typed [`op_surreal_ast::Schema`] tree.
+///
+/// C16a: this is the single bridge between the IR (`OpSurrealConst`) and
+/// the typed AST. Rendering goes via the AST's `ToSql` impls — no more
+/// `format!` strings here. Future sprints add capability by extending
+/// either side independently:
+///   - new IR signal (e.g. C18 `has_many`) → new `ColumnKind` variant
+///     above and a new arm in [`column_kind_to_ast_kind`]
+///   - new SurrealQL slot (e.g. C24 scopes → `DEFINE TABLE … AS SELECT`)
+///     → new field on `op_surreal_ast::TableDefinition`, filled here
+fn build_ast_schema(c: &OpSurrealConst) -> op_surreal_ast::Schema {
+    let mut schema = op_surreal_ast::Schema::new();
     for table in &c.tables {
-        out.push_str(&format!("DEFINE TABLE {} SCHEMAFULL;\n", table.name));
+        let mut t = op_surreal_ast::TableDefinition::new(table.name.clone());
         for field in &table.fields {
-            let kind = field.kind.surreal_token();
-            let ty = if field.required {
-                kind.to_string()
-            } else {
-                format!("option<{kind}>")
-            };
-            out.push_str(&format!(
-                "DEFINE FIELD {} ON TABLE {} TYPE {};\n",
-                field.name, table.name, ty,
+            let mut kind = column_kind_to_ast_kind(&field.kind);
+            if !field.required {
+                kind = kind.optional();
+            }
+            t = t.with_field(op_surreal_ast::FieldDefinition::new(
+                field.name.clone(),
+                table.name.clone(),
+                kind,
             ));
             if is_fk_indexable(&field.kind) {
-                out.push_str(&format!(
-                    "DEFINE INDEX idx_{table}_{col} ON TABLE {table} FIELDS {col};\n",
-                    table = table.name,
-                    col = field.name,
+                t = t.with_index(op_surreal_ast::IndexDefinition::new(
+                    format!("idx_{}_{}", table.name, field.name),
+                    table.name.clone(),
+                    vec![field.name.clone()],
                 ));
             }
         }
+        schema = schema.with_table(t);
     }
-    out
+    schema
+}
+
+/// Map a projection-level [`ColumnKind`] to the typed AST [`op_surreal_ast::Kind`].
+/// One arm per `ColumnKind` variant — extending the IR enum forces a
+/// compile error here, so we never silently miss a mapping.
+fn column_kind_to_ast_kind(k: &ColumnKind) -> op_surreal_ast::Kind {
+    match k {
+        ColumnKind::Any => op_surreal_ast::Kind::Any,
+        ColumnKind::Int => op_surreal_ast::Kind::Int,
+        ColumnKind::Record(target) => {
+            op_surreal_ast::Kind::Record(vec![target.clone()])
+        }
+    }
 }
 
 /// `true` for FK-shaped columns that warrant an index — currently the

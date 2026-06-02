@@ -20,6 +20,7 @@ members = [
     "crates/op-codegen-bucket",
     "crates/op-codegen-projection",
     "crates/op-codegen-pipeline",
+    "crates/op-surreal-ast",
 ]
 
 # Vendor mirrors have their own standalone workspaces (see
