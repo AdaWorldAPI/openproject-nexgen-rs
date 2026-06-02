@@ -252,4 +252,40 @@ DEFINE FIELD subject ON TABLE WorkPackage TYPE option<any>;
         assert!(CORE_V3_RESOURCES.iter().any(|r| *r == "WorkPackage"));
         assert!(CORE_V3_RESOURCES.iter().any(|r| *r == "TimeEntry"));
     }
+
+    // ----- C10: validated-column requiredness through the full pipeline -----
+
+    #[test]
+    fn pipeline_validate_function_marks_field_as_required() {
+        // Construct a Rails-shape graph where WorkPackage declares
+        // `validates :subject, presence: true`. ruff_ruby_spo turns that
+        // into a synthetic `_validate` Function with reads=[subject];
+        // ruff_spo_triplet::expand emits the canonical triples; the
+        // C10 projection picks them up and marks `subject` required.
+        use ruff_spo_triplet::Function;
+        let mut g = synthetic_op_graph();
+        g.models[0].functions.push(Function {
+            name: "_validate".to_string(),
+            reads: vec!["subject".to_string()],
+            raises: vec!["ActiveRecord::RecordInvalid".to_string()],
+            traverses: Vec::new(),
+        });
+
+        let triples = expand(&g);
+        let (c, text) = render_surreal_from_ruff(&triples);
+
+        let wp = c.tables.iter().find(|t| t.name == "WorkPackage").unwrap();
+        let subject = wp.fields.iter().find(|f| f.name == "subject").unwrap();
+        let status = wp.fields.iter().find(|f| f.name == "status").unwrap();
+        assert!(subject.required, "validated column must be required");
+        assert!(!status.required, "non-validated column stays optional");
+
+        // And the emission reflects it.
+        assert!(text.contains("DEFINE FIELD subject ON TABLE WorkPackage TYPE any;"));
+        assert!(text.contains("DEFINE FIELD status ON TABLE WorkPackage TYPE option<any>;"));
+
+        // Contract still holds.
+        roundtrip_eq::<OpSurrealProjection>(&bridge_triples(&triples))
+            .expect("validation triples round-trip via the opaque trail");
+    }
 }
