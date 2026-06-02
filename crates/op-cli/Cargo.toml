@@ -3,5 +3,13 @@ name = "op-cli"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "op_cli"
+
+[[bin]]
+name = "op-codegen"
+path = "src/main.rs"
+
 [dependencies]
-op-core = { path = "../op-core" }
+op-core               = { path = "../op-core" }
+op-codegen-pipeline   = { path = "../op-codegen-pipeline" }

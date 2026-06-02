@@ -1,0 +1,95 @@
+Sprint C15 — op-cli: op-codegen binary shipping the C9..C14 pipeline
+=====================================================================
+Started/closed: 2026-06-02 (same session)
+Base: nexgen=7276f53 (post-C14 merge of PR #18)
+
+Outcome: GREEN. 55/55 tests across the codegen family + cli (bucket 7
+         + projection 26 + pipeline 15 + cli 7). Was 48; +7 new in
+         op-cli. Binary verified hands-on against the rails_mini
+         fixture (stdout = SurrealQL DDL, exit codes 0/1/2 correct).
+
+What landed:
+  crates/op-cli/
+    - Cargo.toml: declares [lib] name = op_cli AND a [[bin]] target
+      `op-codegen` -> src/main.rs. Adds the op-codegen-pipeline dep.
+      Keeps the pre-existing op-core dep untouched.
+    - src/lib.rs (was a stub):
+      * pub enum CliError { Usage(String), PathNotFound(String) }
+        with Display + Error
+      * pub const EXIT_USAGE = 2, EXIT_IO = 1, USAGE = "usage: ..."
+      * pub fn run_codegen(rails_root: &Path) -> Result<String, CliError>
+        - composes extract_core_triples + render_surreal_from_ruff
+        - returns Err(PathNotFound) if path is not a directory
+      * pub fn dispatch_codegen(argv: &[String]) -> Result<String, CliError>
+        - exact-one-arg parser; -h / --help yield Usage; too-many-args
+          yield Usage with an "(N given)" tail
+    - src/main.rs (new):
+      * thin shell: skip argv[0], call dispatch_codegen, print/eprintln
+        + ExitCode::from(EXIT_USAGE | EXIT_IO) on errors
+    - tests/cli_smoke.rs (new):
+      * 7 tests covering run_codegen happy path, run_codegen IO errors
+        (nonexistent, file-not-dir), dispatch (no args, -h, --help,
+        too many, valid)
+
+The shared fixture trick:
+  op-cli's tests reference the rails_mini fixture from the pipeline
+  crate via CARGO_MANIFEST_DIR + ../op-codegen-pipeline/tests/fixtures
+  to avoid duplication. Both crates' e2e expectations stay pinned to
+  the same source of truth.
+
+End-to-end behaviour (verified hands-on):
+  $ target/debug/op-codegen
+  usage: op-codegen <rails-app-path>            # stderr
+  $? -> 2
+
+  $ target/debug/op-codegen /nonexistent
+  error: path does not exist or is not a directory: /nonexistent   # stderr
+  $? -> 1
+
+  $ target/debug/op-codegen crates/op-codegen-pipeline/tests/fixtures/rails_mini
+  DEFINE TABLE TimeEntry SCHEMAFULL;
+  DEFINE FIELD hours ON TABLE TimeEntry TYPE any;
+  DEFINE FIELD work_package_id ON TABLE TimeEntry TYPE option<record<WorkPackage>>;
+  DEFINE INDEX idx_TimeEntry_work_package_id ON TABLE TimeEntry FIELDS work_package_id;
+  DEFINE TABLE WorkPackage SCHEMAFULL;
+  DEFINE FIELD status_id ON TABLE WorkPackage TYPE option<int>;
+  DEFINE INDEX idx_WorkPackage_status_id ON TABLE WorkPackage FIELDS status_id;
+  DEFINE FIELD subject ON TABLE WorkPackage TYPE any;
+  $? -> 0
+
+Test counts (delta from C14 base 48):
+  op-codegen-bucket       7/7   (unchanged)
+  op-codegen-projection   26/26 (unchanged)
+  op-codegen-pipeline     15/15 (unchanged)
+  op-cli                  7/7   (NEW - was 0; +7)
+                          ----
+  total                   55/55
+
+Tests added in op-cli (7):
+  - run_codegen_on_rails_mini_emits_expected_define_statements
+    (cross-section of C9..C14 emission shapes in one assertion block)
+  - run_codegen_rejects_non_existent_path
+  - run_codegen_rejects_file_path_pointing_at_a_non_directory
+    (is_dir() vs exists() distinction)
+  - dispatch_codegen_with_no_args_returns_usage
+  - dispatch_codegen_with_help_flag_returns_usage  (both -h and --help)
+  - dispatch_codegen_with_too_many_args_returns_usage
+    (asserts both the USAGE prefix AND the "too many arguments (3
+    given)" detail)
+  - dispatch_codegen_with_valid_path_returns_ddl_text
+    (dispatcher-level happy path, complementary to the library
+    run_codegen happy path)
+
+Discipline kept:
+  - No API break to op-codegen-projection, op-codegen-pipeline,
+    op-codegen-bucket, op-* legacy crates, or vendor mirrors.
+  - The only crate modified is op-cli (which was a stub).
+  - additive within our own codegen family
+  - no cross-repo coordination
+  - one sprint = one commit = one PR; ff push only; no force/rebase/squash
+  - fix-loop iterations: 1 (first cargo check failed because two of
+    my Writes for Cargo.toml + lib.rs were rejected by the "read
+    first" rule; re-reading + re-writing closed the loop. Once compile
+    succeeded, every test passed on first run.)
+
+Policy: PR-driven, no patches in calibration/.
