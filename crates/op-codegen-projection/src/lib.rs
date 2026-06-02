@@ -68,53 +68,94 @@ pub struct DefineField {
     /// `_validate` function on the same table — corresponds to an
     /// ActiveRecord `validates :col, presence: true` declaration).
     pub required: bool,
-    /// The SurrealQL primitive inferred for this field — currently by
-    /// name-suffix convention (see [`ColumnKind::infer`]). Future sprints
-    /// will replace the heuristic with the upstream `has_type` predicate.
+    /// The SurrealQL primitive inferred for this field — today by
+    /// name-suffix convention plus a known-table join (see
+    /// [`ColumnKind::infer`]). Future sprints will replace the
+    /// heuristic with the upstream `has_type` / `references` predicates.
     pub kind: ColumnKind,
 }
 
 /// SurrealQL primitive type for a [`DefineField`].
 ///
-/// Today this is derived from the field name by [`Self::infer`] (a
-/// stopgap until the upstream `ruff_spo_triplet` vocabulary grows a
-/// `has_type` predicate — see C12 PR body). When a future sprint adds
-/// that vocabulary, the projection's third pass will replace the
-/// heuristic with triple lookups; the enum surface stays.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Today this is derived from the field name + the set of known tables
+/// by [`Self::infer`] (a stopgap until the upstream `ruff_spo_triplet`
+/// vocabulary grows proper `has_type` / `references` predicates — see
+/// C13 PR body). When a future sprint adds those, the projection's
+/// inference path will be replaced with triple lookups; the enum
+/// surface stays.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ColumnKind {
     /// Unknown / heterogeneous (`any` in SurrealQL).
     Any,
     /// Integer (`int` in SurrealQL). Inferred from the canonical Rails
-    /// foreign-key naming `*_id`.
+    /// foreign-key naming `*_id` when the implied target table is NOT a
+    /// known model in the same projection — typical for `status_id`,
+    /// `category_id`, etc. that point at lookup tables not in scope.
     Int,
+    /// Reference to another table (`record<Target>` in SurrealQL).
+    /// Inferred from `*_id` when the implied target IS a known table in
+    /// the projection — promotes the field from a bare int to a typed
+    /// SurrealDB record link.
+    Record(String),
 }
 
 impl ColumnKind {
     /// The SurrealQL type token (inside any `option<…>` wrapper).
+    /// Allocates a `String` for [`Self::Record`] (which carries a
+    /// dynamic table name); the other variants render to a constant
+    /// string but go through `String` for a uniform return type.
     #[must_use]
-    pub const fn surreal_token(self) -> &'static str {
+    pub fn surreal_token(&self) -> String {
         match self {
-            Self::Any => "any",
-            Self::Int => "int",
+            Self::Any => "any".to_string(),
+            Self::Int => "int".to_string(),
+            Self::Record(target) => format!("record<{target}>"),
         }
     }
 
-    /// Infer the column kind from a field name. Rules (closed list,
-    /// expanded only when the convention is ironclad in Rails):
+    /// Infer the column kind from a field name plus the set of known
+    /// tables in the projection. Rules (closed; expanded only when the
+    /// convention is ironclad in Rails):
     ///
-    /// - `*_id` → [`Self::Int`] (ActiveRecord foreign-key convention; any
-    ///   `<assoc>_id` column on an AR table is the integer id of a
-    ///   related record).
-    /// - everything else → [`Self::Any`].
+    /// - field name ends with `_id`:
+    ///   - strip `_id`, snake-to-PascalCase the stem, look up in
+    ///     `known_tables` — if present, [`Self::Record`] with that name
+    ///     (`work_package_id` → `record<WorkPackage>` if WorkPackage is
+    ///     a known table)
+    ///   - otherwise [`Self::Int`] (lookup-table FK we don't model)
+    /// - everything else → [`Self::Any`]
     #[must_use]
-    pub fn infer(field_name: &str) -> Self {
-        if field_name.ends_with("_id") {
-            Self::Int
+    pub fn infer(field_name: &str, known_tables: &BTreeSet<String>) -> Self {
+        let Some(stem) = field_name.strip_suffix("_id") else {
+            return Self::Any;
+        };
+        if stem.is_empty() {
+            // `_id` alone is degenerate; treat as a plain int.
+            return Self::Int;
+        }
+        let pascal = snake_to_pascal(stem);
+        if known_tables.contains(&pascal) {
+            Self::Record(pascal)
         } else {
-            Self::Any
+            Self::Int
         }
     }
+}
+
+/// `work_package` → `WorkPackage`; `time_entry` → `TimeEntry`;
+/// `project` → `Project`. Splits on `_`, uppercases the first char of
+/// each non-empty segment, concatenates. ASCII-safe; non-ASCII chars
+/// pass through unchanged.
+fn snake_to_pascal(snake: &str) -> String {
+    let mut out = String::with_capacity(snake.len());
+    for word in snake.split('_') {
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            out.extend(first.to_uppercase());
+            out.extend(chars);
+        }
+    }
+    out
 }
 
 /// The Const form of [`OpSurrealProjection`]. Carries the structured DDL IR
@@ -238,6 +279,11 @@ impl TripletProjection for OpSurrealProjection {
             }
         }
 
+        // Snapshot the set of known table names BEFORE consuming `tables`
+        // below — `ColumnKind::infer` joins `*_id` fields against this set
+        // to decide Int vs Record<Target>.
+        let known_tables: BTreeSet<String> = tables.keys().cloned().collect();
+
         let structured: Vec<DefineTable> = tables
             .into_iter()
             .map(|(table_name, fields)| {
@@ -245,7 +291,7 @@ impl TripletProjection for OpSurrealProjection {
                     .into_iter()
                     .map(|field_name| DefineField {
                         required: required.contains(&(table_name.clone(), field_name.clone())),
-                        kind: ColumnKind::infer(&field_name),
+                        kind: ColumnKind::infer(&field_name, &known_tables),
                         name: field_name,
                     })
                     .collect();
@@ -583,41 +629,53 @@ DEFINE FIELD subject ON TABLE WorkPackage TYPE any;
             .expect("validation triples round-trip via the opaque trail");
     }
 
-    // ----- C12: ColumnKind inference (`*_id` -> Int) -----
+    // ----- C12 + C13: ColumnKind inference (`*_id` -> Int or Record<Target>) -----
+
+    /// Empty known-tables set: convenience for tests where the FK target
+    /// join is intentionally a miss (i.e. the field should fall back to
+    /// `Int` / `Any`).
+    fn no_tables() -> BTreeSet<String> {
+        BTreeSet::new()
+    }
 
     #[test]
-    fn column_kind_infer_recognises_id_suffix_as_int() {
-        // The single ironclad Rails convention this sprint enacts.
-        assert_eq!(ColumnKind::infer("status_id"), ColumnKind::Int);
-        assert_eq!(ColumnKind::infer("work_package_id"), ColumnKind::Int);
-        assert_eq!(ColumnKind::infer("user_id"), ColumnKind::Int);
+    fn column_kind_infer_recognises_id_suffix_as_int_when_target_unknown() {
+        // No tables known -> _id columns fall back to Int (the C12 rule).
+        let known = no_tables();
+        assert_eq!(ColumnKind::infer("status_id", &known), ColumnKind::Int);
+        assert_eq!(ColumnKind::infer("work_package_id", &known), ColumnKind::Int);
+        assert_eq!(ColumnKind::infer("user_id", &known), ColumnKind::Int);
     }
 
     #[test]
     fn column_kind_infer_defaults_to_any_for_non_id_columns() {
-        assert_eq!(ColumnKind::infer("subject"), ColumnKind::Any);
-        assert_eq!(ColumnKind::infer("hours"), ColumnKind::Any);
+        let known = no_tables();
+        assert_eq!(ColumnKind::infer("subject", &known), ColumnKind::Any);
+        assert_eq!(ColumnKind::infer("hours", &known), ColumnKind::Any);
         // Bare "id" without underscore: defensible either way. The rule is
         // SUFFIX `_id` so a column literally named "id" stays Any (it is
         // typically the primary key anyway and Surreal handles that via
         // RECORD ids, not user-declared fields).
-        assert_eq!(ColumnKind::infer("id"), ColumnKind::Any);
+        assert_eq!(ColumnKind::infer("id", &known), ColumnKind::Any);
         // Identifier-like substring in the middle / start: not matched.
-        assert_eq!(ColumnKind::infer("id_check"), ColumnKind::Any);
-        assert_eq!(ColumnKind::infer("identifier"), ColumnKind::Any);
+        assert_eq!(ColumnKind::infer("id_check", &known), ColumnKind::Any);
+        assert_eq!(ColumnKind::infer("identifier", &known), ColumnKind::Any);
     }
 
     #[test]
-    fn column_kind_surreal_token_is_lowercase() {
-        // The DEFINE FIELD … TYPE <kind> rendering. Stable; never reformat.
+    fn column_kind_surreal_token_renders_each_variant() {
         assert_eq!(ColumnKind::Any.surreal_token(), "any");
         assert_eq!(ColumnKind::Int.surreal_token(), "int");
+        assert_eq!(
+            ColumnKind::Record("WorkPackage".to_string()).surreal_token(),
+            "record<WorkPackage>"
+        );
     }
 
     #[test]
-    fn project_marks_id_suffixed_columns_as_int_kind() {
-        // End-to-end: the inference fires at project-time so consumers
-        // walking c.tables see typed fields without re-running the rule.
+    fn project_marks_id_suffixed_columns_as_int_kind_when_target_unknown() {
+        // End-to-end through project(): only WorkPackage exists, so
+        // status_id falls back to Int (no Status table known).
         let triples = vec![
             t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType", 1.0, 0.9),
             t("openproject:WorkPackage.subject", "rdf:type", "ogit:Property", 1.0, 0.9),
@@ -668,6 +726,123 @@ DEFINE FIELD parent_id ON TABLE WorkPackage TYPE int;
 DEFINE FIELD status ON TABLE WorkPackage TYPE option<any>;
 DEFINE FIELD status_id ON TABLE WorkPackage TYPE option<int>;
 DEFINE FIELD subject ON TABLE WorkPackage TYPE any;
+";
+        assert_eq!(text, expected);
+    }
+
+    // ----- C13: FK record link inference via known-tables join -----
+
+    #[test]
+    fn column_kind_infer_promotes_known_target_to_record() {
+        let mut known = BTreeSet::new();
+        known.insert("WorkPackage".to_string());
+        known.insert("User".to_string());
+        // work_package_id -> strip -> work_package -> WorkPackage -> known
+        assert_eq!(
+            ColumnKind::infer("work_package_id", &known),
+            ColumnKind::Record("WorkPackage".to_string())
+        );
+        // user_id -> User -> known
+        assert_eq!(
+            ColumnKind::infer("user_id", &known),
+            ColumnKind::Record("User".to_string())
+        );
+        // status_id -> Status -> NOT known -> Int fallback
+        assert_eq!(ColumnKind::infer("status_id", &known), ColumnKind::Int);
+    }
+
+    #[test]
+    fn snake_to_pascal_handles_multi_word_and_single_word() {
+        // Direct unit on the helper. Stable; the round-trip from Rails
+        // table names (snake_case singular) to model class names (Pascal)
+        // is load-bearing for FK record-link inference.
+        assert_eq!(snake_to_pascal("project"), "Project");
+        assert_eq!(snake_to_pascal("work_package"), "WorkPackage");
+        assert_eq!(snake_to_pascal("time_entry"), "TimeEntry");
+        assert_eq!(snake_to_pascal("a_b_c"), "ABC");
+        // Edge: empty segments (leading / trailing / double underscore)
+        // are skipped silently.
+        assert_eq!(snake_to_pascal(""), "");
+        assert_eq!(snake_to_pascal("_foo"), "Foo");
+        assert_eq!(snake_to_pascal("foo__bar"), "FooBar");
+    }
+
+    #[test]
+    fn project_promotes_fk_to_record_when_target_table_present() {
+        // Two tables in the projection: TimeEntry and WorkPackage. The
+        // `work_package_id` field on TimeEntry resolves to the known
+        // WorkPackage table -> Record. The hypothetical `status_id` field
+        // on WorkPackage falls back to Int (no Status table declared).
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType", 1.0, 0.9),
+            t("openproject:TimeEntry", "rdf:type", "ogit:ObjectType", 1.0, 0.9),
+            t(
+                "openproject:WorkPackage.status_id",
+                "rdf:type",
+                "ogit:Property",
+                1.0,
+                0.9,
+            ),
+            t(
+                "openproject:TimeEntry.work_package_id",
+                "rdf:type",
+                "ogit:Property",
+                1.0,
+                0.9,
+            ),
+        ];
+        let c = OpSurrealProjection::project(&triples);
+        let te = c.tables.iter().find(|t| t.name == "TimeEntry").unwrap();
+        let wp = c.tables.iter().find(|t| t.name == "WorkPackage").unwrap();
+        let wp_id = te
+            .fields
+            .iter()
+            .find(|f| f.name == "work_package_id")
+            .unwrap();
+        let status_id = wp.fields.iter().find(|f| f.name == "status_id").unwrap();
+        assert_eq!(wp_id.kind, ColumnKind::Record("WorkPackage".to_string()));
+        assert_eq!(status_id.kind, ColumnKind::Int);
+    }
+
+    #[test]
+    fn surreal_text_emits_record_link_when_target_known() {
+        // Full matrix: optional+Record, required+Record, plus the C12 cells
+        // for contrast.
+        let mut triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType", 1.0, 0.9),
+            t("openproject:TimeEntry", "rdf:type", "ogit:ObjectType", 1.0, 0.9),
+            t(
+                "openproject:TimeEntry.work_package_id",
+                "rdf:type",
+                "ogit:Property",
+                1.0,
+                0.9,
+            ),
+            t(
+                "openproject:TimeEntry.hours",
+                "rdf:type",
+                "ogit:Property",
+                1.0,
+                0.9,
+            ),
+        ];
+        // _validate marks work_package_id as required.
+        triples.push(t(
+            "openproject:TimeEntry._validate",
+            "reads_field",
+            "openproject:TimeEntry.work_package_id",
+            1.0,
+            0.7,
+        ));
+
+        let c = OpSurrealProjection::project(&triples);
+        let text = surreal_text(&c);
+
+        let expected = "\
+DEFINE TABLE TimeEntry SCHEMAFULL;
+DEFINE FIELD hours ON TABLE TimeEntry TYPE option<any>;
+DEFINE FIELD work_package_id ON TABLE TimeEntry TYPE record<WorkPackage>;
+DEFINE TABLE WorkPackage SCHEMAFULL;
 ";
         assert_eq!(text, expected);
     }
