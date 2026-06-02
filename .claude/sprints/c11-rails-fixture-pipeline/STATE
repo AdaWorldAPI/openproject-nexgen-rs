@@ -1,0 +1,68 @@
+Sprint C11 — op-codegen-pipeline: rails_mini filesystem fixture integration
+==============================================================================
+Started/closed: 2026-06-02 (same session)
+Base: nexgen=c8614c0 (post-C10 merge of PR #14)
+
+Outcome: GREEN. 35/35 tests pass across the codegen family.
+         First filesystem-driven test of the e2e pipeline. The 9 existing
+         pipeline unit tests built triples in-process from synthetic
+         ModelGraph; the new 6 integration tests drive ruff's actual disk
+         walker against a hermetic minimal Rails fixture.
+
+What landed (additive, in-repo only, no cross-repo coordination):
+  crates/op-codegen-pipeline/tests/rails_fixture.rs            new integration suite
+  crates/op-codegen-pipeline/tests/fixtures/rails_mini/        hermetic fixture
+    app/models/work_package.rb                                  (validates :subject)
+    app/models/time_entry.rb                                    (validates :hours)
+    app/models/adhoc_thing.rb                                   (non-core; filter test)
+    db/schema.rb                                                3 tables w/ columns
+
+Fixture-strategy choice:
+  - NOT a copy/symlink of vendor/.../tests/fixtures/openproject — upstream may
+    evolve that fixture; this one is owned here so the assertions stay stable.
+  - Minimal but realistic: 2 core models (WP+TE both in CORE_V3_RESOURCES),
+    1 non-core (AdhocThing) to exercise filter_to_core / extract_core_triples,
+    declarative validates on both core models to drive C10's required path
+    end-to-end from disk.
+
+Tests added (6 integration):
+  - fixture_extracts_all_three_models_from_filesystem
+    (the basic walk works; sort order is deterministic)
+  - fixture_extracts_schema_columns_per_model
+    (db/schema.rb columns join onto the right model)
+  - core_filter_drops_non_core_adhoc_model
+    (extract_core_triples filters non-core resources)
+  - full_pipeline_emits_expected_surql_from_filesystem
+    (C10 required-field detection ALL THE WAY from disk:
+     WorkPackage.subject + TimeEntry.hours -> TYPE any;
+     status_id + work_package_id -> TYPE option<any>)
+  - pipeline_roundtrip_eq_on_real_filesystem_extraction
+    (the C6 contract gate on the REAL extraction output —
+     not a hand-rolled ModelGraph)
+  - filter_to_core_on_graph_keeps_core_drops_adhoc
+    (belt-and-braces; in-memory filter behaves identically)
+
+Test totals:
+  op-codegen-bucket       7/7   (unchanged)
+  op-codegen-projection   13/13 (unchanged)
+  op-codegen-pipeline     9 unit + 6 integration = 15  (was 9)
+                          ----
+  total                   35/35
+
+Assertion shape choice:
+  Used line-by-line `assert!(text.contains(...))` instead of full-string
+  comparison. A future C-sprint that adds PERMISSIONS / ASSERT clauses
+  would otherwise force every pipeline test to update in lockstep. The
+  contains-style asserts pin only the load-bearing C10 / C8 semantics
+  this sprint introduces.
+
+Discipline kept:
+  - additive: only NEW files. Zero edits to op-codegen-projection /
+    op-codegen-bucket / op-codegen-pipeline/src/lib.rs / op-* / vendor.
+  - no cross-repo coordination: deferred C11-ruff-schema-types and
+    C11-ruff-fk-predicate (both required vendor + upstream PRs) in favor
+    of this in-repo demonstration.
+  - one sprint = one commit = one PR; ff push only; no force/rebase/squash
+  - fix-loop iterations: 0 (first cargo test green)
+
+Policy: PR-driven, no patches in calibration/.
