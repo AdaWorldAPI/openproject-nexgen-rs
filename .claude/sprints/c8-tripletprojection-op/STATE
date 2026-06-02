@@ -1,0 +1,57 @@
+Sprint C8 — op-codegen-projection: TripletProjection impl + SurrealQL DDL emitter
+====================================================================================
+Started/closed: 2026-06-02 (same session)
+Base: nexgen=ba83a85 (post-PR-11 merge)
+Workbench: nexgen workspace directly (vendored lance-graph-contract)
+
+Outcome: GREEN. 8/8 tests pass in op-codegen-projection.
+         Second concrete consumer of C6 (after op-codegen-bucket).
+         First concrete write-side surface: SurrealQL DEFINE TABLE / DEFINE FIELD
+         emission from a strict-roundtrip `TripletProjection`.
+
+What landed (additive, all in nexgen):
+  crates/op-codegen-projection/Cargo.toml   new crate, path-dep on vendor
+  crates/op-codegen-projection/src/lib.rs   OpSurrealConst IR + Projection impl
+                                            + surreal_text() emitter + 8 tests
+  Cargo.toml workspace.members              add "crates/op-codegen-projection"
+
+Public surface:
+  pub struct DefineTable { name, fields }
+  pub struct DefineField { name }
+  pub struct OpSurrealConst { tables, triples }    // dual-purpose Const
+  pub struct OpSurrealProjection;
+  impl TripletProjection for OpSurrealProjection {
+      type Const = OpSurrealConst;
+      fn project(&[Triple]) -> OpSurrealConst;
+      fn decompile(&OpSurrealConst) -> Vec<Triple>;
+      // truth_tolerance() defaults to 0.0 (strict)
+  }
+  pub fn surreal_text(&OpSurrealConst) -> String;
+
+The dual-Const trick (closes M1 R3 + R4):
+  - SurrealQL DEFINE has no NARS truth slot. A naive lossy projection would
+    fail roundtrip_eq at the strict default (truth_tolerance = 0.0).
+  - OpSurrealConst carries BOTH the structured DDL IR (for emission) AND an
+    opaque triples-trail (an exact copy of the input).
+  - decompile() returns the trail unchanged -> strict roundtrip passes
+    trivially. The emitter ignores the trail and walks the structured IR.
+  - Future sprints widen the IR vocabulary (FK record links, ASSERT, indexes,
+    PERMISSIONS) without re-gating roundtrip_eq.
+
+Test coverage (8):
+  - project_extracts_tables_and_fields_alphabetically  (deterministic IR)
+  - project_carries_full_triple_trail_unchanged         (opaque trail)
+  - project_skips_property_for_unknown_table            (no invention)
+  - roundtrip_eq_passes_at_strict_default_tolerance     (the C6 contract)
+  - roundtrip_eq_passes_on_empty_input                  (degenerate)
+  - roundtrip_eq_passes_on_only_non_projected_triples   (opaque-only data)
+  - surreal_text_renders_define_table_and_define_field  (the emitter)
+  - surreal_text_is_empty_on_empty_const                (degenerate)
+
+Discipline:
+  - additive: new crate; zero edits to op-codegen-bucket / op-* / vendor / ruff
+  - one fix-loop iteration: workspace edition is 2021 -> let chains became
+    nested if-let (semantics-preserving). Caught on first cargo check.
+  - one sprint = one commit = one PR; ff push only; no force/rebase/squash
+
+Policy: PR-driven, no patches in calibration/.

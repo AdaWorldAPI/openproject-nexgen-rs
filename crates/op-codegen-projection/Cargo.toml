@@ -1,0 +1,14 @@
+[package]
+name = "op-codegen-projection"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "OpenProject SurrealQL schema projection — impls TripletProjection from lance-graph-contract::codegen_spine for an OP-shaped DDL IR (DEFINE TABLE / DEFINE FIELD). The IR is the DDL facet from the three-facet model (SPO / DDL / Executable); a separate `surreal_text` emitter renders it to SurrealQL. Second concrete consumer of C6 (after op-codegen-bucket)."
+
+[lib]
+name = "op_codegen_projection"
+
+[dependencies]
+lance-graph-contract = { path = "../../vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" }
