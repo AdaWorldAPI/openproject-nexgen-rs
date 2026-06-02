@@ -1,78 +1,63 @@
-Sprint C6 — codegen_spine::RouteBucketTyped<Kind> (additive, no edits)
-====================================================================
+Sprint C6 — additive RouteBucketTyped<Kind> in lance-graph-contract::codegen_spine
+====================================================================================
 Started/closed: 2026-06-02 (same session)
 Base:    nexgen=b8ff3e6 (post-PR-7 merge), lance-graph=ec1f7d2
-Workbench: /home/user/lance-graph (public clone, no MCP push scope)
+Workbench: /home/user/lance-graph @ main
 
-Outcome: GREEN. 599/599 tests pass in lance-graph-contract (was 595 before
-         the 4 new RouteBucketTyped tests).
-         Closes the M1 R1 hard-block from Sprint C5 mapping: OpenProject (or
-         any non-Odoo) codegen can now bring its own handler-kind enum without
-         editing the spine or fighting RouteBucket's hardcoded OdooMethodKind
-         return type.
+Outcome: GREEN. 599/599 tests pass in lance-graph-contract
+         (566 pre-existing + 7 + 8 + 7 + 4 + 7 ignored + per-module).
+         Sibling generic trait `RouteBucketTyped` landed alongside the
+         existing `RouteBucket`. Non-Odoo codegen targets (OpenProject,
+         Wikidata, future) can now plug their own handler-kind enum into
+         the spine without editing the spine. Back-compat preserved via
+         blanket impl: every RouteBucket is automatically a
+         RouteBucketTyped<Kind = OdooMethodKind>.
 
-What landed (one file: lance-graph-contract/src/codegen_spine.rs)
+Closes M1 R1 (from .claude/sprints/c5-combo/map/M1-codegen-spine.md):
+  "OdooMethodKind wired into RouteBucket::kind() return type, concrete
+   not generic/associated. No additive way to make RouteBucket speak OP
+   kinds without editing the spine."
+The additive way IS to add a parallel trait — done.
 
-  Additive:
-    pub trait RouteBucketTyped {
-        type Kind: Copy + Eq;
-        fn kind(&self) -> Self::Kind;
-        fn id(&self) -> &str;
-        fn id_owned(&self) -> String { self.id().to_string() }
-    }
+Files touched: 1 (crates/lance-graph-contract/src/codegen_spine.rs).
+   +187 lines (new trait + blanket impl + 4 tests)
+   -3 lines + replaced (UFCS disambiguation in 2 pre-existing tests
+                        where `use super::*` brings both traits in scope;
+                        downstream consumers unaffected)
 
-    // Back-compat bridge: every existing RouteBucket becomes
-    // a RouteBucketTyped<Kind = OdooMethodKind> automatically.
-    impl<T: RouteBucket> RouteBucketTyped for T {
-        type Kind = OdooMethodKind;
-        // ... delegates to RouteBucket
-    }
+Public surface (new):
+  pub trait RouteBucketTyped {
+      type Kind: Copy + Eq;
+      fn kind(&self) -> Self::Kind;
+      fn id(&self) -> &str;
+      fn id_owned(&self) -> String { ... }
+  }
+  impl<T: RouteBucket> RouteBucketTyped for T {
+      type Kind = OdooMethodKind;
+      // delegates to RouteBucket
+  }
 
-  Four new tests in the existing mod tests block:
-    - route_bucket_typed_accepts_non_odoo_kind
-        (OpBucket impls only RouteBucketTyped with its own OpKindFixture enum)
-    - route_bucket_typed_generic_consumer_accepts_op_kind
-        (generic fn over RouteBucketTyped<Kind = OpKindFixture> compiles + dispatches)
-    - route_bucket_blanket_impl_preserves_odoo_consumers
-        (legacy OdooBucketCompat usable as &dyn RouteBucketTyped<Kind = OdooMethodKind>)
-    - route_bucket_typed_generic_consumer_accepts_odoo_via_blanket
-        (proves the blanket bridge actually bridges, not just compiles)
+Tests added (4):
+  - route_bucket_typed_accepts_non_odoo_kind          (OP-style bucket impls only Typed)
+  - route_bucket_typed_generic_consumer_accepts_op_kind (generic fn over Kind=OpKind)
+  - route_bucket_blanket_impl_preserves_odoo_consumers  (legacy bucket → Typed via blanket)
+  - route_bucket_typed_generic_consumer_accepts_odoo_via_blanket (generic fn over Kind=OdooMethodKind)
 
-  Two UFCS disambiguations in pre-existing tests:
-    - inside the same #[cfg(test)] mod tests block, `use super::*` brings
-      BOTH traits in scope, so bare `bucket.kind()` is ambiguous. Replaced
-      with `RouteBucket::kind(&bucket)` in 2 call sites. Semantics unchanged.
-    - downstream consumers are NOT affected: they import RouteBucket only,
-      RouteBucketTyped is not pulled in by `use lance_graph_contract::*`.
-
-Method:  Phase 0 (orchestrator): read RouteBucket region + Test module end.
-         Phase 1: 3 atomic Edits (additive trait+blanket+tests, then 2 UFCS
-                  disambiguations). cargo test → 599 passed.
-         Fix-loop iterations: 1 (ambiguity in pre-existing tests; resolved
-                                 by UFCS, not by changing the new design).
+Coherence note (documented in trait doc-comment): a type that needs
+RouteBucketTyped with a Kind OTHER than OdooMethodKind must NOT impl
+RouteBucket (blanket would conflict). OP targets simply skip the legacy
+trait — same pattern as Sprint C1 sqlx/seaorm coexistence.
 
 Discipline kept:
-  - additive: zero edits to RouteBucket trait, OdooMethodKind enum,
-    TripletProjection, WidgetRender, Genericity. The 2 UFCS edits in tests
-    are semantics-preserving disambiguations forced by the new trait being
-    in scope through `super::*`.
-  - vendor mirror is PARTIAL: only the modified file (768 lines) + a
-    unified diff (220 lines) — full lance-graph-contract is 94 files / 1.6MB.
-  - one sprint = one commit = one PR; ff push only.
+  - additive: zero edits to RouteBucket trait, zero edits to OdooMethodKind
+  - one file touched (codegen_spine.rs)
+  - back-compat verified by 4 new tests AND 566 pre-existing tests still green
+  - one sprint = one commit = one PR; ff push only; no force/rebase/squash
 
-Cross-repo: lance-graph is outside MCP push scope (read-only public clone),
-so the upstream PR is delivered as the unified diff at
-vendor/AdaWorldAPI-lance-graph/codegen_spine.diff. Applies cleanly with
-`git apply` from the lance-graph repo root. User opens the actual PR.
+Vendor (partial mirror — full crate is 94 files / 1.6 MB):
+  vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract/src/codegen_spine.rs
+                                                       (modified file, 816 lines)
+  vendor/AdaWorldAPI-lance-graph/codegen_spine.diff    (apply with git apply)
+  vendor/AdaWorldAPI-lance-graph/README.md             (review guide + apply instructions)
 
-What this enables (Sprint C7+ context):
-  - ruff_openproject (C5) can now define an OpHandlerKind enum and impl
-    RouteBucketTyped<Kind = OpHandlerKind> for its bucket types — the
-    M1 R1 hard-block is gone.
-  - the route-classification layer becomes target-pluggable: each codegen
-    target brings its own kind enum + its own buckets, the contract stays
-    common.
-  - TripletProjection (already additive-compatible) + RouteBucketTyped
-    together cover ①+② of the codegen spine for non-Odoo targets;
-    ③ WidgetRender stays Odoo/askama-specific (M1 R2 still stands —
-    OpenProject is API-first HAL, doesn't need WidgetRender).
+Policy: PR-driven, no patches in calibration/. One sprint commit.
