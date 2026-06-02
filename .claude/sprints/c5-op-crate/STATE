@@ -1,0 +1,43 @@
+Sprint C5 — ruff_openproject crate (OP entry-point in ruff)
+============================================================
+Started/closed: 2026-06-02 (same session)
+Base:    nexgen=3d911f1 (post-PR-5 merge), ruff=5179bc0
+Workbench: /home/user/ruff-clone @ claude/openproject-sqlx-emitter
+
+Outcome: GREEN. 8/8 tests pass.
+         New crate `ruff_openproject` in ruff: thin orchestrator over the two
+         upstream-neutral crates (ruff_ruby_spo, ruff_spo_triplet) that ties
+         them into a single OpenProject entry-point.
+
+Public surface (under 130 LoC):
+  pub const NAMESPACE                       (re-export of ruff_ruby_spo::NAMESPACE)
+  pub const CORE_V3_RESOURCES: &[&str; 18]  (curated v3 domain resources;
+                                             alphabetically sorted, lookup-stable)
+  pub fn extract_graph(rails_root)          -> ModelGraph
+  pub fn extract_triples(rails_root)        -> Vec<Triple>
+  pub fn filter_to_core(&mut ModelGraph)
+  pub fn extract_core_triples(rails_root)   -> Vec<Triple>
+
+Method:  Phase 0 (orchestrator): write the crate + tests directly (subagent
+         repo-writes were permission-blocked in earlier mapping wave, so
+         keep authoring local for this small additive deliverable).
+         Phase 1: cargo check + cargo test, one fix-loop iteration
+         (CORE_V3_RESOURCES wasn't actually alphabetized — own test caught it).
+
+Discipline kept:
+  - additive: new crate, no edits to ruff_ruby_spo / ruff_spo_triplet
+  - workspace member auto-added via members = ["crates/*"] glob (no Cargo.toml
+    edit needed)
+  - vendor/AdaWorldAPI-ruff/crates/ruff_openproject/ mirrors the new crate
+  - one sprint = one commit = one PR; ff push only; no force/rebase/squash
+
+What this enables (Sprint C6+ context):
+  - downstream consumers depend on ONE crate (ruff_openproject) instead of two
+  - the OP filter + curated resource list moves out of the generic ruby/spo
+    layers and into the OP-specific entry-point
+  - sets up the seam for either (a) lance_graph::graph::spo::SpoBuilder
+    consuming triples directly, or (b) feeding the codegen_spine
+    TripletProjection contract (Sprint C6 candidate, see M1 mapping under
+    .claude/sprints/c5-combo/map/M1-codegen-spine.md)
+
+Policy: no patches in calibration/, PR-driven, single sprint commit.

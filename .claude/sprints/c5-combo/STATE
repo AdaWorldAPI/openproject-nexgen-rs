@@ -1,0 +1,27 @@
+Sprint C5-combo — lance-graph/surreal/ndarray mapping spike
+==========================================================
+Status:  SUPERSEDED by Sprint C5 (ruff_openproject crate).
+Created: 2026-06-02 (mapping wave)
+Closed:  same session; pivoted to the smaller "OP crate in ruff" deliverable.
+
+Purpose:  read-only mapping wave (M1..M5) that surveyed
+          lance-graph-contract::codegen_spine, lance-graph/graph/spo,
+          surrealdb-ast/types, lance-graph-supervisor + surreal_container,
+          and ndarray — the holy-grail "perfect world" combo.
+
+What landed (despite subagent repo-write permission block):
+  - map/M1-codegen-spine.md  (persisted by orchestrator)
+    Key finding: codegen_spine has four contracts; TripletProjection is the
+    additive seam; RouteBucket::kind() hardcodes OdooMethodKind (R1 blocker).
+  - M2..M5 ran in background but their writes were blocked; A2A log in
+    /tmp/c5_a2a.log carries the per-agent summaries.
+
+Why superseded:
+  user requested the small additive deliverable first ("just create a OP
+  crate in ruff"). C5-combo's findings (esp. M1's R1) inform a follow-up
+  sprint (C6 candidate: additive changes to codegen_spine to lift the
+  RouteBucket / OdooMethodKind coupling without editing existing variants).
+
+Not lost — referenced by:
+  - docs/SPRINT_C5_REPORT.md (under "What this enables")
+  - the next sprint plan (codegen_spine additive PR)

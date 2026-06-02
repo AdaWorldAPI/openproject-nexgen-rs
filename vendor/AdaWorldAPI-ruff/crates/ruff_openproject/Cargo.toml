@@ -1,0 +1,18 @@
+[package]
+name = "ruff_openproject"
+version = "0.1.0"
+publish = false
+edition = "2024"
+rust-version = "1.86"
+description = "OpenProject high-level extraction: Ruby/Rails app/models + db/schema.rb -> SPO triples. Thin orchestrator over `ruff_ruby_spo` (Rails frontend) and `ruff_spo_triplet` (IR + expand). Adds OpenProject-specific curation (core v3 resources, namespace constant) without modifying the upstream-neutral crates."
+license = "MIT"
+
+[lib]
+name = "ruff_openproject"
+
+[dependencies]
+ruff_ruby_spo    = { workspace = true }
+ruff_spo_triplet = { workspace = true }
+
+[lints]
+workspace = true
