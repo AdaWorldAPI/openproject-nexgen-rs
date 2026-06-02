@@ -1,0 +1,17 @@
+[package]
+name = "op-codegen-bucket"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "OpenProject codegen bucket — HandlerKind enum + RouteBucketTyped<Kind = OpHandlerKind> bridge. First concrete consumer of lance-graph-contract::codegen_spine's C6 sibling trait (RouteBucketTyped<Kind>) + the PR #8 P2 ?Sized blanket fix. Demonstrates that non-Odoo codegen targets plug into the spine additively, without forcing OP kinds into OdooMethodKind."
+
+[lib]
+name = "op_codegen_bucket"
+
+[dependencies]
+# Vendor partial-mirror of upstream `lance-graph-contract`. Path-dep (no
+# `workspace = true`) so it resolves through either nexgen's workspace or
+# the standalone vendor workspace, transparently.
+lance-graph-contract = { path = "../../vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" }
