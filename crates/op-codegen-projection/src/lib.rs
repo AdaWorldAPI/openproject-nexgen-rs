@@ -56,11 +56,16 @@ pub struct DefineTable {
     pub fields: Vec<DefineField>,
 }
 
-/// One `DEFINE FIELD <name> ON TABLE <table> TYPE option<any>` stub.
+/// One `DEFINE FIELD <name> ON TABLE <table> TYPE [option<any>|any]` stub.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DefineField {
     /// Field name (e.g. `subject`).
     pub name: String,
+    /// `true` when the field is required (declared by the synthetic
+    /// `_validate` function on the same table — corresponds to an
+    /// ActiveRecord `validates :col, presence: true` declaration). Emitted
+    /// as `TYPE any`; `false` becomes `TYPE option<any>`.
+    pub required: bool,
 }
 
 /// The Const form of [`OpSurrealProjection`]. Carries the structured DDL IR
@@ -89,6 +94,17 @@ pub const OBJ_OBJECT_TYPE: &str = "ogit:ObjectType";
 /// Object value for the type predicate that flags a subject as a field
 /// (property of a table).
 pub const OBJ_PROPERTY: &str = "ogit:Property";
+
+/// Predicate marking a column as read by a function body (or, for the
+/// synthetic `_validate` function, validated).
+pub const PRED_READS_FIELD: &str = "reads_field";
+
+/// Suffix of the synthetic per-model validation function emitted by
+/// `ruff_spo_triplet::expand` when any declarative `validates …` is present
+/// (see `SPO_TRIPLET_EXTRACTION.md` §5). Detection here is suffix-based, not
+/// behaviour-based: a custom `def something_check; raise RecordInvalid; end`
+/// is NOT treated as a validator — only the canonical synthetic one is.
+pub const VALIDATE_FN_SUFFIX: &str = "._validate";
 
 /// IRI namespace prefix for OpenProject subjects (matches the
 /// `ruff_openproject` crate's `NAMESPACE`).
@@ -142,14 +158,51 @@ impl TripletProjection for OpSurrealProjection {
             }
         }
 
+        // Third pass: detect validated (required) columns via the synthetic
+        // `_validate` function's `reads_field` triples. Pattern:
+        //   (openproject:Foo._validate, reads_field, openproject:Foo.bar)
+        // -> field `bar` on table `Foo` is required.
+        // A reads_field whose subject is some other function (a real
+        // method body that reads a column) is correctly ignored; only the
+        // synthetic validator flags requiredness.
+        let mut required: BTreeSet<(String, String)> = BTreeSet::new();
+        for t in triples {
+            if t.p != PRED_READS_FIELD {
+                continue;
+            }
+            let subj = match t.s.strip_prefix(NAMESPACE_PREFIX) {
+                Some(local) => local,
+                None => continue,
+            };
+            let table = match subj.strip_suffix(VALIDATE_FN_SUFFIX) {
+                Some(t) => t,
+                None => continue,
+            };
+            let obj = match t.o.strip_prefix(NAMESPACE_PREFIX) {
+                Some(local) => local,
+                None => continue,
+            };
+            if let Some((obj_table, col)) = obj.split_once('.') {
+                if obj_table == table {
+                    required.insert((table.to_string(), col.to_string()));
+                }
+            }
+        }
+
         let structured: Vec<DefineTable> = tables
             .into_iter()
-            .map(|(name, fields)| DefineTable {
-                name,
-                fields: fields
+            .map(|(table_name, fields)| {
+                let define_fields = fields
                     .into_iter()
-                    .map(|name| DefineField { name })
-                    .collect(),
+                    .map(|field_name| DefineField {
+                        required: required.contains(&(table_name.clone(), field_name.clone())),
+                        name: field_name,
+                    })
+                    .collect();
+                DefineTable {
+                    name: table_name,
+                    fields: define_fields,
+                }
             })
             .collect();
 
@@ -174,20 +227,25 @@ impl TripletProjection for OpSurrealProjection {
 /// statements. Trailing newline, deterministic ordering (alphabetical by
 /// table, alphabetical by field within each table).
 ///
-/// First-write surface — only `SCHEMAFULL` tables with `TYPE option<any>`
-/// field stubs are emitted. ASSERT / record-link / PERMISSIONS clauses are
-/// future work; this crate's contract is the projection identity, not the
-/// emitter's expressiveness (the emitter can grow without re-gating the
-/// projection's `roundtrip_eq`).
+/// Field type emission:
+/// - `required = true` (declared by the synthetic `_validate` function)
+///   becomes `TYPE any` — SurrealQL rejects `NONE` for this type, matching
+///   the ActiveRecord `validates :col, presence: true` semantics.
+/// - `required = false` becomes `TYPE option<any>`.
+///
+/// Future-emitter widening targets (typed columns from schema.rb, FK
+/// record links, ASSERT clauses, indexes, PERMISSIONS) extend this fn
+/// without changing the projection's `roundtrip_eq` contract.
 #[must_use]
 pub fn surreal_text(c: &OpSurrealConst) -> String {
     let mut out = String::new();
     for table in &c.tables {
         out.push_str(&format!("DEFINE TABLE {} SCHEMAFULL;\n", table.name));
         for field in &table.fields {
+            let ty = if field.required { "any" } else { "option<any>" };
             out.push_str(&format!(
-                "DEFINE FIELD {} ON TABLE {} TYPE option<any>;\n",
-                field.name, table.name,
+                "DEFINE FIELD {} ON TABLE {} TYPE {};\n",
+                field.name, table.name, ty,
             ));
         }
     }
@@ -352,5 +410,112 @@ DEFINE FIELD subject ON TABLE WorkPackage TYPE option<any>;
             triples: Vec::new(),
         };
         assert_eq!(surreal_text(&c), "");
+    }
+
+    // ----- C10: validated-column / required-field detection -----
+
+    /// Fixture extending the base one with a synthetic `_validate` function
+    /// that reads `subject` (the canonical Rails
+    /// `validates :subject, presence: true` shape after ruff expansion).
+    fn fixture_with_validates() -> Vec<Triple> {
+        let mut triples = fixture_triples();
+        // The `_validate` function is itself an `ogit:Function`.
+        triples.push(t(
+            "openproject:WorkPackage._validate",
+            "rdf:type",
+            "ogit:Function",
+            1.0,
+            0.9,
+        ));
+        // Its body raises ActiveRecord::RecordInvalid (carried opaquely).
+        triples.push(t(
+            "openproject:WorkPackage._validate",
+            "raises",
+            "exc:ActiveRecord::RecordInvalid",
+            1.0,
+            0.9,
+        ));
+        // The crucial signal: reads_field on the validated column.
+        triples.push(t(
+            "openproject:WorkPackage._validate",
+            "reads_field",
+            "openproject:WorkPackage.subject",
+            1.0,
+            0.7,
+        ));
+        triples
+    }
+
+    #[test]
+    fn project_marks_validated_fields_as_required() {
+        let c = OpSurrealProjection::project(&fixture_with_validates());
+        let wp = c.tables.iter().find(|t| t.name == "WorkPackage").unwrap();
+        let subject = wp.fields.iter().find(|f| f.name == "subject").unwrap();
+        let status = wp.fields.iter().find(|f| f.name == "status").unwrap();
+        assert!(subject.required, "validated column must be required");
+        assert!(!status.required, "non-validated column stays optional");
+    }
+
+    #[test]
+    fn project_ignores_reads_field_from_non_validate_functions() {
+        // A normal (non-_validate) function reading a column must NOT
+        // flag it as required — only the synthetic validator does.
+        let mut triples = fixture_triples();
+        triples.push(t(
+            "openproject:WorkPackage.compute_total_hours",
+            "reads_field",
+            "openproject:WorkPackage.subject",
+            1.0,
+            0.7,
+        ));
+        let c = OpSurrealProjection::project(&triples);
+        let wp = c.tables.iter().find(|t| t.name == "WorkPackage").unwrap();
+        let subject = wp.fields.iter().find(|f| f.name == "subject").unwrap();
+        assert!(
+            !subject.required,
+            "reads_field outside _validate does not mark required"
+        );
+    }
+
+    #[test]
+    fn project_ignores_validate_reads_field_pointing_to_other_table() {
+        // Defensive: a malformed triple where _validate of table A reads
+        // a column of table B is silently ignored (we only flag own-table
+        // columns).
+        let mut triples = fixture_triples();
+        triples.push(t(
+            "openproject:WorkPackage._validate",
+            "reads_field",
+            "openproject:TimeEntry.hours",
+            1.0,
+            0.7,
+        ));
+        let c = OpSurrealProjection::project(&triples);
+        let te = c.tables.iter().find(|t| t.name == "TimeEntry").unwrap();
+        let hours = te.fields.iter().find(|f| f.name == "hours").unwrap();
+        assert!(!hours.required, "cross-table _validate is ignored");
+    }
+
+    #[test]
+    fn surreal_text_emits_type_any_for_required_field() {
+        let c = OpSurrealProjection::project(&fixture_with_validates());
+        let text = surreal_text(&c);
+
+        let expected = "\
+DEFINE TABLE TimeEntry SCHEMAFULL;
+DEFINE FIELD hours ON TABLE TimeEntry TYPE option<any>;
+DEFINE TABLE WorkPackage SCHEMAFULL;
+DEFINE FIELD status ON TABLE WorkPackage TYPE option<any>;
+DEFINE FIELD subject ON TABLE WorkPackage TYPE any;
+";
+        assert_eq!(text, expected);
+    }
+
+    #[test]
+    fn roundtrip_eq_passes_with_validation_triples() {
+        // The validation triples enter the opaque trail unchanged; round-
+        // trip remains strict.
+        roundtrip_eq::<OpSurrealProjection>(&fixture_with_validates())
+            .expect("validation triples round-trip via the opaque trail");
     }
 }

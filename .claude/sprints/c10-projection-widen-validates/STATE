@@ -1,0 +1,77 @@
+Sprint C10 — op-codegen-projection widen: validates → required field
+========================================================================
+Started/closed: 2026-06-02 (same session)
+Base: nexgen=80f938a (post-C8+C9 merge of PRs #12+#13)
+Workbench: nexgen workspace directly
+
+Outcome: GREEN. 29/29 tests pass across the codegen family.
+         First vocabulary widening of the projection: consumes
+         `(_validate, reads_field, …)` triples from ruff_spo_triplet's
+         synthetic validator and translates them into SurrealQL field
+         requiredness (`TYPE any` vs `TYPE option<any>`).
+
+What landed:
+  crates/op-codegen-projection/src/lib.rs
+    - DefineField gains pub `required: bool` field
+    - Two new const exports: PRED_READS_FIELD, VALIDATE_FN_SUFFIX
+    - project(): third pass detecting `(ns:T._validate, reads_field,
+      ns:T.col)` → marks `col` on `T` as required (BTreeSet<(table, col)>
+      lookup; deterministic; same-table only by construction)
+    - surreal_text(): emits `TYPE any` for required, `TYPE option<any>`
+      for optional; doc updated to spell out the future-widening seam
+    - 5 new tests appended to the projection's #[cfg(test)] mod
+  crates/op-codegen-pipeline/src/lib.rs
+    - 1 new test: pipeline_validate_function_marks_field_as_required
+      drives a synthetic ruff_spo_triplet::Function{name:"_validate", …}
+      through expand → bridge → project → emit and asserts:
+        * subject.required == true
+        * status.required == false
+        * text contains "DEFINE FIELD subject ON TABLE WorkPackage TYPE any;"
+        * text contains "DEFINE FIELD status ON TABLE WorkPackage TYPE option<any>;"
+        * roundtrip_eq still passes
+
+What did NOT land (intentionally deferred):
+  - schema.rb column typing (string/integer/etc.) — needs ruff to emit
+    type triples first; today schema.rb columns are bare names
+  - FK record links (TYPE record<foo>) — needs an explicit predicate
+    for foreign-key relationships in the ruff vocabulary
+  - ASSERT clauses — beyond simple presence, validation is not
+    currently expanded into triples
+  - PERMISSIONS — Rails has no analog; deferred indefinitely
+  - Indexes — needs an explicit predicate
+
+Test counts:
+  op-codegen-bucket       7/7  (unchanged)
+  op-codegen-projection  13/13 (was 8 + 5 new)
+  op-codegen-pipeline     9/9  (was 8 + 1 new)
+                         ----
+  total                  29/29
+
+Tests added in op-codegen-projection (5):
+  - project_marks_validated_fields_as_required
+  - project_ignores_reads_field_from_non_validate_functions
+    (reads_field by a normal function MUST NOT mark required)
+  - project_ignores_validate_reads_field_pointing_to_other_table
+    (cross-table _validate.reads_field is silently ignored —
+     defensive against malformed triples)
+  - surreal_text_emits_type_any_for_required_field
+    (full expected-string assertion)
+  - roundtrip_eq_passes_with_validation_triples
+    (the contract gate holds; opaque trail does its job)
+
+Tests added in op-codegen-pipeline (1):
+  - pipeline_validate_function_marks_field_as_required (e2e)
+
+Discipline note:
+  - This is the first sprint that EDITS an existing op-codegen-* crate
+    (op-codegen-projection) rather than only adding new crates. The
+    "additive" rule was about not touching legacy op-core/op-models/etc
+    and the upstream vendor mirrors — both still hold. Editing our own
+    codegen family to grow its vocabulary is normal sprint work.
+  - DefineField gained a pub field. Within this repo only the projection
+    constructs DefineField (and the new tests), so no external break.
+    The struct is `#[derive(Debug, Clone, PartialEq, Eq)]`; all derives
+    still hold.
+  - one sprint = one commit = one PR; ff push only; no force/rebase/squash
+
+Policy: PR-driven, no patches in calibration/.
