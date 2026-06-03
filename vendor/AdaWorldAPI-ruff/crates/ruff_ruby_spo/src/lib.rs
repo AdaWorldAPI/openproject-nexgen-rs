@@ -105,6 +105,43 @@ pub struct AttributeDecl {
     pub type_name: Option<String>,
 }
 
+/// A `scope :name, -> { body }` definition (G15). The body is captured
+/// verbatim as source text — Inferred-tier in the NARS vocabulary; consumers
+/// either accept it as a SQL snippet or re-parse it for their needs.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScopeDecl {
+    /// Scope name as declared (`recent`, `for_project`, …).
+    pub name: String,
+    /// Body source between the lambda's `{` and `}` (or `do`/`end`),
+    /// trimmed of the bracket bytes themselves. Lambda arity is not
+    /// captured separately — the body source still shows the param list
+    /// indirectly via `where`/`order` references; explicit arity is a
+    /// follow-up.
+    pub body_source: String,
+}
+
+/// A lifecycle callback declaration (`before_save :method`, `after_create
+/// do … end`, `around_destroy :method`, …). Closes G19.
+///
+/// Two source forms collapse here:
+/// - `event :method_name` → `target_method = Some(name)`, `body_source = None`
+/// - `event do ... end` → `target_method = None`, `body_source = Some(text)`
+///
+/// The event distinction (before/after/around) is preserved in [`Self::event`]
+/// so consumers can reason about cascade vs. wrap semantics.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CallbackDecl {
+    /// Callback event as written: `before_save`, `after_create`,
+    /// `around_destroy`, `after_commit`, `after_create_commit`, …
+    pub event: String,
+    /// Method name target when the callback names a method
+    /// (`before_save :method_name`). `None` for the block form.
+    pub target_method: Option<String>,
+    /// Block body source when the callback is `event do ... end` or
+    /// `event { ... }`. `None` for the method-name form.
+    pub body_source: Option<String>,
+}
+
 /// Parsed shape of a `belongs_to` / `has_many` / `has_one` /
 /// `has_and_belongs_to_many` macro call. Captures both the leading symbol
 /// (the relation name) and every option-hash entry the call carries.
@@ -154,6 +191,18 @@ pub struct AssociationDecl {
     pub optional: Option<bool>,
     /// `inverse_of: :user` — the reciprocal relation on the target.
     pub inverse_of: Option<String>,
+    /// `before_add: :method_name` — collection callback fired before an
+    /// element is added to a has_many. C17c addition, closes G20 (collection
+    /// callbacks). For block-form (`before_add: ->{...}`) the value is
+    /// not captured here; only the method-symbol form.
+    pub before_add: Option<String>,
+    /// `after_add: :method_name`.
+    pub after_add: Option<String>,
+    /// `before_remove: :method_name`.
+    pub before_remove: Option<String>,
+    /// `after_remove: :method_name`. Project example: `has_many
+    /// :enabled_modules, after_remove: :module_disabled`.
+    pub after_remove: Option<String>,
 }
 
 /// A minimally-parsed Ruby class — what the parser frontend produces before
@@ -215,6 +264,23 @@ pub struct RubyClass {
     /// the class deliberately opts OUT of STI dispatch even if its
     /// subclasses exist in the tree. C17b addition, closes G12.
     pub inheritance_column_disabled: bool,
+    /// Columns listed in `self.ignored_columns += [...]` runtime blacklists.
+    /// Captured in source order across however many `+=` statements appear.
+    /// C17c addition, closes G13.
+    pub ignored_columns: Vec<String>,
+    /// `scope :name, -> { body }` definitions in source order. C17c
+    /// addition, closes G15.
+    pub scope_definitions: Vec<ScopeDecl>,
+    /// `scopes :a, :b, :c` declarative-list scope names (a Scopes::Scoped
+    /// DSL form that pre-declares scope class methods defined in concerns
+    /// elsewhere). C17c addition, closes G16.
+    pub scope_predeclarations: Vec<String>,
+    /// `default_scope -> { body }` global filter body, when present.
+    /// C17c addition, closes G17.
+    pub default_scope_body: Option<String>,
+    /// Lifecycle callback declarations (`before_save`, `after_create`,
+    /// `around_destroy`, etc.) in source order. C17c addition, closes G19.
+    pub callbacks: Vec<CallbackDecl>,
 }
 
 /// Top-level entry: walk a Rails `app/models/` tree and produce the IR.

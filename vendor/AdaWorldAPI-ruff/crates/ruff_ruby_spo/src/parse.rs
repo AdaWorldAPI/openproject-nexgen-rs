@@ -23,8 +23,39 @@ use lib_ruby_parser::{Bytes, Node, Parser, ParserOptions, nodes};
 
 use crate::scan;
 use crate::{
-    ASSOCIATION_MACROS, AssociationDecl, AttributeDecl, EnumDecl, RubyClass, StoreAccessorDecl,
+    ASSOCIATION_MACROS, AssociationDecl, AttributeDecl, CallbackDecl, EnumDecl, RubyClass,
+    ScopeDecl, StoreAccessorDecl,
 };
+
+/// ActiveRecord lifecycle callback event names. A class-body call whose
+/// `method_name` matches one of these and whose first arg is either a Sym
+/// (method-target form) or whose enclosing statement is a Block (do/end
+/// form) is treated as a [`CallbackDecl`]. Closes gap-probe G19 source-side.
+const CALLBACK_EVENTS: &[&str] = &[
+    "before_save",
+    "after_save",
+    "around_save",
+    "before_create",
+    "after_create",
+    "around_create",
+    "before_update",
+    "after_update",
+    "around_update",
+    "before_destroy",
+    "after_destroy",
+    "around_destroy",
+    "before_validation",
+    "after_validation",
+    "after_initialize",
+    "after_find",
+    "after_touch",
+    "after_commit",
+    "after_create_commit",
+    "after_update_commit",
+    "after_save_commit",
+    "after_destroy_commit",
+    "after_rollback",
+];
 
 /// Walk `source_tree/app/models` for `*.rb` files and build a [`RubyClass`]
 /// per `class … < …` definition, joining DB columns from
@@ -100,17 +131,34 @@ fn parse_class_via_ast(source: &str) -> Option<RubyClass> {
         ..Default::default()
     };
 
-    // Single pass over the class body. The big match between unqualified
-    // and self-qualified `Send` nodes is the C17b dispatch surface: every
-    // option-bearing class-body DSL call routes through one of two
-    // handlers, so adding a new construct (e.g. `validates` for a future
-    // sprint) is a one-arm extension.
+    // Single pass over the class body. Each statement is one of:
+    //   - Send (unqualified or self-qualified — most macros)
+    //   - Block (wraps a Send when the macro call ends in `do ... end` or
+    //     `{ ... }`, e.g. `after_create do ... end`)
+    //   - OpAsgn (operator assignment, used for `self.ignored_columns += …`)
+    // Each is dispatched to the right handler. Adding a new construct is
+    // a one-arm extension to one of the three handlers.
     for stmt in top_level_statements(&class_node.body) {
-        let Node::Send(send) = stmt else { continue };
-        if send.recv.is_none() {
-            handle_unqualified_send(send, &mut class);
-        } else if matches!(send.recv.as_deref(), Some(Node::Self_(_))) {
-            handle_self_send(send, &mut class);
+        match stmt {
+            Node::Send(send) => {
+                if send.recv.is_none() {
+                    handle_unqualified_send(send, None, source, &mut class);
+                } else if matches!(send.recv.as_deref(), Some(Node::Self_(_))) {
+                    handle_self_send(send, &mut class);
+                }
+            }
+            Node::Block(block) => {
+                // A `Block` wraps a method call with a `{...}` / `do...end`
+                // body. We forward to the same handler the bare-Send route
+                // uses, plus the block reference for body-source extraction.
+                if let Node::Send(send) = &*block.call {
+                    if send.recv.is_none() {
+                        handle_unqualified_send(send, Some(block), source, &mut class);
+                    }
+                }
+            }
+            Node::OpAsgn(op) => handle_op_assign(op, &mut class),
+            _ => {}
         }
     }
 
@@ -118,8 +166,18 @@ fn parse_class_via_ast(source: &str) -> Option<RubyClass> {
 }
 
 /// Dispatch a `Foo.bar(...)`-style class-body call (no receiver, i.e. a
-/// macro on the class itself) to the right C17a/b extractor.
-fn handle_unqualified_send(send: &nodes::Send, class: &mut RubyClass) {
+/// macro on the class itself) to the right C17a/b/c extractor.
+///
+/// `block` is `Some` when the call has a `do ... end` or `{ ... }` block
+/// attached at the statement level (so the dispatching `match` arm is the
+/// `Block` arm in the parent loop). The block reference is needed for
+/// callbacks and the `scope` / `default_scope` body extraction.
+fn handle_unqualified_send(
+    send: &nodes::Send,
+    block: Option<&nodes::Block>,
+    source: &str,
+    class: &mut RubyClass,
+) {
     let name = send.method_name.as_str();
     if ASSOCIATION_MACROS.iter().any(|m| *m == name) {
         if let Some(decl) = parse_association_send(send) {
@@ -142,6 +200,22 @@ fn handle_unqualified_send(send: &nodes::Send, class: &mut RubyClass) {
         if let Some(a) = parse_attribute_send(send) {
             class.attributes.push(a);
         }
+    } else if name == "scope" {
+        if let Some(s) = parse_scope_send(send, source) {
+            class.scope_definitions.push(s);
+        }
+    } else if name == "scopes" {
+        for arg in &send.args {
+            if let Some(n) = sym_name(arg) {
+                class.scope_predeclarations.push(n);
+            }
+        }
+    } else if name == "default_scope" {
+        if let Some(body) = parse_default_scope_send(send, source) {
+            class.default_scope_body = Some(body);
+        }
+    } else if CALLBACK_EVENTS.iter().any(|e| *e == name) {
+        class.callbacks.push(parse_callback(send, block, source));
     }
 }
 
@@ -290,6 +364,13 @@ fn apply_pair(decl: &mut AssociationDecl, key: &Node, value: &Node) {
         "dependent" => decl.dependent = sym_or_str(value),
         "optional" => decl.optional = bool_value(value),
         "inverse_of" => decl.inverse_of = sym_or_str(value),
+        // C17c: collection callbacks (G20). Only the method-symbol form
+        // is captured (`after_remove: :method_name`); a lambda value would
+        // need a separate code path.
+        "before_add" => decl.before_add = sym_or_str(value),
+        "after_add" => decl.after_add = sym_or_str(value),
+        "before_remove" => decl.before_remove = sym_or_str(value),
+        "after_remove" => decl.after_remove = sym_or_str(value),
         _ => {}
     }
 }
@@ -413,6 +494,96 @@ fn parse_attribute_send(send: &nodes::Send) -> Option<AttributeDecl> {
     let name = sym_name(send.args.first()?)?;
     let type_name = send.args.get(1).and_then(sym_name);
     Some(AttributeDecl { name, type_name })
+}
+
+/// Parse a `scope :name, -> { body }` call into [`ScopeDecl`].
+///
+/// The lambda lives in `args[1]` as a `Block` node (wrapping the synthetic
+/// `Lambda` call). The body source is sliced from the original source via
+/// the Block's `begin_l.end` / `end_l.begin` byte offsets, trimming the
+/// `{`/`}` (or `do`/`end`) delimiters themselves.
+fn parse_scope_send(send: &nodes::Send, source: &str) -> Option<ScopeDecl> {
+    let name = sym_name(send.args.first()?)?;
+    let block_arg = send.args.get(1).and_then(|n| match n {
+        Node::Block(b) => Some(b),
+        _ => None,
+    })?;
+    let body_source = block_body_text(source, block_arg).to_string();
+    Some(ScopeDecl { name, body_source })
+}
+
+/// Parse a `default_scope -> { body }` call. The body source is captured
+/// the same way as a named scope; downstream consumers know they have a
+/// global filter rather than a named one because it lives on
+/// `default_scope_body`, not `scope_definitions`.
+fn parse_default_scope_send(send: &nodes::Send, source: &str) -> Option<String> {
+    let block_arg = send.args.first().and_then(|n| match n {
+        Node::Block(b) => Some(b),
+        _ => None,
+    })?;
+    Some(block_body_text(source, block_arg).to_string())
+}
+
+/// Build a [`CallbackDecl`] from a lifecycle-event Send + optional Block.
+///
+/// Two forms are normalised:
+/// - `event :method_name` — `send.args[0]` is a Sym, `block` is `None`;
+///   `target_method = Some(name)`, `body_source = None`.
+/// - `event do ... end` / `event { ... }` — `send.args` is empty, `block`
+///   is `Some(b)`; `target_method = None`, `body_source = Some(text)`.
+///
+/// A call with NEITHER a Sym arg NOR a block (`before_save` bare, no body)
+/// still produces a CallbackDecl with both fields `None` — it's still a
+/// declared callback, just one whose target the source doesn't pin down.
+fn parse_callback(send: &nodes::Send, block: Option<&nodes::Block>, source: &str) -> CallbackDecl {
+    let target_method = send.args.first().and_then(sym_name);
+    let body_source = block.map(|b| block_body_text(source, b).to_string());
+    CallbackDecl {
+        event: send.method_name.clone(),
+        target_method,
+        body_source,
+    }
+}
+
+/// Slice the body text out of a `Block` node, trimming the `{`/`}` (or
+/// `do`/`end`) delimiter bytes. lib-ruby-parser's `begin_l` covers the
+/// opening delimiter and `end_l` covers the closing one; the body lives
+/// between them.
+fn block_body_text<'a>(source: &'a str, block: &nodes::Block) -> &'a str {
+    let start = block.begin_l.end;
+    let end = block.end_l.begin;
+    if start >= end || end > source.len() {
+        return "";
+    }
+    source[start..end].trim_matches(|c: char| c.is_whitespace() || c == ';')
+}
+
+/// Handle a class-body `OpAsgn` (operator assignment). The C17c case is
+/// `self.ignored_columns += [...]` — append the columns to the running
+/// ignored-columns list. Other operator assignments (e.g. `self.foo *= 2`)
+/// are silently ignored — they don't carry semantic weight for the model
+/// graph at the moment.
+fn handle_op_assign(op: &nodes::OpAsgn, class: &mut RubyClass) {
+    // The lhs of `self.ignored_columns += [..]` is a Send with recv = self
+    // and method_name = "ignored_columns" (the GETTER name, not the
+    // assignment form — that's how Ruby compiles `+=`).
+    let Node::Send(lhs) = &*op.recv else { return };
+    if !matches!(lhs.recv.as_deref(), Some(Node::Self_(_))) {
+        return;
+    }
+    if lhs.method_name != "ignored_columns" {
+        return;
+    }
+    if op.operator != "+" {
+        return; // Only `+=` extends the blacklist; `-=` is rare and we'd want a different field.
+    }
+    if let Node::Array(arr) = &*op.value {
+        for elem in &arr.elements {
+            if let Some(s) = str_value(elem) {
+                class.ignored_columns.push(s);
+            }
+        }
+    }
 }
 
 /// Stringify a literal value node into its source form. Used by enum
@@ -1000,6 +1171,174 @@ mod tests {
         assert!(c.attributes.is_empty());
         assert!(c.table_name_override.is_none());
         assert!(!c.inheritance_column_disabled);
+    }
+
+    // -----------------------------------------------------------------
+    // C17c — ignored_columns, scopes, default_scope, callbacks,
+    //        collection callbacks (G13, G15, G16, G17, G19, G20)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn captures_ignored_columns_via_op_assign() {
+        // G13 — Journal's `self.ignored_columns += ["activity_type"]`.
+        // Multiple `+=` statements stack into the same list.
+        let src = "class Journal < ApplicationRecord\n\
+                   self.ignored_columns += [\"activity_type\"]\n\
+                   self.ignored_columns += [\"deprecated_col\", \"other\"]\n\
+                   end\n";
+        let c = parse(src);
+        assert_eq!(c.ignored_columns, ["activity_type", "deprecated_col", "other"]);
+    }
+
+    #[test]
+    fn captures_scope_definition_with_body() {
+        // G15 — `scope :name, -> { body }`. Body source is verbatim from
+        // the original Ruby; consumers can re-parse if they need it as a
+        // SQL/Ruby AST.
+        let src = "class WorkPackage < ApplicationRecord\n\
+                   scope :recently_updated, -> { order(updated_at: :desc) }\n\
+                   end\n";
+        let c = parse(src);
+        assert_eq!(c.scope_definitions.len(), 1);
+        let s = &c.scope_definitions[0];
+        assert_eq!(s.name, "recently_updated");
+        assert!(s.body_source.contains("order(updated_at: :desc)"));
+        // Body source is trimmed of the `{`/`}` delimiters.
+        assert!(!s.body_source.starts_with('{'));
+        assert!(!s.body_source.ends_with('}'));
+    }
+
+    #[test]
+    fn captures_multiple_scope_definitions_in_source_order() {
+        let src = "class Project < ApplicationRecord\n\
+                   scope :active, -> { where(active: true) }\n\
+                   scope :for_user, ->(u) { joins(:members).where(members: { user_id: u.id }) }\n\
+                   scope :recent, -> { order(created_at: :desc) }\n\
+                   end\n";
+        let c = parse(src);
+        let names: Vec<&str> = c.scope_definitions.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["active", "for_user", "recent"]);
+        // The `for_user` scope retains its arg-using body — we don't parse
+        // the lambda arity separately but `u` and `u.id` are in the source.
+        let for_user = &c.scope_definitions[1];
+        assert!(for_user.body_source.contains("u.id"));
+    }
+
+    #[test]
+    fn captures_scopes_predeclaration_list() {
+        // G16 — Principal-style `scopes :like, :human, :visible`. The
+        // bodies live in the corresponding concern; only the names are
+        // declared at the class-body level.
+        let src = "class Principal < ApplicationRecord\n\
+                   scopes :like, :human, :visible, :not_builtin, :status\n\
+                   end\n";
+        let c = parse(src);
+        assert_eq!(
+            c.scope_predeclarations,
+            ["like", "human", "visible", "not_builtin", "status"]
+        );
+        // Pre-declarations are NOT in scope_definitions (no body here).
+        assert!(c.scope_definitions.is_empty());
+    }
+
+    #[test]
+    fn captures_default_scope_body() {
+        // G17 — Principal's `default_scope -> { where.not(status: …) }`.
+        // The body source is the verbatim filter expression.
+        let src = "class Principal < ApplicationRecord\n\
+                   default_scope -> { where.not(status: 5) }\n\
+                   end\n";
+        let c = parse(src);
+        assert_eq!(
+            c.default_scope_body.as_deref(),
+            Some("where.not(status: 5)")
+        );
+    }
+
+    #[test]
+    fn captures_method_target_callback() {
+        // G19 — `before_save :update_total` form. target_method = method
+        // name, body_source = None.
+        let src = "class WorkPackage < ApplicationRecord\n\
+                   before_save :update_total\n\
+                   after_create :send_notification\n\
+                   end\n";
+        let c = parse(src);
+        assert_eq!(c.callbacks.len(), 2);
+        assert_eq!(c.callbacks[0].event, "before_save");
+        assert_eq!(c.callbacks[0].target_method.as_deref(), Some("update_total"));
+        assert!(c.callbacks[0].body_source.is_none());
+        assert_eq!(c.callbacks[1].event, "after_create");
+        assert_eq!(
+            c.callbacks[1].target_method.as_deref(),
+            Some("send_notification")
+        );
+    }
+
+    #[test]
+    fn captures_block_form_callback() {
+        // G19 — `after_create do ... end` form. target_method = None,
+        // body_source = the block body text.
+        let src = "class WorkPackage < ApplicationRecord\n\
+                   after_create do\n\
+                     notify(:created)\n\
+                     log_activity\n\
+                   end\n\
+                   end\n";
+        let c = parse(src);
+        assert_eq!(c.callbacks.len(), 1);
+        assert_eq!(c.callbacks[0].event, "after_create");
+        assert_eq!(c.callbacks[0].target_method, None);
+        let body = c.callbacks[0]
+            .body_source
+            .as_deref()
+            .expect("block form has body source");
+        assert!(body.contains("notify(:created)"));
+        assert!(body.contains("log_activity"));
+    }
+
+    #[test]
+    fn captures_around_and_commit_callbacks() {
+        // Confirms the full callback event list covers around_* and the
+        // commit-suffixed variants (`after_create_commit` etc.).
+        let src = "class Project < ApplicationRecord\n\
+                   around_destroy :archive_then_destroy\n\
+                   after_create_commit :index_for_search\n\
+                   after_rollback :clear_cache\n\
+                   end\n";
+        let c = parse(src);
+        let events: Vec<&str> = c.callbacks.iter().map(|cb| cb.event.as_str()).collect();
+        assert_eq!(
+            events,
+            ["around_destroy", "after_create_commit", "after_rollback"]
+        );
+    }
+
+    #[test]
+    fn captures_collection_callbacks_on_association() {
+        // G20 — `has_many :enabled_modules, after_remove: :module_disabled`
+        // is Project's real OP example. Other 3 collection callbacks
+        // (before_add, after_add, before_remove) captured the same way.
+        let src = "class Project < ApplicationRecord\n\
+                   has_many :enabled_modules, dependent: :delete_all, after_remove: :module_disabled\n\
+                   has_many :members, before_add: :before_add_member, after_add: :after_add_member\n\
+                   end\n";
+        let c = parse(src);
+        let modules = c
+            .association_options
+            .iter()
+            .find(|a| a.name == "enabled_modules")
+            .unwrap();
+        assert_eq!(modules.after_remove.as_deref(), Some("module_disabled"));
+        // The other 3 stay None for this assoc.
+        assert!(modules.before_add.is_none());
+        let members = c
+            .association_options
+            .iter()
+            .find(|a| a.name == "members")
+            .unwrap();
+        assert_eq!(members.before_add.as_deref(), Some("before_add_member"));
+        assert_eq!(members.after_add.as_deref(), Some("after_add_member"));
     }
 
     #[test]
