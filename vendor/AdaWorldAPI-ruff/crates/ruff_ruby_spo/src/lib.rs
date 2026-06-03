@@ -55,6 +55,56 @@ pub(crate) const ASSOCIATION_MACROS: &[&str] = &[
     "has_and_belongs_to_many",
 ];
 
+/// A Rails `enum :column, { variant_a: 1, variant_b: 2 }, scopes: false`
+/// declaration. The values dict is captured verbatim — variants in source
+/// order with their literal value (`"1"`, `"active"`, …) as a string so
+/// both int- and string-backed enums fit in one shape. C17b addition,
+/// closes gap-probe G8.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EnumDecl {
+    /// The column the enum is backed by (`status`, `workspace_type`, …).
+    pub column: String,
+    /// Variant name → literal value, in declaration order. Value is
+    /// stringified: `"1"` for int-backed enums, `"active"` for
+    /// string-backed enums.
+    pub values: Vec<(String, String)>,
+    /// `scopes: false` was passed (disables Rails-generated `.active` /
+    /// `.not_active` class-method scopes). `None` if `scopes:` was unset
+    /// or had a non-bool value.
+    pub scopes_disabled: Option<bool>,
+}
+
+/// A Rails `store_accessor :col, %i[a b c], prefix: true` declaration:
+/// declares N JSONB pseudo-fields backed by the same column. C17b
+/// addition, closes gap-probe G9.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StoreAccessorDecl {
+    /// The JSONB column the pseudo-fields are backed by (`cause`,
+    /// `metadata`, …).
+    pub column: String,
+    /// Pseudo-field names, in source order. Each is exposed at runtime
+    /// as `<prefix>_<name>` (when `prefix: true`) or `<name>` (default).
+    pub fields: Vec<String>,
+    /// `prefix:` option as written. `Some(true)` means each field reads
+    /// + writes as `<column>_<field>`; `Some(false)` or `None` means bare
+    /// `<field>` accessors. (Rails also supports a String prefix; we
+    /// collapse that here to "non-bool unset" and the column name in
+    /// the field name resolution is handled by the consumer.)
+    pub prefix: Option<bool>,
+}
+
+/// A Rails `attribute :name, :type, default: value` declaration —
+/// schemaless / typed attribute override. C17b addition, closes
+/// gap-probe G10.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AttributeDecl {
+    /// Attribute name as written (`subject`, `display_id`, …).
+    pub name: String,
+    /// Type name as a Sym (`:string`, `:integer`, `:big_integer`, …).
+    /// `None` if the attribute call has no type positional arg (rare).
+    pub type_name: Option<String>,
+}
+
 /// Parsed shape of a `belongs_to` / `has_many` / `has_one` /
 /// `has_and_belongs_to_many` macro call. Captures both the leading symbol
 /// (the relation name) and every option-hash entry the call carries.
@@ -141,6 +191,30 @@ pub struct RubyClass {
     /// order as [`Self::associations`]; the i-th [`AssociationDecl`]'s
     /// `.name` equals the i-th `associations` entry. C17a addition.
     pub association_options: Vec<AssociationDecl>,
+    /// `include Foo` / `include Foo::Bar` mixin paths in declaration
+    /// order. `::`-namespaced names preserved verbatim. C17b addition,
+    /// closes gap-probe G14.
+    pub concerns: Vec<String>,
+    /// `enum :col, {...}, scopes: …` declarations, in source order.
+    /// C17b addition, closes G8.
+    pub enums: Vec<EnumDecl>,
+    /// `store_accessor :col, %i[…], prefix: …` declarations, in source
+    /// order. C17b addition, closes G9.
+    pub store_accessors: Vec<StoreAccessorDecl>,
+    /// `attribute :name, :type` declarations, in source order. C17b
+    /// addition, closes G10.
+    pub attributes: Vec<AttributeDecl>,
+    /// `self.table_name = "..."` literal-string override. `None` if the
+    /// class lets Rails infer the table name (the common case) or if
+    /// the rhs is a dynamic expression (interpolated string, method
+    /// call) — those leave the C17b extractor blind, which is the right
+    /// answer for an under-extracting tier (the consumer should fall
+    /// back to inflection or raise on the model). Closes G11 (partial).
+    pub table_name_override: Option<String>,
+    /// `self.inheritance_column = :_type_disabled` was set. Signals that
+    /// the class deliberately opts OUT of STI dispatch even if its
+    /// subclasses exist in the tree. C17b addition, closes G12.
+    pub inheritance_column_disabled: bool,
 }
 
 /// Top-level entry: walk a Rails `app/models/` tree and produce the IR.
