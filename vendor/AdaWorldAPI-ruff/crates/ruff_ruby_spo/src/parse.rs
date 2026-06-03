@@ -46,6 +46,7 @@ const CALLBACK_EVENTS: &[&str] = &[
     "around_destroy",
     "before_validation",
     "after_validation",
+    "around_validation",
     "after_initialize",
     "after_find",
     "after_touch",
@@ -201,7 +202,7 @@ fn handle_unqualified_send(
             class.attributes.push(a);
         }
     } else if name == "scope" {
-        if let Some(s) = parse_scope_send(send, source) {
+        if let Some(s) = parse_scope_send(send, block, source) {
             class.scope_definitions.push(s);
         }
     } else if name == "scopes" {
@@ -211,7 +212,7 @@ fn handle_unqualified_send(
             }
         }
     } else if name == "default_scope" {
-        if let Some(body) = parse_default_scope_send(send, source) {
+        if let Some(body) = parse_default_scope_send(send, block, source) {
             class.default_scope_body = Some(body);
         }
     } else if CALLBACK_EVENTS.iter().any(|e| *e == name) {
@@ -498,30 +499,57 @@ fn parse_attribute_send(send: &nodes::Send) -> Option<AttributeDecl> {
 
 /// Parse a `scope :name, -> { body }` call into [`ScopeDecl`].
 ///
-/// The lambda lives in `args[1]` as a `Block` node (wrapping the synthetic
-/// `Lambda` call). The body source is sliced from the original source via
-/// the Block's `begin_l.end` / `end_l.begin` byte offsets, trimming the
-/// `{`/`}` (or `do`/`end`) delimiters themselves.
-fn parse_scope_send(send: &nodes::Send, source: &str) -> Option<ScopeDecl> {
+/// Two source forms collapse here:
+/// - Lambda-arg form: `scope :name, -> { body }` — the lambda is in
+///   `args[1]` as a `Block` node (wrapping the synthetic `Lambda` call).
+/// - Direct-block form: `scope :name { body }` or `scope :name do … end`
+///   — the block is attached at the statement level, so the dispatch
+///   loop passed it in via the `outer_block` parameter. `send.args` then
+///   only carries the name Sym.
+///
+/// Body source is sliced from the Block's `begin_l.end` / `end_l.begin`
+/// byte offsets, trimming the `{`/`}` (or `do`/`end`) delimiters
+/// themselves. Both forms use the same extraction.
+fn parse_scope_send(
+    send: &nodes::Send,
+    outer_block: Option<&nodes::Block>,
+    source: &str,
+) -> Option<ScopeDecl> {
     let name = sym_name(send.args.first()?)?;
-    let block_arg = send.args.get(1).and_then(|n| match n {
-        Node::Block(b) => Some(b),
-        _ => None,
-    })?;
-    let body_source = block_body_text(source, block_arg).to_string();
-    Some(ScopeDecl { name, body_source })
+    let block = send
+        .args
+        .get(1)
+        .and_then(|n| match n {
+            Node::Block(b) => Some(b),
+            _ => None,
+        })
+        .or(outer_block)?;
+    Some(ScopeDecl {
+        name,
+        body_source: block_body_text(source, block).to_string(),
+    })
 }
 
-/// Parse a `default_scope -> { body }` call. The body source is captured
-/// the same way as a named scope; downstream consumers know they have a
-/// global filter rather than a named one because it lives on
+/// Parse a `default_scope -> { body }` (lambda-arg form) or
+/// `default_scope { body }` / `default_scope do … end` (direct-block form,
+/// the canonical Rails idiom) call. The body source is captured the same
+/// way as a named scope; downstream consumers know they have a global
+/// filter rather than a named one because it lives on
 /// `default_scope_body`, not `scope_definitions`.
-fn parse_default_scope_send(send: &nodes::Send, source: &str) -> Option<String> {
-    let block_arg = send.args.first().and_then(|n| match n {
-        Node::Block(b) => Some(b),
-        _ => None,
-    })?;
-    Some(block_body_text(source, block_arg).to_string())
+fn parse_default_scope_send(
+    send: &nodes::Send,
+    outer_block: Option<&nodes::Block>,
+    source: &str,
+) -> Option<String> {
+    let block = send
+        .args
+        .first()
+        .and_then(|n| match n {
+            Node::Block(b) => Some(b),
+            _ => None,
+        })
+        .or(outer_block)?;
+    Some(block_body_text(source, block).to_string())
 }
 
 /// Build a [`CallbackDecl`] from a lifecycle-event Send + optional Block.
@@ -1252,6 +1280,73 @@ mod tests {
         assert_eq!(
             c.default_scope_body.as_deref(),
             Some("where.not(status: 5)")
+        );
+    }
+
+    #[test]
+    fn captures_default_scope_direct_block_brace_form() {
+        // G17 fix (Codex review on PR #24): the canonical Rails form is
+        // `default_scope { where(...) }` — a direct block, not a lambda
+        // arg. The statement is a Node::Block at the top level; the
+        // handler must consult the outer block, not just send.args.
+        let src = "class Article < ApplicationRecord\n\
+                   default_scope { where(published: true) }\n\
+                   end\n";
+        let c = parse(src);
+        assert_eq!(
+            c.default_scope_body.as_deref(),
+            Some("where(published: true)")
+        );
+    }
+
+    #[test]
+    fn captures_default_scope_direct_block_do_end_form() {
+        // Same as above but with the do/end delimiter. block_body_text
+        // strips both `{`/`}` and `do`/`end` uniformly because it slices
+        // by Block.begin_l / end_l byte offsets.
+        let src = "class Article < ApplicationRecord\n\
+                   default_scope do\n\
+                     where(published: true).order(:created_at)\n\
+                   end\n\
+                   end\n";
+        let c = parse(src);
+        let body = c.default_scope_body.as_deref().expect("body captured");
+        assert!(body.contains("where(published: true)"));
+        assert!(body.contains("order(:created_at)"));
+    }
+
+    #[test]
+    fn captures_scope_direct_block_do_end_form() {
+        // Less common in OP but legal Ruby: `scope :name do … end` — same
+        // statement-level block dispatch as default_scope. Closes the
+        // same correctness gap on the named-scope path.
+        let src = "class Foo < ApplicationRecord\n\
+                   scope :published, -> { where(published: true) }\n\
+                   scope :recent do\n\
+                     order(created_at: :desc)\n\
+                   end\n\
+                   end\n";
+        let c = parse(src);
+        let names: Vec<&str> = c.scope_definitions.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["published", "recent"]);
+        let recent = &c.scope_definitions[1];
+        assert!(recent.body_source.contains("order(created_at: :desc)"));
+    }
+
+    #[test]
+    fn captures_around_validation_callback() {
+        // Codex review on PR #24: around_validation existed in Rails 4+
+        // but was missing from CALLBACK_EVENTS. Now it lands in callbacks
+        // just like around_save / around_destroy.
+        let src = "class WorkPackage < ApplicationRecord\n\
+                   around_validation :wrap_validation\n\
+                   end\n";
+        let c = parse(src);
+        assert_eq!(c.callbacks.len(), 1);
+        assert_eq!(c.callbacks[0].event, "around_validation");
+        assert_eq!(
+            c.callbacks[0].target_method.as_deref(),
+            Some("wrap_validation")
         );
     }
 
