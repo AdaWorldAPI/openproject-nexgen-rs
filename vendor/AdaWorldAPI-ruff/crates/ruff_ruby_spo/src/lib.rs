@@ -1,24 +1,32 @@
-//! `ruff_ruby_spo` — **SCAFFOLD** Ruby/Rails frontend for the shared SPO
-//! triplet core.
+//! `ruff_ruby_spo` — Ruby/Rails frontend for the shared SPO triplet core.
 //!
-//! This crate exists to be *finished*, not to work yet. It pins the target
-//! triple shape (via a passing test) and marks every place a real Ruby
-//! parser must plug in with a `todo!()` and a doc-comment naming the exact
-//! Rails construct to read.
+//! Sprint C17a: parser graduation. The crate now uses `lib-ruby-parser`
+//! (pure-Rust typed AST) to extract class shape + association options from
+//! `app/models/*.rb`. Sprint C4's line scanner is retained for `body_source`
+//! traversal inside `fields.rs` / `functions.rs` (def-block detection,
+//! ivar finding, identifier reads) — graduating those is the next step
+//! per `RUBY-FRONTEND.md`.
 //!
-//! # How to finish it
+//! # What the AST adds on top of the line scanner
 //!
-//! See `crates/ruff_spo_triplet/SPO_TRIPLET_EXTRACTION.md` §5–§6 for the
-//! full guide. In short:
+//! The C4 scanner captured `belongs_to :project, …` as just the leading
+//! symbol `"project"`. The AST captures the WHOLE call: macro name + leading
+//! symbol + every option-hash entry it carries (`class_name:`, `through:`,
+//! `polymorphic:`, `as:`, `source:`, `dependent:`, `optional:`,
+//! `inverse_of:`, `foreign_key:`). Plus the class's superclass for STI
+//! hierarchy tracking. The probe report at
+//! `.claude/knowledge/c17-scanner-coverage-probes.md` (nexgen) lists what
+//! this closes (G1, G2, G3, G4, G5, G6 there).
 //!
-//! 1. Add a Ruby parser dep (recommended `lib-ruby-parser`, pure Rust).
-//! 2. Replace the `todo!()` in [`parse_models`] to produce a `Vec<RubyClass>`.
-//! 3. Replace the `todo!()`s in [`extract_fields`] / [`extract_functions`]
-//!    to read the Rails constructs documented on each.
-//! 4. Run the locked-shape test after each step — it asserts the
-//!    `expand()` output for a hand-built `ModelGraph`, so it tells you when
-//!    your extraction produces the right shape.
-//! 5. Point [`extract`] at an OpenProject `app/models/` tree.
+//! # Pipeline shape
+//!
+//! 1. [`parse_models`] (in `parse`) walks an `app/models/` tree, parses each
+//!    `*.rb` file with `lib_ruby_parser::Parser`, finds the top-level class
+//!    node, and produces a [`RubyClass`] per ActiveRecord-style class.
+//! 2. [`extract_fields`] / [`extract_functions`] scan the captured
+//!    [`RubyClass::body_source`] using the C4 line primitives (still
+//!    deterministic + dependency-free at that layer).
+//! 3. [`extract`] wires both into a [`ModelGraph`].
 //!
 //! The downstream consumers (`lance_graph` SPO loader, `action_emitter`,
 //! `link_chain`) need ZERO changes — they already consume the triple shape
@@ -36,26 +44,103 @@ mod scan;
 /// The namespace prefix for OpenProject subjects/objects.
 pub const NAMESPACE: &str = "openproject";
 
-/// A minimally-parsed Ruby class — what a parser frontend should produce
-/// before the IR mapping. Kept tiny on purpose; expand it as the real
-/// extractor needs more raw material.
+/// The four ActiveRecord association macros whose leading positional symbol
+/// names a relation. Kept here (and re-used by `parse.rs`) so the boundary
+/// between "association macro" and "ordinary class-body call" is defined
+/// in one place.
+pub(crate) const ASSOCIATION_MACROS: &[&str] = &[
+    "belongs_to",
+    "has_many",
+    "has_one",
+    "has_and_belongs_to_many",
+];
+
+/// Parsed shape of a `belongs_to` / `has_many` / `has_one` /
+/// `has_and_belongs_to_many` macro call. Captures both the leading symbol
+/// (the relation name) and every option-hash entry the call carries.
+///
+/// **Why each option is here.** Each option in this struct corresponds to a
+/// distinct piece of Rails semantics the C4 line scanner was blind to. See
+/// the coverage probe report (`.claude/knowledge/c17-scanner-coverage-probes.md`
+/// in nexgen) §"Universal gap taxonomy" for which gap (G1..G6) each closes.
+///
+/// **Field naming.** `source` / `as` collide with Rust reserved syntax in
+/// some positions; we use `source` (safe as a field name) and `as_target`
+/// (avoid a `r#as` field, which is uglier at call sites). Booleans
+/// (`polymorphic`, `optional`) are `Option<bool>` so "unset" is
+/// distinguishable from "explicitly false" — a small but real distinction
+/// for the downstream NARS truth tier.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AssociationDecl {
+    /// The macro name as written: `"belongs_to"`, `"has_many"`, `"has_one"`,
+    /// `"has_and_belongs_to_many"`.
+    pub macro_name: String,
+    /// The leading positional symbol — the relation name (`"project"`,
+    /// `"time_entries"`, …). Same as [`RubyClass::associations`] entries.
+    pub name: String,
+    /// `class_name: "Foo"` or `class_name: "Foo::Bar"` — the target type
+    /// when it cannot be inferred from the relation name. `::`-namespaced
+    /// names are preserved verbatim.
+    pub class_name: Option<String>,
+    /// `foreign_key: "user_id"` — the FK column on the owning table.
+    pub foreign_key: Option<String>,
+    /// `polymorphic: true` — on `belongs_to` this means the target is
+    /// determined at runtime by a `<name>_type` column.
+    pub polymorphic: Option<bool>,
+    /// `through: :memberships` — for has_many/has_one, names the
+    /// intermediate association the relation goes through.
+    pub through: Option<String>,
+    /// `source: :principal` — aliasing on a through-association: read the
+    /// target via THIS association name on the through-target, instead of
+    /// the relation's own leading symbol.
+    pub source: Option<String>,
+    /// `as: :container` — reverse-side polymorphism: `has_many :x, as: :y`
+    /// means the OTHER end's belongs_to was polymorphic with type/id pair
+    /// `y_type`/`y_id`.
+    pub as_target: Option<String>,
+    /// `dependent: :destroy` / `:delete_all` / `:nullify` / `:restrict_*`.
+    pub dependent: Option<String>,
+    /// `optional: true` — on `belongs_to`, allows the FK to be null.
+    pub optional: Option<bool>,
+    /// `inverse_of: :user` — the reciprocal relation on the target.
+    pub inverse_of: Option<String>,
+}
+
+/// A minimally-parsed Ruby class — what the parser frontend produces before
+/// the IR mapping. Fields fall into two groups:
+///
+/// 1. **C4 line-scanner-compatible** (`name`, `body_source`, `associations`,
+///    `columns`): preserved verbatim from the dependency-free scaffold so
+///    `fields.rs` / `functions.rs` continue to work unchanged.
+///
+/// 2. **C17a parser-driven additions** (`superclass`, `association_options`):
+///    require the AST. Populated by [`parse`] from `lib_ruby_parser` output.
 #[derive(Debug, Clone, Default)]
 pub struct RubyClass {
     /// Class name as written (`WorkPackage`). No dots in Ruby class names,
     /// so no normalisation needed (unlike Odoo's `account.move`).
     pub name: String,
-    /// Raw source of the class body — the extractors scan this.
+    /// Raw source of the class body — `fields` / `functions` extractors
+    /// scan this with [`scan`] primitives.
     pub body_source: String,
     /// Association names declared on the class (`belongs_to`, `has_many`,
     /// `has_one`, `has_and_belongs_to_many`). Seeds the set of valid
     /// relation names so a body call can be told apart from an ordinary
-    /// method call.
+    /// method call. Same set as `association_options.iter().map(|a| &a.name)`,
+    /// kept as a `Vec<String>` for the existing extractor consumers.
     pub associations: Vec<String>,
     /// Baseline DB columns for this class's table, seeded from `db/schema.rb`
-    /// by [`parse`]. These are the baseline [`ruff_spo_triplet::Field`]s;
-    /// `attribute`/derived attrs in the body are additive. (Added Sprint C4 so
-    /// `extract_fields` stays decoupled from the source tree path.)
+    /// by [`parse`].
     pub columns: Vec<String>,
+    /// Superclass name as written (`"ApplicationRecord"`, `"Principal"`,
+    /// `"ActiveRecord::Base"`, …). C17a addition: enables STI hierarchy
+    /// detection in downstream consumers — when this is a non-Record/Base
+    /// model name, the class is an STI subtype of that model.
+    pub superclass: Option<String>,
+    /// Full per-association option set, in source order. Same length and
+    /// order as [`Self::associations`]; the i-th [`AssociationDecl`]'s
+    /// `.name` equals the i-th `associations` entry. C17a addition.
+    pub association_options: Vec<AssociationDecl>,
 }
 
 /// Top-level entry: walk a Rails `app/models/` tree and produce the IR.

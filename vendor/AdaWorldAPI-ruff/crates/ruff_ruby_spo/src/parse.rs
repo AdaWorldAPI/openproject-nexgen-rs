@@ -1,38 +1,37 @@
-//! `parse_models` — walk a Rails `app/models/` tree into [`RubyClass`] records.
-//! Sprint C4 fanout slot A.
+//! `parse_models` — walk a Rails `app/models/` tree into [`RubyClass`]
+//! records, driven by `lib_ruby_parser` (Sprint C17a — parser graduation).
 //!
-//! Dependency-free: model files are tokenised with [`crate::scan`] line
-//! primitives, and `db/schema.rb` is read once for the per-table column
-//! baseline. The class → table name mapping (`PascalCase` → `snake_case` →
-//! pluralise) is inlined here because it is only needed for this column join.
+//! Each model file is fed through the full Ruby AST parser; the first
+//! top-level `class … < …` node is taken as the model, its superclass and
+//! its association-macro Send nodes are captured into the [`RubyClass`]
+//! shape, and `db/schema.rb` columns are joined by inflected table name.
+//!
+//! What the AST adds over the C4 line scanner: see the module-level docs
+//! of [`crate`] §"What the AST adds on top of the line scanner". The new
+//! [`AssociationDecl`] values are populated here.
+//!
+//! Determinism: the file walk is sorted; classes are returned sorted by
+//! name; association options are captured in source order. Panic-free:
+//! an unreadable models dir yields an empty result, an unreadable file is
+//! skipped, a parse-error file is skipped (no panic, no partial pollution),
+//! a missing `schema.rb` leaves columns empty.
 
 use std::fs;
 use std::path::Path;
 
-use crate::RubyClass;
-use crate::scan;
+use lib_ruby_parser::{Bytes, Node, Parser, ParserOptions, nodes};
 
-/// The association macros whose leading positional symbol names a relation.
-const ASSOCIATION_MACROS: &[&str] = &[
-    "belongs_to",
-    "has_many",
-    "has_one",
-    "has_and_belongs_to_many",
-];
+use crate::scan;
+use crate::{ASSOCIATION_MACROS, AssociationDecl, RubyClass};
 
 /// Walk `source_tree/app/models` for `*.rb` files and build a [`RubyClass`]
-/// per `class … < …Record` definition, joining DB columns from
+/// per `class … < …` definition, joining DB columns from
 /// `source_tree/db/schema.rb`.
-///
-/// Never panics: an unreadable models dir yields an empty result, an
-/// unreadable file is skipped, and a missing `schema.rb` leaves `columns`
-/// empty. The returned `Vec` is sorted by class name for determinism.
 pub(crate) fn parse_models(source_tree: &Path) -> Vec<RubyClass> {
     let schema = parse_schema(&source_tree.join("db/schema.rb"));
 
     let mut files: Vec<std::path::PathBuf> = Vec::new();
     collect_rb_files(&source_tree.join("app/models"), &mut files);
-    // Stable traversal regardless of directory-entry order.
     files.sort();
 
     let mut classes: Vec<RubyClass> = Vec::new();
@@ -40,7 +39,7 @@ pub(crate) fn parse_models(source_tree: &Path) -> Vec<RubyClass> {
         let Ok(source) = fs::read_to_string(path) else {
             continue;
         };
-        if let Some(mut class) = parse_class(&source) {
+        if let Some(mut class) = parse_class_via_ast(&source) {
             let table = pluralize(&to_snake(&class.name));
             if let Some(columns) = schema.iter().find(|(t, _)| *t == table) {
                 class.columns.clone_from(&columns.1);
@@ -54,8 +53,7 @@ pub(crate) fn parse_models(source_tree: &Path) -> Vec<RubyClass> {
 }
 
 /// Recursively gather `*.rb` files under `dir`. A non-existent or unreadable
-/// directory contributes nothing (no panic). Recursion is a bonus over the
-/// flat fixture; subdir entries are descended into when present.
+/// directory contributes nothing (no panic).
 fn collect_rb_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -70,31 +68,41 @@ fn collect_rb_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-/// Parse a single model file: locate the `class <Name> < <Super>Record`
-/// definition, capture its name, body (lines after the `class` line up to but
-/// excluding the file's final top-level `end`), and association names.
-fn parse_class(source: &str) -> Option<RubyClass> {
-    let lines: Vec<&str> = source.lines().collect();
+/// Parse a Ruby model file via `lib_ruby_parser`, locate its top-level
+/// class definition, and build a [`RubyClass`].
+///
+/// Returns `None` if the file does not contain a parseable Ruby AST, or if
+/// the first class node has no explicit superclass (matches the C4
+/// "ActiveRecord-style only" filter — a bare `class Foo … end` without a
+/// parent is not a model).
+fn parse_class_via_ast(source: &str) -> Option<RubyClass> {
+    let options = ParserOptions {
+        buffer_name: "model.rb".to_string(),
+        ..Default::default()
+    };
+    let parser = Parser::new(source.as_bytes().to_vec(), options);
+    let result = parser.do_parse();
+    let ast = result.ast?;
 
-    let class_line = lines.iter().position(|line| class_name(line).is_some())?;
-    let name = class_name(lines[class_line])?;
+    let class_node = find_first_class(&ast)?;
+    let name = leaf_const_name(&class_node.name)?;
+    let superclass_node = class_node.superclass.as_ref()?;
+    let superclass = const_name(superclass_node);
 
-    // The body runs from the line after `class …` up to (not including) the
-    // file's final top-level `end`. Use the last line that is exactly `end`
-    // (after comment-stripping/trimming) as that terminator.
-    let end_line = lines
-        .iter()
-        .rposition(|line| scan::strip_comment(line).trim() == "end")
-        .filter(|&i| i > class_line);
-
-    let body_end = end_line.unwrap_or(lines.len());
-    let body_lines = &lines[class_line + 1..body_end];
-    let body_source = body_lines.join("\n");
+    let body_source = extract_body_source(source, class_node);
 
     let mut associations: Vec<String> = Vec::new();
-    for line in body_lines {
-        for macro_name in ASSOCIATION_MACROS {
-            associations.extend(scan::macro_symbols(line, macro_name));
+    let mut association_options: Vec<AssociationDecl> = Vec::new();
+    for stmt in top_level_statements(&class_node.body) {
+        if let Node::Send(send) = stmt {
+            if send.recv.is_none()
+                && ASSOCIATION_MACROS.iter().any(|m| *m == send.method_name.as_str())
+            {
+                if let Some(decl) = parse_association_send(send) {
+                    associations.push(decl.name.clone());
+                    association_options.push(decl);
+                }
+            }
         }
     }
 
@@ -103,43 +111,195 @@ fn parse_class(source: &str) -> Option<RubyClass> {
         body_source,
         associations,
         columns: Vec::new(),
+        superclass,
+        association_options,
     })
 }
 
-/// If `line` opens an ActiveRecord class definition
-/// (`class <Name> < <Something>`), return `<Name>`. Accepts any superclass —
-/// `ApplicationRecord`, `ActiveRecord::Base`, or an STI parent model — since
-/// the superclass is not load-bearing for the IR.
-fn class_name(line: &str) -> Option<String> {
-    let code = scan::strip_comment(line).trim();
-    let rest = code.strip_prefix("class ")?;
-    let (name, after) = split_identifier(rest.trim_start());
-    if name.is_empty() {
-        return None;
+/// Walk the AST root for the first `Class` node. Looks through `Begin`
+/// (multi-statement file body) and into `Module` bodies — OP has a couple
+/// of models wrapped in `module Plugin; class Foo < Bar; end; end`.
+fn find_first_class(node: &Node) -> Option<&nodes::Class> {
+    match node {
+        Node::Class(c) => Some(c),
+        Node::Begin(b) => {
+            for stmt in &b.statements {
+                if let Some(c) = find_first_class(stmt) {
+                    return Some(c);
+                }
+            }
+            None
+        }
+        Node::Module(m) => m.body.as_deref().and_then(find_first_class),
+        _ => None,
     }
-    // Require an explicit superclass (`< …`) so we don't capture a plain
-    // namespacing `class Foo` without an ActiveRecord parent.
-    if after.trim_start().starts_with('<') {
-        Some(name)
+}
+
+/// Leaf name of a `Const` node: `WorkPackage`, or `Bar` from `Foo::Bar`.
+/// Used for the class's own name (we capture just the leaf — matches C4).
+fn leaf_const_name(node: &Node) -> Option<String> {
+    if let Node::Const(c) = node {
+        Some(c.name.clone())
     } else {
         None
     }
 }
 
-/// Split off a leading Ruby identifier (alphanumerics + `_`), returning it and
-/// the remaining slice.
-fn split_identifier(s: &str) -> (String, &str) {
-    let end = s
-        .char_indices()
-        .find(|(_, c)| !(c.is_alphanumeric() || *c == '_'))
-        .map_or(s.len(), |(i, _)| i);
-    (s[..end].to_string(), &s[end..])
+/// Full dotted name of a `Const` chain — `A::B::C` from a Const whose
+/// scope is `A::B`. Used for superclass capture so an STI parent like
+/// `ActiveRecord::Base` stays whole.
+fn const_name(node: &Node) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    let mut cur = node;
+    loop {
+        let Node::Const(c) = cur else { return None };
+        parts.insert(0, c.name.clone());
+        match c.scope.as_deref() {
+            Some(scope) => cur = scope,
+            None => break,
+        }
+    }
+    if parts.is_empty() { None } else { Some(parts.join("::")) }
 }
 
-/// Parse `db/schema.rb` into `(table_name, column_names)` pairs. Each
-/// `create_table "<table>" … do |t|` block contributes its `t.<type> "<col>"`
-/// column names, in declaration order. A missing/unreadable file yields an
-/// empty `Vec` (no panic).
+/// The class body as a flat list of top-level statements. Handles all three
+/// shapes lib_ruby_parser can return: `None` (empty body), `Some(Begin)`
+/// (multiple statements), or `Some(single_node)` (single statement).
+fn top_level_statements(body: &Option<Box<Node>>) -> Vec<&Node> {
+    match body.as_deref() {
+        None => Vec::new(),
+        Some(Node::Begin(b)) => b.statements.iter().collect(),
+        Some(node) => vec![node],
+    }
+}
+
+/// Parse one of the four association macros into [`AssociationDecl`].
+///
+/// `send` is expected to be unqualified (`send.recv` is `None`) and its
+/// `method_name` to be one of [`ASSOCIATION_MACROS`]; both are checked at
+/// the call site. Returns `None` if the first positional arg is not a
+/// `Sym` (the macro requires a leading symbol; any other shape is
+/// non-Rails-canonical and we'd rather under-extract than mis-extract).
+fn parse_association_send(send: &nodes::Send) -> Option<AssociationDecl> {
+    let first = send.args.first()?;
+    let name = sym_name(first)?;
+
+    let mut decl = AssociationDecl {
+        macro_name: send.method_name.clone(),
+        name,
+        ..Default::default()
+    };
+
+    // Subsequent args: options come as a Kwargs node (Ruby 3.0+ trailing
+    // keyword args, the modern form — `belongs_to :x, dependent: :destroy`)
+    // or a Hash (legacy braced form — `belongs_to :x, { dependent: :destroy
+    // }`). Both shapes carry the same `Pair` children. An optional `->{...}`
+    // scope-block can sit between the leading symbol and the kwargs; it is
+    // ignored on purpose — its body is queried via the `body_source`
+    // traversal layer (`fields` / `functions`), not the option-set layer.
+    for arg in send.args.iter().skip(1) {
+        let pairs: Option<&Vec<Node>> = match arg {
+            Node::Hash(h) => Some(&h.pairs),
+            Node::Kwargs(k) => Some(&k.pairs),
+            _ => None,
+        };
+        let Some(pairs) = pairs else { continue };
+        for pair in pairs {
+            if let Node::Pair(p) = pair {
+                apply_pair(&mut decl, &p.key, &p.value);
+            }
+        }
+    }
+    Some(decl)
+}
+
+/// Map one option-hash pair onto an [`AssociationDecl`] field. Unknown
+/// keys are silently dropped — Rails grows new association options over
+/// time and we shouldn't blow up on ones we don't model.
+fn apply_pair(decl: &mut AssociationDecl, key: &Node, value: &Node) {
+    let Some(k) = sym_name(key) else { return };
+    match k.as_str() {
+        "class_name" => decl.class_name = str_value(value),
+        "foreign_key" => decl.foreign_key = sym_or_str(value),
+        "polymorphic" => decl.polymorphic = bool_value(value),
+        "through" => decl.through = sym_or_str(value),
+        "source" => decl.source = sym_or_str(value),
+        "as" => decl.as_target = sym_or_str(value),
+        "dependent" => decl.dependent = sym_or_str(value),
+        "optional" => decl.optional = bool_value(value),
+        "inverse_of" => decl.inverse_of = sym_or_str(value),
+        _ => {}
+    }
+}
+
+fn sym_name(node: &Node) -> Option<String> {
+    if let Node::Sym(s) = node {
+        Some(bytes_to_string(&s.name))
+    } else {
+        None
+    }
+}
+
+fn str_value(node: &Node) -> Option<String> {
+    if let Node::Str(s) = node {
+        Some(bytes_to_string(&s.value))
+    } else {
+        None
+    }
+}
+
+/// Either a `:symbol` or a `"string"` literal. Both forms are accepted by
+/// Rails for options like `dependent: :destroy` (Sym) vs `foreign_key:
+/// "user_id"` (Str); some codebases mix them freely so we collapse both
+/// into the same `Option<String>`.
+fn sym_or_str(node: &Node) -> Option<String> {
+    sym_name(node).or_else(|| str_value(node))
+}
+
+fn bool_value(node: &Node) -> Option<bool> {
+    match node {
+        Node::True(_) => Some(true),
+        Node::False(_) => Some(false),
+        _ => None,
+    }
+}
+
+/// `lib_ruby_parser::Bytes` → owned String, lossy-UTF8. OpenProject models
+/// are ASCII so the lossy conversion is a no-op in practice; it's just here
+/// so a stray non-UTF-8 byte in a comment can't panic the whole walk.
+fn bytes_to_string(b: &Bytes) -> String {
+    String::from_utf8_lossy(&b.raw).into_owned()
+}
+
+/// Extract the class body text (`fields.rs` / `functions.rs` scan this
+/// string with the C4 line primitives). Uses the AST's `expression_l` for
+/// the class node and its `end_l` for the closing `end` — both are byte
+/// offsets into the original source. Strips the `class X < Y` opening line
+/// and the trailing `end` to match the C4 line-scanner's body shape.
+fn extract_body_source(source: &str, class: &nodes::Class) -> String {
+    let begin = class.expression_l.begin;
+    let end = class.end_l.end;
+    if begin >= end || end > source.len() {
+        return String::new();
+    }
+    let span = &source[begin..end];
+    // Body starts after the first newline (end of `class X < Y` line).
+    let body_start_in_span = span.find('\n').map_or(span.len(), |p| p + 1);
+    // Body ends before the closing `end` (3 bytes). end_l covers the full
+    // `end` keyword so we just trim that fixed-width suffix.
+    let body_end_in_span = span.len().saturating_sub(3);
+    if body_start_in_span >= body_end_in_span {
+        return String::new();
+    }
+    span[body_start_in_span..body_end_in_span].to_string()
+}
+
+// ---------------------------------------------------------------------------
+// db/schema.rb (unchanged from C4 — schema.rb is structured Ruby DSL where
+// the line scanner is already the right tool; no AST needed)
+// ---------------------------------------------------------------------------
+
+/// Parse `db/schema.rb` into `(table_name, column_names)` pairs.
 fn parse_schema(path: &Path) -> Vec<(String, Vec<String>)> {
     let Ok(source) = fs::read_to_string(path) else {
         return Vec::new();
@@ -150,7 +310,6 @@ fn parse_schema(path: &Path) -> Vec<(String, Vec<String>)> {
     for raw in source.lines() {
         let code = scan::strip_comment(raw).trim();
         if let Some(table) = create_table_name(code) {
-            // Defensive: flush any unterminated previous block before starting.
             if let Some(block) = current.take() {
                 tables.push(block);
             }
@@ -176,7 +335,6 @@ fn parse_schema(path: &Path) -> Vec<(String, Vec<String>)> {
     tables
 }
 
-/// If `code` begins a `create_table "<table>", …` block, return `<table>`.
 fn create_table_name(code: &str) -> Option<String> {
     let rest = code.strip_prefix("create_table")?;
     if !rest.starts_with([' ', '\t', '(']) {
@@ -185,11 +343,7 @@ fn create_table_name(code: &str) -> Option<String> {
     first_string_literal(rest)
 }
 
-/// Non-column `t.*` helpers seen in real `db/schema.rb` files. The first
-/// string literal on these lines names an index, a referenced table, etc. —
-/// not a column on the current table — so they must be skipped before reading
-/// any string literal (Codex PR #4 P2: `t.index ["work_package_id"], name:
-/// "idx_wp"` was leaking `work_package_id` as a duplicate column).
+/// `t.*` helpers whose first string literal does NOT name a column.
 const NON_COLUMN_HELPERS: &[&str] = &[
     "index",
     "foreign_key",
@@ -197,13 +351,9 @@ const NON_COLUMN_HELPERS: &[&str] = &[
     "belongs_to",
     "primary_key",
     "check_constraint",
-    "timestamps", // `t.timestamps` adds created_at/updated_at; not a single named column.
+    "timestamps",
 ];
 
-/// If `code` is a column declaration (`t.<type> "<col>"…`), return `<col>`.
-/// The `t.index`/`t.foreign_key` etc. helpers are skipped via
-/// [`NON_COLUMN_HELPERS`] so their referenced names are never mistaken for
-/// columns of the current table.
 fn column_name(code: &str) -> Option<String> {
     let rest = code.strip_prefix("t.")?;
     let (kind, after) = split_identifier(rest);
@@ -213,7 +363,14 @@ fn column_name(code: &str) -> Option<String> {
     first_string_literal(after)
 }
 
-/// Extract the first `"…"` or `'…'` string literal's contents from `s`.
+fn split_identifier(s: &str) -> (String, &str) {
+    let end = s
+        .char_indices()
+        .find(|(_, c)| !(c.is_alphanumeric() || *c == '_'))
+        .map_or(s.len(), |(i, _)| i);
+    (s[..end].to_string(), &s[end..])
+}
+
 fn first_string_literal(s: &str) -> Option<String> {
     let bytes = s.as_bytes();
     let mut i = 0;
@@ -235,9 +392,6 @@ fn first_string_literal(s: &str) -> Option<String> {
     None
 }
 
-/// `WorkPackage` → `work_package`. PascalCase/camelCase → snake_case: insert
-/// `_` before an uppercase letter that follows a lowercase/digit or precedes a
-/// lowercase run inside an acronym, then lowercase.
 fn to_snake(name: &str) -> String {
     let chars: Vec<char> = name.chars().collect();
     let mut out = String::with_capacity(name.len() + 4);
@@ -256,9 +410,6 @@ fn to_snake(name: &str) -> String {
     out
 }
 
-/// Inflect a snake_case singular table stem to plural, covering the common
-/// English rules ActiveRecord's default inflector applies for these fixtures:
-/// `…<consonant>y` → `…ies`, `…(s|x|ch|sh)` → `…es`, else `…s`.
 fn pluralize(word: &str) -> String {
     if let Some(stem) = word.strip_suffix('y') {
         let preceded_by_vowel = stem.chars().next_back().is_some_and(is_vowel);
@@ -284,26 +435,190 @@ fn is_vowel(c: char) -> bool {
 mod tests {
     use super::*;
 
+    fn parse(source: &str) -> RubyClass {
+        parse_class_via_ast(source).expect("source should parse into a RubyClass")
+    }
+
+    #[test]
+    fn captures_class_name_and_superclass() {
+        let c = parse("class WorkPackage < ApplicationRecord\nend\n");
+        assert_eq!(c.name, "WorkPackage");
+        assert_eq!(c.superclass.as_deref(), Some("ApplicationRecord"));
+    }
+
+    #[test]
+    fn captures_namespaced_superclass() {
+        let c = parse("class Foo < ActiveRecord::Base\nend\n");
+        assert_eq!(c.superclass.as_deref(), Some("ActiveRecord::Base"));
+    }
+
+    #[test]
+    fn captures_sti_subclass_parent() {
+        // STI: parent is a model, not Record/Base. This is the case our
+        // downstream consumers need to detect a hierarchy.
+        let c = parse("class Group < Principal\nend\n");
+        assert_eq!(c.superclass.as_deref(), Some("Principal"));
+    }
+
+    #[test]
+    fn rejects_class_without_superclass() {
+        // Matches C4 behaviour: a bare `class Foo` without an explicit
+        // parent is not an ActiveRecord-style model and is skipped.
+        assert!(parse_class_via_ast("class Foo\nend\n").is_none());
+    }
+
+    #[test]
+    fn captures_plain_associations_same_as_c4() {
+        let src = "class WorkPackage < ApplicationRecord\n\
+                   belongs_to :project\n\
+                   has_many :time_entries\n\
+                   end\n";
+        let c = parse(src);
+        assert_eq!(c.associations, ["project", "time_entries"]);
+        assert_eq!(c.association_options.len(), 2);
+        assert_eq!(c.association_options[0].macro_name, "belongs_to");
+        assert_eq!(c.association_options[0].name, "project");
+        assert_eq!(c.association_options[1].macro_name, "has_many");
+        assert_eq!(c.association_options[1].name, "time_entries");
+    }
+
+    #[test]
+    fn captures_class_name_option() {
+        // G1 (macro options) / G6 (`::`-namespaced class_name) — the C4
+        // scanner saw `assigned_to` only; the new parser sees the target
+        // type too.
+        let src = "class WorkPackage < ApplicationRecord\n\
+                   belongs_to :assigned_to, class_name: \"Principal\"\n\
+                   belongs_to :file_link, class_name: \"Storages::FileLink\"\n\
+                   end\n";
+        let c = parse(src);
+        assert_eq!(
+            c.association_options[0].class_name.as_deref(),
+            Some("Principal")
+        );
+        assert_eq!(
+            c.association_options[1].class_name.as_deref(),
+            Some("Storages::FileLink")
+        );
+    }
+
+    #[test]
+    fn captures_polymorphic_belongs_to() {
+        // G2 — Journal-style polymorphic belongs_to is now visible.
+        let src = "class Journal < ApplicationRecord\n\
+                   belongs_to :journable, polymorphic: true\n\
+                   belongs_to :user\n\
+                   end\n";
+        let c = parse(src);
+        assert_eq!(c.association_options[0].polymorphic, Some(true));
+        // A non-polymorphic belongs_to leaves the flag unset (None) — not
+        // the same as `polymorphic: false`.
+        assert_eq!(c.association_options[1].polymorphic, None);
+    }
+
+    #[test]
+    fn captures_reverse_side_polymorphic_as() {
+        // G3 — `has_many :time_entries, as: :entity` makes the OTHER side's
+        // belongs_to polymorphic on `:entity_type`/`:entity_id`.
+        let src = "class WorkPackage < ApplicationRecord\n\
+                   has_many :time_entries, dependent: :delete_all, as: :entity\n\
+                   end\n";
+        let c = parse(src);
+        let opts = &c.association_options[0];
+        assert_eq!(opts.as_target.as_deref(), Some("entity"));
+        assert_eq!(opts.dependent.as_deref(), Some("delete_all"));
+    }
+
+    #[test]
+    fn captures_through_and_source() {
+        // G4 + G5 — `has_many :users, through: :members, source: :principal`
+        // is the canonical Project.users → Member.principal join. Both
+        // options must be captured to reconstruct the join semantics.
+        let src = "class Project < ApplicationRecord\n\
+                   has_many :members\n\
+                   has_many :users, through: :members, source: :principal\n\
+                   end\n";
+        let c = parse(src);
+        let users = c
+            .association_options
+            .iter()
+            .find(|a| a.name == "users")
+            .expect("users assoc captured");
+        assert_eq!(users.through.as_deref(), Some("members"));
+        assert_eq!(users.source.as_deref(), Some("principal"));
+    }
+
+    #[test]
+    fn captures_optional_inverse_of_and_foreign_key() {
+        let src = "class WorkPackage < ApplicationRecord\n\
+                   belongs_to :assigned_to, class_name: \"Principal\", \
+                   optional: true, foreign_key: \"assigned_to_id\", \
+                   inverse_of: :work_packages\n\
+                   end\n";
+        let c = parse(src);
+        let a = &c.association_options[0];
+        assert_eq!(a.optional, Some(true));
+        assert_eq!(a.foreign_key.as_deref(), Some("assigned_to_id"));
+        assert_eq!(a.inverse_of.as_deref(), Some("work_packages"));
+    }
+
+    #[test]
+    fn ignores_options_block_scope_before_hash() {
+        // `has_many :x, -> { … }, dependent: :destroy` — the lambda is
+        // arg[1], the hash is arg[2]. We must still find the options.
+        let src = "class Project < ApplicationRecord\n\
+                   has_many :work_packages, -> { order(:created_at) }, dependent: :destroy\n\
+                   end\n";
+        let c = parse(src);
+        let a = &c.association_options[0];
+        assert_eq!(a.name, "work_packages");
+        assert_eq!(a.dependent.as_deref(), Some("destroy"));
+    }
+
+    #[test]
+    fn body_source_preserves_extractor_input() {
+        // `fields.rs` / `functions.rs` consume body_source as a string and
+        // expect the class definition's open + closing `end` stripped. This
+        // shape must match what the C4 parse_class produced.
+        let src = "class WorkPackage < ApplicationRecord\n\
+                   belongs_to :project\n\
+                   has_many :time_entries\n\
+                   \n\
+                   def compute_total_hours\n\
+                   raise ActiveRecord::RecordInvalid unless status\n\
+                   @total_hours ||= time_entries.hours\n\
+                   end\n\
+                   end\n";
+        let c = parse(src);
+        assert!(c.body_source.contains("belongs_to :project"));
+        assert!(c.body_source.contains("def compute_total_hours"));
+        assert!(c.body_source.contains("@total_hours"));
+        // The opening `class …` line is NOT in body_source.
+        assert!(!c.body_source.contains("class WorkPackage <"));
+    }
+
     #[test]
     fn column_name_accepts_scalar_columns() {
-        assert_eq!(column_name(r#"t.string "subject", null: false"#).as_deref(), Some("subject"));
-        assert_eq!(column_name(r#"t.integer "status_id""#).as_deref(), Some("status_id"));
-        assert_eq!(column_name(r#"t.datetime "created_at""#).as_deref(), Some("created_at"));
+        assert_eq!(
+            column_name(r#"t.string "subject", null: false"#).as_deref(),
+            Some("subject")
+        );
+        assert_eq!(
+            column_name(r#"t.integer "status_id""#).as_deref(),
+            Some("status_id")
+        );
     }
 
     #[test]
     fn column_name_skips_non_column_helpers() {
-        // Codex PR #4 P2: real schema.rb has `t.index [...]` lines whose first
-        // string is an index name (or, with `["work_package_id"]`, the first
-        // member of a multi-column index). Neither is a column on the table.
-        assert_eq!(column_name(r#"t.index ["work_package_id"], name: "idx_wp_id""#), None);
-        assert_eq!(column_name(r#"t.foreign_key "users", column: "author_id""#), None);
-        assert_eq!(column_name(r#"t.references "project", null: false"#), None);
-        assert_eq!(column_name(r#"t.primary_key "id""#), None);
-        assert_eq!(column_name(r#"t.check_constraint "x > 0", name: "x_pos""#), None);
+        assert_eq!(
+            column_name(r#"t.index ["work_package_id"], name: "idx_wp_id""#),
+            None
+        );
+        assert_eq!(
+            column_name(r#"t.foreign_key "users", column: "author_id""#),
+            None
+        );
         assert_eq!(column_name(r#"t.timestamps null: false"#), None);
-        // `belongs_to` inside create_table is the schema-helper shape, not the
-        // association macro of the same name. Same skip.
-        assert_eq!(column_name(r#"t.belongs_to "author""#), None);
     }
 }

@@ -44,6 +44,9 @@ ruff_spo_triplet = { path = "crates/ruff_spo_triplet" }
 # root workspace pins (Cargo.toml lines 18-19 at the snapshot mirrored).
 serde            = { version = "1.0.197", features = ["derive"] }
 serde_json       = { version = "1.0.113" }
+# Sprint C17a: Ruby parser graduation. Pure-Rust typed AST, no Ruby runtime.
+# Default features only (`bin-parse` + `codegen-rust` are dev-side).
+lib-ruby-parser  = { version = "4.0" }
 
 # Empty lints tables so that `[lints] workspace = true` in the member
 # crates resolves to a no-op locally. The actual upstream ruff lints
