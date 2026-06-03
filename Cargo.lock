@@ -31,6 +31,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloc-from-pool"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bee030c58cf5648ea793d06e5aa6039f913bfbf9f68a0635c76ba429d393fa6c"
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1143,6 +1149,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "lib-ruby-parser"
+version = "4.0.6+ruby-3.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a64ffd6ab03aa1e6a986b42260202e25fb8d197dd7be0de11088cca389f67ce"
+dependencies = [
+ "alloc-from-pool",
+ "lib-ruby-parser-ast",
+]
+
+[[package]]
+name = "lib-ruby-parser-ast"
+version = "0.55.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "461948472e72b507a0f97e144c453e29b8772e986f18b410e0f2318edd45258c"
+
+[[package]]
 name = "libc"
 version = "0.2.180"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2125,8 +2147,9 @@ dependencies = [
 
 [[package]]
 name = "ruff_ruby_spo"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "lib-ruby-parser",
  "ruff_spo_triplet",
 ]
 

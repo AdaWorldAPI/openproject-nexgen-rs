@@ -194,6 +194,7 @@ mod tests {
             body_source: body.to_string(),
             associations: associations.iter().map(|s| (*s).to_string()).collect(),
             columns: columns.iter().map(|s| (*s).to_string()).collect(),
+            ..Default::default()
         }
     }
 

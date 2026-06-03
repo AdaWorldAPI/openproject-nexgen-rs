@@ -141,6 +141,7 @@ mod tests {
                 "created_at".to_string(),
                 "updated_at".to_string(),
             ],
+            ..Default::default()
         }
     }
 
@@ -186,6 +187,7 @@ mod tests {
                 "created_at".to_string(),
                 "updated_at".to_string(),
             ],
+            ..Default::default()
         };
         let fields = extract_fields(&class);
         assert_eq!(fields.len(), 4);
