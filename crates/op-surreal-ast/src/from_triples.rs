@@ -72,6 +72,17 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
         }
     }
 
+    // Snapshot the set of known class names (post-strip-namespace) once,
+    // so the inner loop can borrow `tables` mutably while still checking
+    // membership. Polymorphic associations (`belongs_to :ownable,
+    // polymorphic: true`) name a non-existent class; this set lets us
+    // fall back to `option<any>` instead of inventing a phantom
+    // `record<Ownable>`.
+    let known_targets: std::collections::HashSet<String> = tables
+        .values()
+        .map(|tb| tb.name.clone())
+        .collect();
+
     // Asserts are buffered and applied AFTER the field-population pass
     // so the `validates_constraint` → ASSERT wiring is independent of
     // triple stream order (codex P2 PR #27 r…). A
@@ -111,7 +122,20 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                     .unwrap_or("")
                     .to_string();
                 let target = rails_target_class(&relation);
-                let kind = Kind::Record(vec![target.clone()]).optional();
+                // Only emit `record<Target>` when `Target` is a
+                // discovered table (a class with an explicit
+                // `rdf:type ObjectType` triple). Otherwise, the
+                // association is polymorphic (`belongs_to :remindable,
+                // polymorphic: true` — `Remindable` is a runtime type
+                // discriminator, not a real table) or refers to an
+                // external model the corpus didn't declare. Falling
+                // back to `option<any>` keeps the schema correct
+                // without inventing phantom record targets.
+                let kind = if known_targets.contains(&target) {
+                    Kind::Record(vec![target]).optional()
+                } else {
+                    Kind::Any.optional()
+                };
                 let field_name = format!("{relation}_id");
                 if builder.add_field(field_name.clone(), kind) {
                     // Only emit the companion index when the field was
@@ -407,6 +431,10 @@ mod tests {
     fn declares_association_adds_record_field_and_index() {
         let triples = vec![
             t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            // Project MUST be a known table for the FK to lower to
+            // `record<Project>` — without it, the association would
+            // fall back to `option<any>` (polymorphic-safe default).
+            t("openproject:Project", "rdf:type", "ogit:ObjectType"),
             t(
                 "openproject:WorkPackage",
                 "declares_association",
@@ -414,7 +442,11 @@ mod tests {
             ),
         ];
         let schema = triples_to_schema(&triples);
-        let wp = &schema.tables[0];
+        let wp = schema
+            .tables
+            .iter()
+            .find(|t| t.name == "WorkPackage")
+            .unwrap();
         // FieldDefinition: project_id : option<record<Project>>
         let project = wp.fields.iter().find(|f| f.name == "project_id").unwrap();
         assert_eq!(
@@ -426,6 +458,84 @@ mod tests {
             wp.indices.iter().any(|i| i.name == "idx_WorkPackage_project_id"),
             "expected an index on project_id"
         );
+    }
+
+    /// **Polymorphic-association regression** — `belongs_to :ownable,
+    /// polymorphic: true` names a runtime type discriminator
+    /// (`Ownable`), not a real table. The FK must fall back to
+    /// `option<any>` instead of inventing a phantom `record<Ownable>`
+    /// pointing at a table that doesn't exist.
+    #[test]
+    fn polymorphic_association_falls_back_to_option_any() {
+        let triples = vec![
+            t("openproject:Reminder", "rdf:type", "ogit:ObjectType"),
+            // No `Remindable` class — polymorphic association.
+            t(
+                "openproject:Reminder",
+                "declares_association",
+                "openproject:Reminder.remindable",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let reminder = &schema.tables[0];
+        let fk = reminder
+            .fields
+            .iter()
+            .find(|f| f.name == "remindable_id")
+            .unwrap();
+        // Polymorphic → `option<any>`, NOT `option<record<Remindable>>`.
+        assert_eq!(
+            fk.kind,
+            Kind::Any.optional(),
+            "polymorphic association must fall back to option<any>; got {:?}",
+            fk.kind,
+        );
+        // The companion index still exists — SurrealQL allows indexes
+        // on any-typed columns and the `_id` FK pattern stays
+        // queryable.
+        assert!(
+            reminder
+                .indices
+                .iter()
+                .any(|i| i.name == "idx_Reminder_remindable_id")
+        );
+    }
+
+    /// **Polymorphic-vs-known-target lock** — a mixed triple set
+    /// where one association targets a known table and another
+    /// targets a polymorphic name produces the correct mix:
+    /// `record<X>` for the known, `option<any>` for the polymorphic.
+    #[test]
+    fn mixed_known_and_polymorphic_associations_lower_correctly() {
+        let triples = vec![
+            t("openproject:Member", "rdf:type", "ogit:ObjectType"),
+            t("openproject:User", "rdf:type", "ogit:ObjectType"),
+            // user is a known table → record<User>
+            t(
+                "openproject:Member",
+                "declares_association",
+                "openproject:Member.user",
+            ),
+            // entity is polymorphic → option<any>
+            t(
+                "openproject:Member",
+                "declares_association",
+                "openproject:Member.entity",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let member = schema
+            .tables
+            .iter()
+            .find(|t| t.name == "Member")
+            .unwrap();
+        let user_fk = member.fields.iter().find(|f| f.name == "user_id").unwrap();
+        let entity_fk = member.fields.iter().find(|f| f.name == "entity_id").unwrap();
+        assert_eq!(
+            user_fk.kind,
+            Kind::Record(vec!["User".to_string()]).optional()
+        );
+        assert_eq!(entity_fk.kind, Kind::Any.optional());
     }
 
     #[test]
