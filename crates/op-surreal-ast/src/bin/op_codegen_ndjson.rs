@@ -30,8 +30,14 @@
 //!
 //! # Exit codes
 //!
+//! Following the
+//! [`lance-graph#512`](https://github.com/AdaWorldAPI/lance-graph/pull/512)
+//! convention — degenerate-input vs generic-error are split so wrapper
+//! scripts can react to the cause:
+//!
 //! - `0` — schema rendered successfully.
-//! - `1` — argument / I/O / parse error (message on stderr).
+//! - `1` — argument / I/O error (message on stderr).
+//! - `2` — degenerate input (empty / malformed ndjson, zero triples).
 
 use std::env;
 use std::fs;
@@ -76,16 +82,44 @@ fn main() {
     let triples = match parse_ndjson(&ndjson) {
         Ok(t) => t,
         Err((line, msg)) => {
+            // Malformed ndjson — degenerate input, exit 2 (per
+            // lance-graph#512's degenerate-input convention).
             eprintln!("error parsing ndjson line {line}: {msg}");
-            process::exit(1);
+            process::exit(2);
         }
     };
+
+    // Degenerate-input guard (lance-graph#512 pattern): an empty
+    // triple stream silently produces an empty SurrealQL file, which
+    // makes downstream pipelines fail far from the cause. Exit 2 with
+    // a clear message so the user knows the upstream extractor never
+    // emitted anything.
+    if triples.is_empty() {
+        eprintln!(
+            "error: input contains zero triples — run the upstream extractor first \
+             (e.g. `cargo test -p ruff_ruby_spo --test op_pipeline_explore -- --ignored`)"
+        );
+        process::exit(2);
+    }
 
     if parsed.stats {
         eprintln!("loaded {} triples", triples.len());
     }
 
     let schema = triples_to_schema(&triples);
+
+    // Degenerate-output guard: zero tables means no `rdf:type ObjectType`
+    // triples in the input. The output SurrealQL would be empty; we'd
+    // rather fail loudly than ship a no-op schema file.
+    if schema.tables.is_empty() {
+        eprintln!(
+            "error: triple stream has no `(*, rdf:type, ogit:ObjectType)` declarations \
+             — no tables to render ({} triples were loaded but none declared a class)",
+            triples.len()
+        );
+        process::exit(2);
+    }
+
     let sql = schema.to_sql();
 
     if let Err(e) = write_output(&parsed.output, &sql) {
@@ -317,5 +351,34 @@ mod tests {
         let sql = schema.to_sql();
         assert!(sql.contains("DEFINE TABLE WorkPackage"));
         assert!(sql.contains("DEFINE FIELD subject"));
+    }
+
+    /// **Degenerate-input guard (lance-graph#512 pattern)** — empty
+    /// ndjson parses cleanly to zero triples. The CLI's `main()` then
+    /// exits with code 2 + a directive message; locked here at the
+    /// parser layer so the empty-stream contract is observable from
+    /// tests without spawning the binary.
+    #[test]
+    fn empty_ndjson_yields_zero_triples() {
+        assert!(parse_ndjson("").unwrap().is_empty());
+        assert!(parse_ndjson("\n\n  \n").unwrap().is_empty());
+    }
+
+    /// **Degenerate-output guard (lance-graph#512 pattern)** — a
+    /// triple stream with no `rdf:type ObjectType` declarations yields
+    /// an empty schema (zero tables). The CLI's `main()` catches this
+    /// and exits code 2; this test locks the precondition that
+    /// `triples_to_schema` doesn't silently invent a table for
+    /// body-walk triples on un-declared subjects.
+    #[test]
+    fn triples_without_rdf_type_object_yield_empty_schema() {
+        let nd = r#"{"s":"openproject:Ghost","p":"has_attribute","o":"x","f":0.95,"c":0.88}"#;
+        let triples = parse_ndjson(nd).unwrap();
+        let schema = triples_to_schema(&triples);
+        assert!(
+            schema.tables.is_empty(),
+            "body-walk triple alone must NOT materialise a table (phantom-table guard); got {:?}",
+            schema.tables.iter().map(|t| &t.name).collect::<Vec<_>>(),
+        );
     }
 }
