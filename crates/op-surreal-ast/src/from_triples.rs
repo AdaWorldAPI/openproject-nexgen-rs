@@ -72,6 +72,14 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
         }
     }
 
+    // Asserts are buffered and applied AFTER the field-population pass
+    // so the `validates_constraint` → ASSERT wiring is independent of
+    // triple stream order (codex P2 PR #27 r…). A
+    // `validates_constraint` triple that lands before its companion
+    // `has_attribute` would otherwise miss the field and drop the
+    // assertion permanently.
+    let mut pending_asserts: Vec<(String, String, String)> = Vec::new();
+
     for t in triples {
         let Some((table_iri, member)) = split_subject(&t.s) else {
             continue;
@@ -117,27 +125,32 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
             // ───── D-AR-5.1: Rails AR-shape → schema enrichment ─────
             "validates_constraint" => {
                 // Triple shape: `(model, validates_constraint, <attr>)`.
-                // Mark the matching field's ASSERT slot. The Rails
-                // validation options are NOT carried on the triple
-                // (they live on `Validation::options` in the IR but
-                // `expand()` drops them); the schema-level
+                // Buffer the assertion; apply after all fields are
+                // populated so stream-order doesn't cause drops.
+                //
+                // The Rails validation options are NOT carried on the
+                // triple (they live on `Validation::options` in the IR
+                // but `expand()` drops them); the schema-level
                 // `ASSERT $value != NONE` is the most general
-                // constraint we can express without re-parsing —
-                // it asserts "this attribute must not be null", which
-                // is the most common (and load-bearing) Rails
-                // validation effect.
-                builder.add_field_assert(&t.o, "$value != NONE");
+                // constraint we can express without re-parsing — it
+                // asserts "this attribute must not be null", which is
+                // the most common (and load-bearing) Rails validation
+                // effect.
+                pending_asserts.push((
+                    table_iri.clone(),
+                    t.o.clone(),
+                    "$value != NONE".to_string(),
+                ));
             }
             "normalizes_attribute" => {
                 // `normalizes :attr, with: ->(v) { … }` — the
-                // transformation runs on assignment. SurrealQL has
-                // no direct equivalent at field-DDL level (would
-                // need `VALUE` clauses with field-side expressions).
-                // For now, we mark the field with a placeholder
-                // ASSERT that signals "value is normalised" — a
-                // future D-AR-5.2 will lower the lambda to a
-                // SurrealQL `VALUE` expression.
-                builder.add_field_assert(&t.o, "$value != NONE /* normalized */");
+                // transformation runs on assignment but does NOT imply
+                // presence; the column can still be nullable (codex
+                // P2 PR #27: `ASSERT $value != NONE` would reject NULL
+                // on a nullable normalized column). Surface it as a
+                // table-level annotation only until a future sprint
+                // lowers the lambda to a SurrealQL `VALUE` expression.
+                builder.add_annotation(format!("normalize:{}", t.o));
             }
             "acts_as" => {
                 // Triple shape: `(model, acts_as, "<variant>[:<options>]")`.
@@ -171,6 +184,17 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
             // `DEFINE EVENT` once the Ruby→SurrealQL body lowering is
             // wired (separate workstream).
             _ => {}
+        }
+    }
+
+    // Apply buffered asserts now that every `has_attribute` /
+    // `declares_association` triple has populated its field. No-op
+    // for asserts whose target field doesn't exist (the phantom-field
+    // guard from codex P2 still holds — validations on un-extracted
+    // DB columns drop silently until D-AR-3.7 wires schema.rb).
+    for (table_iri, field_name, expr) in pending_asserts {
+        if let Some(builder) = tables.get_mut(&table_iri) {
+            builder.add_field_assert(&field_name, &expr);
         }
     }
 
@@ -667,25 +691,59 @@ mod tests {
         );
     }
 
-    /// **D-AR-5.1** — `normalizes_attribute` is treated as a softer
-    /// validation marker (signals normalisation but isn't a hard null
-    /// constraint). The ASSERT carries a `/* normalized */` annotation.
+    /// **Codex P2 (PR #27 r…)** — `normalizes_attribute` does NOT
+    /// imply presence: `normalizes :email` allows the column to stay
+    /// nullable. The previous emission of `ASSERT $value != NONE`
+    /// would reject `NONE` on what is a legitimately nullable
+    /// normalized column. The fix: surface normalization as a
+    /// table-level annotation only (`normalize:<attr>`); the field's
+    /// `assert` stays `None` unless a real `validates_constraint`
+    /// triple fires.
     #[test]
-    fn normalizes_attribute_marks_field_assert_with_annotation() {
+    fn normalizes_attribute_does_not_force_non_null_assert() {
         let triples = vec![
             t("openproject:User", "rdf:type", "ogit:ObjectType"),
             t("openproject:User", "has_attribute", "email"),
             t("openproject:User", "normalizes_attribute", "email"),
         ];
         let schema = triples_to_schema(&triples);
-        let email = &schema.tables[0]
-            .fields
-            .iter()
-            .find(|f| f.name == "email")
-            .unwrap();
+        let user = &schema.tables[0];
+        let email = user.fields.iter().find(|f| f.name == "email").unwrap();
+        // Field stays nullable (no ASSERT).
         assert_eq!(
-            email.assert.as_deref(),
-            Some("$value != NONE /* normalized */"),
+            email.assert, None,
+            "normalize must NOT force $value != NONE",
+        );
+        // Annotation surfaces the normalization fact at the table level.
+        assert!(
+            user.comment
+                .as_deref()
+                .is_some_and(|c| c.contains("normalize:email")),
+            "expected `normalize:email` in table COMMENT; got {:?}",
+            user.comment,
+        );
+    }
+
+    /// **Codex P2 (PR #27 r…)** — `validates_constraint` must be
+    /// stream-order-independent. A triple set with the constraint
+    /// listed BEFORE the field-defining `has_attribute` must still
+    /// land the ASSERT on the field after population.
+    #[test]
+    fn validates_constraint_order_independent_with_has_attribute() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            // Validation arrives FIRST.
+            t("openproject:WorkPackage", "validates_constraint", "subject"),
+            // Field arrives SECOND.
+            t("openproject:WorkPackage", "has_attribute", "subject"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = &schema.tables[0];
+        let subj = wp.fields.iter().find(|f| f.name == "subject").unwrap();
+        assert_eq!(
+            subj.assert.as_deref(),
+            Some("$value != NONE"),
+            "validates_constraint must apply regardless of triple order",
         );
     }
 
