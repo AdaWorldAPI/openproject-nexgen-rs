@@ -114,10 +114,62 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                     builder.add_index(idx_name, vec![field_name]);
                 }
             }
-            // Every other predicate is recognised by being part of the
-            // 34-name closed vocab; the skeleton ignores them. D-AR-5.1
-            // wires the remaining 25 predicates into Schema slots
-            // (callbacks → events, validations → ASSERT, etc.).
+            // ───── D-AR-5.1: Rails AR-shape → schema enrichment ─────
+            "validates_constraint" => {
+                // Triple shape: `(model, validates_constraint, <attr>)`.
+                // Mark the matching field's ASSERT slot. The Rails
+                // validation options are NOT carried on the triple
+                // (they live on `Validation::options` in the IR but
+                // `expand()` drops them); the schema-level
+                // `ASSERT $value != NONE` is the most general
+                // constraint we can express without re-parsing —
+                // it asserts "this attribute must not be null", which
+                // is the most common (and load-bearing) Rails
+                // validation effect.
+                builder.add_field_assert(&t.o, "$value != NONE");
+            }
+            "normalizes_attribute" => {
+                // `normalizes :attr, with: ->(v) { … }` — the
+                // transformation runs on assignment. SurrealQL has
+                // no direct equivalent at field-DDL level (would
+                // need `VALUE` clauses with field-side expressions).
+                // For now, we mark the field with a placeholder
+                // ASSERT that signals "value is normalised" — a
+                // future D-AR-5.2 will lower the lambda to a
+                // SurrealQL `VALUE` expression.
+                builder.add_field_assert(&t.o, "$value != NONE /* normalized */");
+            }
+            "acts_as" => {
+                // Triple shape: `(model, acts_as, "<variant>[:<options>]")`.
+                // Record the variant in the table-level comment so
+                // a downstream consumer can see "this table is
+                // `acts_as_list`/`acts_as_tree`/etc.".
+                let variant = t.o.split(':').next().unwrap_or(&t.o).to_string();
+                builder.add_annotation(format!("acts_as_{variant}"));
+            }
+            "has_callback" => {
+                // Triple shape: `(model, has_callback, "<phase>:<target>")`.
+                // The schema can't yet render Ruby callback bodies,
+                // but the table-level comment surfaces them so a
+                // human or downstream tool can see the lifecycle hooks.
+                builder.add_annotation(format!("callback:{}", t.o));
+            }
+            "includes_module" => {
+                // Concerns + STI parents. Some are domain (e.g. `Acts::Customizable`),
+                // others are STI parents (`Issue` for `WorkPackage`).
+                // Emit a compact table-level note; D-AR-5.3 may split
+                // STI parents off into a dedicated `inherits:` slot.
+                builder.add_annotation(format!("include:{}", t.o));
+            }
+            // Other predicates (has_function, reads_field, raises,
+            // traverses_relation, delegates_to, has_scope, has_default_scope,
+            // aliases_method, aliases_attribute, defines_method, uses_refinement,
+            // column_override, extends_module, prepends_module, concern_*,
+            // gem DSL, registers_journal_*, has_dsl_call) carry method-body
+            // semantics that don't lower cleanly to SurrealQL DDL today.
+            // D-AR-5.3 lifts these into SurrealQL `DEFINE FUNCTION` /
+            // `DEFINE EVENT` once the Ruby→SurrealQL body lowering is
+            // wired (separate workstream).
             _ => {}
         }
     }
@@ -203,6 +255,11 @@ struct TableBuilder {
     fields: Vec<FieldDefinition>,
     indices: Vec<IndexDefinition>,
     seen_fields: std::collections::HashSet<String>,
+    /// Table-level AR-shape facts to fold into `TableDefinition.comment`
+    /// (D-AR-5.1). Captured here in insertion order, deduplicated at
+    /// `build()` time, then joined into a single `// <fact>; <fact>; …`
+    /// comment string.
+    annotations: Vec<String>,
 }
 
 impl TableBuilder {
@@ -212,6 +269,7 @@ impl TableBuilder {
             fields: Vec::new(),
             indices: Vec::new(),
             seen_fields: std::collections::HashSet::new(),
+            annotations: Vec::new(),
         }
     }
 
@@ -234,8 +292,43 @@ impl TableBuilder {
             .push(IndexDefinition::new(name, self.name.clone(), fields));
     }
 
-    fn build(self) -> TableDefinition {
-        let mut t = TableDefinition::new(self.name);
+    /// Attach a `validates_constraint`-style ASSERT clause to the
+    /// existing field with the matching name. No-op if the field
+    /// doesn't exist on this table (Rails can validate DB columns
+    /// that the AR-shape extractor doesn't surface via
+    /// `has_attribute` — those land as `Vec::new()` field stubs
+    /// until D-AR-3.7 wires `db/schema.rb`).
+    ///
+    /// Last-writer-wins on multiple validations of the same attribute
+    /// — Rails composes them at runtime; the schema captures the most
+    /// recent fact.
+    fn add_field_assert(&mut self, field_name: &str, expr: &str) {
+        if let Some(field) = self.fields.iter_mut().find(|f| f.name == field_name) {
+            field.assert = Some(expr.to_string());
+        }
+    }
+
+    /// Push an AR-shape fact onto the table-level annotation list.
+    /// Deduplicated at `build()` time.
+    fn add_annotation(&mut self, note: String) {
+        self.annotations.push(note);
+    }
+
+    fn build(mut self) -> TableDefinition {
+        // Dedup-preserving-order: drop second+ occurrences of an
+        // identical annotation. A model that `include`s `Acts::List`
+        // and `acts_as_list` will produce two `include:` and one
+        // `acts_as_list` annotation — the first survives, repeats drop.
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        self.annotations.retain(|a| seen.insert(a.clone()));
+
+        let comment = if self.annotations.is_empty() {
+            None
+        } else {
+            Some(self.annotations.join("; "))
+        };
+
+        let mut t = TableDefinition::new(self.name).with_comment(comment);
         for f in self.fields {
             t = t.with_field(f);
         }
@@ -438,5 +531,184 @@ mod tests {
         ));
         assert!(sql.contains("DEFINE TABLE Project SCHEMAFULL;"));
         assert!(sql.contains("DEFINE FIELD identifier ON TABLE Project TYPE any;"));
+    }
+
+    // ────────────────── D-AR-5.1 enrichment tests ──────────────────
+
+    /// **D-AR-5.1** — `validates_constraint` triple targets a field
+    /// declared via `has_attribute`. The schema gains an
+    /// `ASSERT $value != NONE` clause on that field's DEFINE FIELD.
+    #[test]
+    fn validates_constraint_adds_assert_to_matching_field() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:WorkPackage", "has_attribute", "subject"),
+            t("openproject:WorkPackage", "validates_constraint", "subject"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = &schema.tables[0];
+        let subj = wp.fields.iter().find(|f| f.name == "subject").unwrap();
+        assert_eq!(
+            subj.assert.as_deref(),
+            Some("$value != NONE"),
+            "validates_constraint must wire ASSERT onto matching field",
+        );
+        // Field with no validation has no assert.
+        let triples2 = vec![
+            t("openproject:Plain", "rdf:type", "ogit:ObjectType"),
+            t("openproject:Plain", "has_attribute", "anything"),
+        ];
+        let schema2 = triples_to_schema(&triples2);
+        let plain = &schema2.tables[0];
+        let anything = plain.fields.iter().find(|f| f.name == "anything").unwrap();
+        assert_eq!(anything.assert, None);
+    }
+
+    /// **D-AR-5.1** — validation on an attribute we don't extract
+    /// (e.g. a DB column from `db/schema.rb`) is silently dropped.
+    /// The constraint is preserved IF and only IF the field exists.
+    /// This guards against materialising phantom assert-only fields.
+    #[test]
+    fn validates_constraint_on_unknown_field_is_noop() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            // No `has_attribute` for `nonexistent` — validation has no
+            // matching field to attach to.
+            t(
+                "openproject:WorkPackage",
+                "validates_constraint",
+                "nonexistent",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = &schema.tables[0];
+        assert!(
+            wp.fields.is_empty(),
+            "validates_constraint must not materialise a phantom field; got {:?}",
+            wp.fields,
+        );
+    }
+
+    /// **D-AR-5.1** — assert is rendered after TYPE in SurrealQL.
+    #[test]
+    fn assert_clause_renders_after_type_in_surrealql() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:WorkPackage", "has_attribute", "subject"),
+            t("openproject:WorkPackage", "validates_constraint", "subject"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let sql = schema.to_sql();
+        assert!(
+            sql.contains(
+                "DEFINE FIELD subject ON TABLE WorkPackage TYPE any ASSERT $value != NONE;"
+            ),
+            "expected ASSERT clause in rendered SQL; got: {sql}",
+        );
+    }
+
+    /// **D-AR-5.1** — `acts_as`, `has_callback`, and `includes_module`
+    /// triples land as a deduplicated `COMMENT '<facts>'` clause on
+    /// the table.
+    #[test]
+    fn ar_shape_facts_aggregate_into_table_comment() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:WorkPackage", "acts_as", "list"),
+            t("openproject:WorkPackage", "acts_as", "watchable"),
+            t(
+                "openproject:WorkPackage",
+                "has_callback",
+                "before_save:set_default_status",
+            ),
+            t(
+                "openproject:WorkPackage",
+                "includes_module",
+                "Acts::Customizable",
+            ),
+            // Dedup: a second identical includes_module triple must NOT
+            // produce a duplicate annotation in the comment.
+            t(
+                "openproject:WorkPackage",
+                "includes_module",
+                "Acts::Customizable",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = &schema.tables[0];
+        let comment = wp
+            .comment
+            .as_deref()
+            .expect("expected comment with AR facts");
+        assert!(comment.contains("acts_as_list"));
+        assert!(comment.contains("acts_as_watchable"));
+        assert!(comment.contains("callback:before_save:set_default_status"));
+        assert!(comment.contains("include:Acts::Customizable"));
+        // Dedup: `Acts::Customizable` appears once.
+        assert_eq!(
+            comment.matches("Acts::Customizable").count(),
+            1,
+            "duplicate includes_module triple must dedup in comment",
+        );
+    }
+
+    /// **D-AR-5.1** — comment is rendered in the DEFINE TABLE line.
+    #[test]
+    fn table_comment_renders_in_define_table_line() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:WorkPackage", "acts_as", "list"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let sql = schema.to_sql();
+        assert!(
+            sql.contains("DEFINE TABLE WorkPackage SCHEMAFULL COMMENT 'acts_as_list';"),
+            "expected COMMENT clause in DEFINE TABLE; got: {sql}",
+        );
+    }
+
+    /// **D-AR-5.1** — `normalizes_attribute` is treated as a softer
+    /// validation marker (signals normalisation but isn't a hard null
+    /// constraint). The ASSERT carries a `/* normalized */` annotation.
+    #[test]
+    fn normalizes_attribute_marks_field_assert_with_annotation() {
+        let triples = vec![
+            t("openproject:User", "rdf:type", "ogit:ObjectType"),
+            t("openproject:User", "has_attribute", "email"),
+            t("openproject:User", "normalizes_attribute", "email"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let email = &schema.tables[0]
+            .fields
+            .iter()
+            .find(|f| f.name == "email")
+            .unwrap();
+        assert_eq!(
+            email.assert.as_deref(),
+            Some("$value != NONE /* normalized */"),
+        );
+    }
+
+    /// **D-AR-5.1** — a phantom-table guard still holds for the new
+    /// predicates: a `validates_constraint` / `acts_as` / `has_callback`
+    /// triple on an undeclared subject must NOT materialise a table.
+    /// (Same invariant the codex P2-1 fix introduced for `has_attribute`.)
+    #[test]
+    fn new_predicates_respect_phantom_table_guard() {
+        let triples = vec![
+            // No `rdf:type ObjectType` for `Ghost`.
+            t("openproject:Ghost", "acts_as", "list"),
+            t(
+                "openproject:Ghost",
+                "has_callback",
+                "before_save:hook",
+            ),
+            t("openproject:Ghost", "validates_constraint", "field"),
+            // Real table to confirm the filter is precise.
+            t("openproject:Real", "rdf:type", "ogit:ObjectType"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let names: Vec<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, ["Real"]);
     }
 }
