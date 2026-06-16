@@ -33,6 +33,9 @@
 
 use std::fmt::Write;
 
+pub mod from_triples;
+pub use from_triples::triples_to_schema;
+
 // ---------------------------------------------------------------------------
 // ToSql trait — mirrored from surrealdb_types::sql::ToSql.
 //
