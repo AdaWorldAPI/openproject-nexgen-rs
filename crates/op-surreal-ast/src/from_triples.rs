@@ -80,6 +80,12 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
     // assertion permanently.
     let mut pending_asserts: Vec<(String, String, String)> = Vec::new();
 
+    // Type upgrades (D-AR-5.2): same buffering pattern. A
+    // `field_type` triple (`(model.field, field_type, "integer")`)
+    // may arrive before its `has_attribute` partner; we buffer the
+    // (table, field, kind) tuple and apply after the main pass.
+    let mut pending_types: Vec<(String, String, Kind)> = Vec::new();
+
     for t in triples {
         let Some((table_iri, member)) = split_subject(&t.s) else {
             continue;
@@ -174,6 +180,24 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                 // STI parents off into a dedicated `inherits:` slot.
                 builder.add_annotation(format!("include:{}", t.o));
             }
+            // ───── D-AR-5.2: Rails type annotations → SurrealQL Kind ─────
+            "field_type" => {
+                // Triple shape: `(model.field, field_type, "<rails_type>")`.
+                // Subject is the field IRI (NOT the model), so `member`
+                // is `Some(<field_name>)`. Buffer the (table_iri,
+                // field, kind) tuple; apply after `has_attribute`
+                // triples have created the field (same stream-order-
+                // independence guarantee as `validates_constraint`).
+                if let Some(field_name) = &member {
+                    if let Some(kind) = Kind::from_rails_type(&t.o) {
+                        pending_types
+                            .push((table_iri.clone(), field_name.clone(), kind));
+                    }
+                    // Unknown rails types (e.g. a project-custom
+                    // serializer name) silently fall back to Kind::Any
+                    // via the no-op pending-types miss.
+                }
+            }
             // Other predicates (has_function, reads_field, raises,
             // traverses_relation, delegates_to, has_scope, has_default_scope,
             // aliases_method, aliases_attribute, defines_method, uses_refinement,
@@ -184,6 +208,16 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
             // `DEFINE EVENT` once the Ruby→SurrealQL body lowering is
             // wired (separate workstream).
             _ => {}
+        }
+    }
+
+    // Apply pending type upgrades first so a follow-up ASSERT
+    // pending-apply sees the typed field (the ASSERT slot doesn't
+    // depend on Kind, but ordering kinds-then-asserts mirrors the
+    // expected "declare → constrain" reading direction).
+    for (table_iri, field_name, kind) in pending_types {
+        if let Some(builder) = tables.get_mut(&table_iri) {
+            builder.set_field_kind(&field_name, kind);
         }
     }
 
@@ -329,6 +363,44 @@ impl TableBuilder {
     fn add_field_assert(&mut self, field_name: &str, expr: &str) {
         if let Some(field) = self.fields.iter_mut().find(|f| f.name == field_name) {
             field.assert = Some(expr.to_string());
+        }
+    }
+
+    /// Upgrade an existing field's `Kind` from `Any` to a concrete
+    /// Rails-derived type (D-AR-5.2). No-op if the field doesn't
+    /// exist; also no-op if the field is already `Kind::Record(_)`
+    /// or `Option<Record<_>>` — association-derived FKs keep their
+    /// record-type signal regardless of any stray `field_type` triple
+    /// that might target the same field name.
+    ///
+    /// **Nullability is preserved** (codex P1 PR #29): Rails columns
+    /// default to nullable; a bare `attribute :name, :string` does
+    /// NOT imply presence. So we wrap the typed kind in `Option<T>`,
+    /// matching `Kind::Any`'s "can be NONE" semantic. When a
+    /// `validates :name` triple also fires, the D-AR-5.1 ASSERT
+    /// clause (`$value != NONE`) gates non-null at the field level
+    /// — the type stays `option<T>` and the ASSERT does the rejection.
+    /// See <https://surrealdb.com/docs/reference/query-language/statements/define/field#making-a-field-optional>.
+    fn set_field_kind(&mut self, field_name: &str, kind: Kind) {
+        if let Some(field) = self.fields.iter_mut().find(|f| f.name == field_name) {
+            // Preserve record-typed fields produced by
+            // `declares_association` — those are FK columns, not raw
+            // scalars, and an upstream `field_type` collision (e.g.
+            // `attribute :project_id, :integer`) should NOT clobber
+            // the `record<Project>` shape.
+            if matches!(&field.kind, Kind::Record(_)) {
+                return;
+            }
+            if let Kind::Option(inner) = &field.kind {
+                if matches!(**inner, Kind::Record(_)) {
+                    return;
+                }
+            }
+            // Wrap the typed kind in Option<T> to preserve Rails'
+            // default-nullable semantic. The D-AR-5.1 ASSERT clause
+            // is the explicit presence gate when validation requires
+            // it; the type stays nullable.
+            field.kind = kind.optional();
         }
     }
 
@@ -768,5 +840,227 @@ mod tests {
         let schema = triples_to_schema(&triples);
         let names: Vec<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, ["Real"]);
+    }
+
+    // ────────────────── D-AR-5.2 field-type tests ──────────────────
+
+    /// **D-AR-5.2** — a `field_type` triple upgrades the matching
+    /// field's `Kind` from `Any` to `Option<T>` (preserving Rails'
+    /// default-nullable semantic; codex P1 PR #29 — a bare
+    /// `attribute :name, :string` does NOT imply presence).
+    #[test]
+    fn field_type_upgrades_kind_to_option_of_typed() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:WorkPackage", "has_attribute", "estimated_hours"),
+            t(
+                "openproject:WorkPackage.estimated_hours",
+                "field_type",
+                "decimal",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = &schema.tables[0];
+        let est = wp
+            .fields
+            .iter()
+            .find(|f| f.name == "estimated_hours")
+            .unwrap();
+        assert_eq!(est.kind, Kind::Option(Box::new(Kind::Decimal)));
+    }
+
+    /// **D-AR-5.2** — `field_type` is order-independent (mirrors the
+    /// codex P2 fix for `validates_constraint`). Output is still
+    /// `option<T>` to preserve nullability.
+    #[test]
+    fn field_type_order_independent_with_has_attribute() {
+        let triples = vec![
+            t("openproject:User", "rdf:type", "ogit:ObjectType"),
+            // field_type FIRST
+            t("openproject:User.email", "field_type", "string"),
+            // has_attribute SECOND
+            t("openproject:User", "has_attribute", "email"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let email = &schema.tables[0]
+            .fields
+            .iter()
+            .find(|f| f.name == "email")
+            .unwrap();
+        assert_eq!(email.kind, Kind::Option(Box::new(Kind::String)));
+    }
+
+    /// **Codex P1 regression (PR #29)** — a `field_type` triple alone
+    /// (no `validates_constraint`) must NOT make the field non-null.
+    /// SurrealQL `TYPE string` rejects `NONE`; we need `TYPE option<string>`
+    /// to preserve Rails' default-nullable semantic.
+    /// See <https://surrealdb.com/docs/reference/query-language/statements/define/field#making-a-field-optional>.
+    #[test]
+    fn field_type_without_validation_stays_nullable() {
+        let triples = vec![
+            t("openproject:User", "rdf:type", "ogit:ObjectType"),
+            t("openproject:User", "has_attribute", "email"),
+            t("openproject:User.email", "field_type", "string"),
+            // NOTE: no `validates_constraint` triple — column is
+            // nullable per Rails default, only normalize for assignment.
+            t("openproject:User", "normalizes_attribute", "email"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let user = &schema.tables[0];
+        let email = user.fields.iter().find(|f| f.name == "email").unwrap();
+        // Type must be option<string> (nullable), NOT bare string.
+        assert_eq!(
+            email.kind,
+            Kind::Option(Box::new(Kind::String)),
+            "untouched-by-validation typed field must stay nullable",
+        );
+        // No ASSERT applied (normalize doesn't force non-null per
+        // PR #28 fix).
+        assert_eq!(email.assert, None);
+        // Rendered SurrealQL must include `option<string>`.
+        let sql = schema.to_sql();
+        assert!(
+            sql.contains("DEFINE FIELD email ON TABLE User TYPE option<string>;"),
+            "expected nullable typed kind in SQL; got: {sql}",
+        );
+    }
+
+    /// **Codex P1 regression (PR #29)** — typed field WITH
+    /// `validates_constraint` keeps `option<T>` at the type level
+    /// but adds `ASSERT $value != NONE` for the non-null gate. This
+    /// is the explicit "type+presence" combo Rails models when a
+    /// typed attribute has `validates ... presence: true`.
+    #[test]
+    fn field_type_with_validation_layers_assert_over_option() {
+        let triples = vec![
+            t("openproject:User", "rdf:type", "ogit:ObjectType"),
+            t("openproject:User", "has_attribute", "email"),
+            t("openproject:User.email", "field_type", "string"),
+            t("openproject:User", "validates_constraint", "email"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let email = &schema.tables[0]
+            .fields
+            .iter()
+            .find(|f| f.name == "email")
+            .unwrap();
+        assert_eq!(email.kind, Kind::Option(Box::new(Kind::String)));
+        assert_eq!(email.assert.as_deref(), Some("$value != NONE"));
+        let sql = schema.to_sql();
+        assert!(
+            sql.contains(
+                "DEFINE FIELD email ON TABLE User TYPE option<string> ASSERT $value != NONE;"
+            ),
+            "expected option<T> + ASSERT in SQL; got: {sql}",
+        );
+    }
+
+    /// **D-AR-5.2** — every supported Rails type maps to the
+    /// expected SurrealQL `Kind` variant.
+    #[test]
+    fn rails_type_mapping_table() {
+        let cases = [
+            ("integer", Kind::Int),
+            ("bigint", Kind::Int),
+            ("string", Kind::String),
+            ("text", Kind::String),
+            ("boolean", Kind::Bool),
+            ("float", Kind::Float),
+            ("decimal", Kind::Decimal),
+            ("datetime", Kind::Datetime),
+            ("timestamp", Kind::Datetime),
+            ("date", Kind::Datetime),
+            ("time", Kind::Datetime),
+            ("binary", Kind::Bytes),
+            ("uuid", Kind::Uuid),
+        ];
+        for (rails, expected) in &cases {
+            assert_eq!(
+                Kind::from_rails_type(rails).as_ref(),
+                Some(expected),
+                "rails type `{rails}` should map to {expected:?}",
+            );
+        }
+        // Unknown rails types yield None (caller falls back to Any).
+        assert_eq!(Kind::from_rails_type("custom_serializer"), None);
+    }
+
+    /// **D-AR-5.2** — `field_type` MUST NOT clobber a record-typed
+    /// field created by `declares_association`. An association FK
+    /// like `project_id : option<record<Project>>` keeps its
+    /// record shape even if a stray `field_type` triple lands on it.
+    #[test]
+    fn field_type_does_not_clobber_association_record_kind() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t(
+                "openproject:WorkPackage",
+                "declares_association",
+                "openproject:WorkPackage.project",
+            ),
+            // Stray field_type on the FK column.
+            t(
+                "openproject:WorkPackage.project_id",
+                "field_type",
+                "integer",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = &schema.tables[0];
+        let project = wp.fields.iter().find(|f| f.name == "project_id").unwrap();
+        // Must stay record-typed (Option<Record<Project>>), NOT Int.
+        assert!(
+            matches!(
+                &project.kind,
+                Kind::Option(inner) if matches!(**inner, Kind::Record(_))
+            ),
+            "record FK kind was clobbered to {:?}",
+            project.kind,
+        );
+    }
+
+    /// **D-AR-5.2** — unknown Rails types fall back silently to
+    /// `Kind::Any` (no panic, no schema corruption).
+    #[test]
+    fn unknown_rails_type_falls_back_to_any() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:WorkPackage", "has_attribute", "weird"),
+            t(
+                "openproject:WorkPackage.weird",
+                "field_type",
+                "totally_custom_serializer",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let weird = &schema.tables[0]
+            .fields
+            .iter()
+            .find(|f| f.name == "weird")
+            .unwrap();
+        assert_eq!(weird.kind, Kind::Any);
+    }
+
+    /// **D-AR-5.2** — the typed kind renders as `option<T>` in the
+    /// SurrealQL output (nullability preserved per codex P1 fix).
+    #[test]
+    fn typed_field_renders_with_correct_surrealql_kind() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:WorkPackage", "has_attribute", "estimated_hours"),
+            t(
+                "openproject:WorkPackage.estimated_hours",
+                "field_type",
+                "decimal",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let sql = schema.to_sql();
+        assert!(
+            sql.contains(
+                "DEFINE FIELD estimated_hours ON TABLE WorkPackage TYPE option<decimal>;"
+            ),
+            "expected option<decimal> in SQL; got: {sql}",
+        );
     }
 }

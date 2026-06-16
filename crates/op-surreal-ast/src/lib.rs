@@ -99,12 +99,31 @@ pub enum SqlFormat {
 
 /// SurrealQL field-type expression. Strict subset of upstream `Kind`;
 /// extended one variant per Rails-mapping sprint.
+///
+/// **D-AR-5.2** added the 5 Rails-scalar types — `String`, `Bool`,
+/// `Float`, `Decimal`, `Datetime`, `Bytes`, `Uuid` — so attributes
+/// extracted with an explicit `attribute :name, :type` annotation map
+/// to a concrete SurrealQL kind instead of the catch-all `Any`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kind {
     /// `any` — untyped slot, the universal supertype.
     Any,
     /// `int` — signed integer.
     Int,
+    /// `string` — text (Rails `:string` / `:text`).
+    String,
+    /// `bool` — boolean (Rails `:boolean`).
+    Bool,
+    /// `float` — floating point (Rails `:float`).
+    Float,
+    /// `decimal` — fixed-precision decimal (Rails `:decimal`).
+    Decimal,
+    /// `datetime` — instant (Rails `:datetime` / `:timestamp` / `:date` / `:time`).
+    Datetime,
+    /// `bytes` — binary blob (Rails `:binary`).
+    Bytes,
+    /// `uuid` — UUID (Rails `:uuid`).
+    Uuid,
     /// `record<Target>` — link to a row in another table. The vector
     /// holds the candidate target tables; today always length 1, but the
     /// shape supports `record<A|B|C>` for the C19 polymorphic-association
@@ -133,6 +152,13 @@ impl ToSql for Kind {
         match self {
             Self::Any => f.push_str("any"),
             Self::Int => f.push_str("int"),
+            Self::String => f.push_str("string"),
+            Self::Bool => f.push_str("bool"),
+            Self::Float => f.push_str("float"),
+            Self::Decimal => f.push_str("decimal"),
+            Self::Datetime => f.push_str("datetime"),
+            Self::Bytes => f.push_str("bytes"),
+            Self::Uuid => f.push_str("uuid"),
             Self::Record(targets) => {
                 f.push_str("record<");
                 for (i, t) in targets.iter().enumerate() {
@@ -149,6 +175,32 @@ impl ToSql for Kind {
                 f.push('>');
             }
         }
+    }
+}
+
+impl Kind {
+    /// Map a Rails type literal (`"integer"`, `"string"`, `"decimal"`,
+    /// `"datetime"`, …) to the corresponding SurrealQL kind.
+    /// Returns `None` for unknown Rails types so the caller can fall
+    /// back to `Kind::Any`.
+    ///
+    /// D-AR-5.2: `op_surreal_ast::from_triples` calls this on the
+    /// object of `field_type` triples emitted by `ruff_spo_triplet`.
+    #[must_use]
+    pub fn from_rails_type(rails_type: &str) -> Option<Self> {
+        Some(match rails_type {
+            "integer" | "bigint" => Self::Int,
+            "string" | "text" => Self::String,
+            "boolean" => Self::Bool,
+            "float" => Self::Float,
+            "decimal" => Self::Decimal,
+            // Rails maps several time-typed columns to instants; SurrealQL
+            // bundles them under `datetime` (Date/Time/Datetime/Timestamp).
+            "datetime" | "timestamp" | "date" | "time" => Self::Datetime,
+            "binary" => Self::Bytes,
+            "uuid" => Self::Uuid,
+            _ => return None,
+        })
     }
 }
 
