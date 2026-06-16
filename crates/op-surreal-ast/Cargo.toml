@@ -7,8 +7,32 @@ publish = false
 [lib]
 name = "op_surreal_ast"
 
+# `op-codegen-ndjson` — CLI that reads an SPO-triple ndjson stream
+# (produced by `ruff_ruby_spo`) and writes the rendered SurrealQL
+# schema. Closes the end-to-end pipeline:
+#
+#     ruff_ruby_spo (Ruby AST → triples.ndjson)
+#         │
+#         ▼
+#     op-codegen-ndjson (this binary) → schema.surql
+#
+# Tiny: pulls only serde + serde_json (already dev-deps).
+[[bin]]
+name = "op-codegen-ndjson"
+path = "src/bin/op_codegen_ndjson.rs"
+required-features = ["cli"]
+
+[features]
+default = []
+# Activates the CLI binary + pulls in serde/serde_json for ndjson
+# parsing. Off by default so library consumers don't pay the
+# dependency cost.
+cli = ["dep:serde", "dep:serde_json"]
+
 [dependencies]
 lance-graph-contract = { path = "../../vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
 # For the `op_schema_explore` ignored test that reads a real ndjson
