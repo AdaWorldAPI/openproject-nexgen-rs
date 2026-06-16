@@ -8,3 +8,4 @@ publish = false
 name = "op_surreal_ast"
 
 [dependencies]
+lance-graph-contract = { path = "../../vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" }

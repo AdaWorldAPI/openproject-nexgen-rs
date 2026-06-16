@@ -1674,6 +1674,9 @@ dependencies = [
 [[package]]
 name = "op-surreal-ast"
 version = "0.1.0"
+dependencies = [
+ "lance-graph-contract",
+]
 
 [[package]]
 name = "op-users"
