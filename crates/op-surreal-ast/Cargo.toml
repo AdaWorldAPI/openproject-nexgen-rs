@@ -9,3 +9,10 @@ name = "op_surreal_ast"
 
 [dependencies]
 lance-graph-contract = { path = "../../vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" }
+
+[dev-dependencies]
+# For the `op_schema_explore` ignored test that reads a real ndjson
+# triple dump produced by `ruff_ruby_spo`. Diagnostic only — not in
+# the production lib build.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -214,6 +214,14 @@ impl TableDefinition {
         self.indices.push(index);
         self
     }
+
+    /// Attach a table-level `COMMENT '<text>'` clause. Returns `self`
+    /// for chaining. `None` clears any prior comment.
+    #[must_use]
+    pub fn with_comment(mut self, comment: Option<String>) -> Self {
+        self.comment = comment;
+        self
+    }
 }
 
 /// Mirrors `surrealdb_core::catalog::TableType`. Variants for future
@@ -235,6 +243,19 @@ impl ToSql for TableDefinition {
         f.push_str(&self.name);
         if self.schemafull {
             f.push_str(" SCHEMAFULL");
+        }
+        if let Some(c) = &self.comment {
+            f.push_str(" COMMENT '");
+            // Escape single quotes — SurrealQL's COMMENT uses single-
+            // quoted strings, so any embedded `'` doubles up.
+            for ch in c.chars() {
+                if ch == '\'' {
+                    f.push_str("''");
+                } else {
+                    f.push(ch);
+                }
+            }
+            f.push('\'');
         }
         f.push_str(";\n");
         for field in &self.fields {
@@ -266,11 +287,16 @@ impl ToSql for TableDefinition {
 /// One `DEFINE FIELD …` statement.
 ///
 /// Mirrors `surrealdb_core::catalog::schema::FieldDefinition` DDL slots.
+///
+/// `assert` carries the field's `ASSERT <expr>` clause when non-`None`
+/// — D-AR-5.1 wires Rails `validates_constraint` triples into this
+/// slot. The expression is rendered verbatim after the `TYPE` clause.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldDefinition {
     pub name: String,
     pub table: String,
     pub kind: Kind,
+    pub assert: Option<String>,
 }
 
 impl FieldDefinition {
@@ -280,7 +306,16 @@ impl FieldDefinition {
             name: name.into(),
             table: table.into(),
             kind,
+            assert: None,
         }
+    }
+
+    /// Set the `ASSERT <expr>` clause. Returns `self` for chaining.
+    /// `None` clears the assertion.
+    #[must_use]
+    pub fn with_assert(mut self, expr: Option<String>) -> Self {
+        self.assert = expr;
+        self
     }
 }
 
@@ -292,6 +327,10 @@ impl ToSql for FieldDefinition {
         f.push_str(&self.table);
         f.push_str(" TYPE ");
         self.kind.fmt_sql(f, fmt);
+        if let Some(expr) = &self.assert {
+            f.push_str(" ASSERT ");
+            f.push_str(expr);
+        }
         f.push_str(";\n");
     }
 }
