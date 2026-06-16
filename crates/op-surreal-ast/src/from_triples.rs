@@ -83,6 +83,23 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
         .map(|tb| tb.name.clone())
         .collect();
 
+    // Pre-collect `association_kind` triples (ruff#15) into a map from
+    // relation IRI → Rails macro name. The `declares_association` arm
+    // below uses this to gate FK-column emission: only `belongs_to`
+    // puts a column on the declaring class, so `has_many` / `has_one` /
+    // `habtm` / `accepts_nested_attributes_for` get a table-level
+    // annotation instead of a phantom column.
+    //
+    // Missing kind triple (older ndjson without the predicate) falls
+    // back to `belongs_to` semantics for backward compatibility — the
+    // pre-#15 behaviour treated every association as a FK declaration,
+    // so defaulting to `belongs_to` preserves it.
+    let assoc_kinds: BTreeMap<String, String> = triples
+        .iter()
+        .filter(|t| t.p == "association_kind")
+        .map(|t| (t.s.clone(), t.o.clone()))
+        .collect();
+
     // Asserts are buffered and applied AFTER the field-population pass
     // so the `validates_constraint` → ASSERT wiring is independent of
     // triple stream order (codex P2 PR #27 r…). A
@@ -122,28 +139,52 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                     .unwrap_or("")
                     .to_string();
                 let target = rails_target_class(&relation);
-                // Only emit `record<Target>` when `Target` is a
-                // discovered table (a class with an explicit
-                // `rdf:type ObjectType` triple). Otherwise, the
-                // association is polymorphic (`belongs_to :remindable,
-                // polymorphic: true` — `Remindable` is a runtime type
-                // discriminator, not a real table) or refers to an
-                // external model the corpus didn't declare. Falling
-                // back to `option<any>` keeps the schema correct
-                // without inventing phantom record targets.
-                let kind = if known_targets.contains(&target) {
-                    Kind::Record(vec![target]).optional()
+
+                // Look up the AssocKind for this relation (ruff#15's
+                // sibling `association_kind` triple). Only `belongs_to`
+                // puts a FK column on the declaring class — `has_many`,
+                // `has_one`, `has_and_belongs_to_many`, and
+                // `accepts_nested_attributes_for` keep the FK on the
+                // OTHER table (or use a join table). Emitting a phantom
+                // `<rel>_id` column for those is a real DB-shape bug
+                // (~189 / 332 ≈ 57 % of OP corpus FKs were phantom
+                // before this fix).
+                //
+                // Missing kind triple (older ndjson predating ruff#15)
+                // falls back to `belongs_to` so pre-#15 ndjson dumps
+                // render identically — preserves the prior contract.
+                let assoc_kind = assoc_kinds
+                    .get(&t.o)
+                    .map(String::as_str)
+                    .unwrap_or("belongs_to");
+
+                if assoc_kind == "belongs_to" {
+                    // Real FK on the declaring class.
+                    // Only emit `record<Target>` when `Target` is a
+                    // discovered table (the polymorphic-association
+                    // guard from the previous PR — `Remindable` is a
+                    // runtime type discriminator, not a real table).
+                    let kind = if known_targets.contains(&target) {
+                        Kind::Record(vec![target]).optional()
+                    } else {
+                        Kind::Any.optional()
+                    };
+                    let field_name = format!("{relation}_id");
+                    if builder.add_field(field_name.clone(), kind) {
+                        // Only emit the companion index when the field
+                        // was newly added — guards against duplicate
+                        // `declares_association` triples emitting
+                        // duplicate `DEFINE INDEX` statements (codex P2-2).
+                        let idx_name = format!("idx_{}_{field_name}", builder.name);
+                        builder.add_index(idx_name, vec![field_name]);
+                    }
                 } else {
-                    Kind::Any.optional()
-                };
-                let field_name = format!("{relation}_id");
-                if builder.add_field(field_name.clone(), kind) {
-                    // Only emit the companion index when the field was
-                    // newly added — guards against duplicate
-                    // `declares_association` triples emitting duplicate
-                    // `DEFINE INDEX` statements (codex P2-2).
-                    let idx_name = format!("idx_{}_{field_name}", builder.name);
-                    builder.add_index(idx_name, vec![field_name]);
+                    // has_many / has_one / habtm / accepts_nested:
+                    // surface as a table-level annotation, NOT a
+                    // column. The graph relationship is real, but the
+                    // schema column lives on the inverse side (or in a
+                    // join table for habtm).
+                    builder.add_annotation(format!("{assoc_kind}:{relation}→{target}"));
                 }
             }
             // ───── D-AR-5.1: Rails AR-shape → schema enrichment ─────
@@ -878,5 +919,227 @@ mod tests {
         let schema = triples_to_schema(&triples);
         let names: Vec<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, ["Real"]);
+    }
+
+    /// **FK-direction lock (ruff#15 sibling triple)** — an explicit
+    /// `belongs_to` `association_kind` triple keeps the existing
+    /// behaviour: the declaring class gets a `<rel>_id` column + a
+    /// companion index. This locks the contract on the
+    /// FK-on-declarer side.
+    #[test]
+    fn belongs_to_triple_emits_fk_column_and_index() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:Project", "rdf:type", "ogit:ObjectType"),
+            t(
+                "openproject:WorkPackage",
+                "declares_association",
+                "openproject:WorkPackage.project",
+            ),
+            // ruff#15: explicit `belongs_to` kind.
+            t(
+                "openproject:WorkPackage.project",
+                "association_kind",
+                "belongs_to",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = schema
+            .tables
+            .iter()
+            .find(|t| t.name == "WorkPackage")
+            .unwrap();
+        let fk = wp.fields.iter().find(|f| f.name == "project_id").unwrap();
+        assert_eq!(
+            fk.kind,
+            Kind::Record(vec!["Project".to_string()]).optional(),
+            "belongs_to must emit a typed `option<record<Target>>` FK",
+        );
+        assert!(
+            wp.indices
+                .iter()
+                .any(|i| i.name == "idx_WorkPackage_project_id"),
+            "belongs_to must emit the companion FK index",
+        );
+        // The annotation surface stays clean for the canonical
+        // belongs_to case — no `belongs_to:project→Project` clutter.
+        let comment = wp.comment.as_deref().unwrap_or("");
+        assert!(
+            !comment.contains("belongs_to:project"),
+            "belongs_to should NOT leak into the table annotation; got {comment:?}",
+        );
+    }
+
+    /// **FK-direction lock (ruff#15 sibling triple)** — a
+    /// `has_many` `association_kind` triple must NOT emit a phantom
+    /// `<rel>_id` column on the declaring class (the FK lives on the
+    /// inverse side in Rails). Instead, the relationship surfaces as a
+    /// table-level `has_many:<rel>→<Target>` annotation.
+    ///
+    /// This is the load-bearing fix: ~189 / 332 (≈ 57 %) of FKs
+    /// emitted on the real OP corpus before this change pointed at
+    /// columns that don't exist in the actual DB.
+    #[test]
+    fn has_many_triple_emits_annotation_no_fk_column() {
+        let triples = vec![
+            t("openproject:Project", "rdf:type", "ogit:ObjectType"),
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t(
+                "openproject:Project",
+                "declares_association",
+                "openproject:Project.work_packages",
+            ),
+            // ruff#15: explicit `has_many` kind — FK lives on
+            // WorkPackage, NOT on Project.
+            t(
+                "openproject:Project.work_packages",
+                "association_kind",
+                "has_many",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let project = schema
+            .tables
+            .iter()
+            .find(|t| t.name == "Project")
+            .unwrap();
+        // No phantom `work_packages_id` column.
+        assert!(
+            !project
+                .fields
+                .iter()
+                .any(|f| f.name == "work_packages_id"),
+            "has_many must NOT emit a `<rel>_id` column on the declaring class; \
+             fields = {:?}",
+            project.fields.iter().map(|f| &f.name).collect::<Vec<_>>(),
+        );
+        // No phantom companion index either.
+        assert!(
+            !project
+                .indices
+                .iter()
+                .any(|i| i.name == "idx_Project_work_packages_id"),
+            "has_many must NOT emit a companion FK index",
+        );
+        // The relationship surfaces as a table-level annotation
+        // instead — downstream consumers (graph build, codegen) can
+        // still see the edge.
+        let comment = project.comment.as_deref().unwrap_or("");
+        assert!(
+            comment.contains("has_many:work_packages→WorkPackage"),
+            "has_many must emit a table annotation; got comment {comment:?}",
+        );
+    }
+
+    /// **Backward compatibility** — `declares_association` triples
+    /// from ndjson dumps predating ruff#15 (no companion
+    /// `association_kind` triple) default to `belongs_to` semantics.
+    /// This preserves the pre-#15 contract bit-for-bit so older
+    /// dumps render identically.
+    #[test]
+    fn missing_association_kind_defaults_to_belongs_to_for_backward_compat() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:Project", "rdf:type", "ogit:ObjectType"),
+            // Note: NO `association_kind` triple — older ndjson dump.
+            t(
+                "openproject:WorkPackage",
+                "declares_association",
+                "openproject:WorkPackage.project",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = schema
+            .tables
+            .iter()
+            .find(|t| t.name == "WorkPackage")
+            .unwrap();
+        // Defaults to belongs_to → FK + index emitted, identical to
+        // the pre-#15 shape (the field name and kind match
+        // `declares_association_adds_record_field_and_index`).
+        let fk = wp.fields.iter().find(|f| f.name == "project_id").unwrap();
+        assert_eq!(
+            fk.kind,
+            Kind::Record(vec!["Project".to_string()]).optional()
+        );
+        assert!(
+            wp.indices
+                .iter()
+                .any(|i| i.name == "idx_WorkPackage_project_id"),
+        );
+    }
+
+    /// **FK-direction lock — non-belongs_to kinds enumerated** —
+    /// `has_one`, `has_and_belongs_to_many`, and
+    /// `accepts_nested_attributes_for` ALL keep the FK off the
+    /// declaring class (same as `has_many`). One test asserts the
+    /// full non-belongs_to enumeration so a future drift in any
+    /// single variant is caught.
+    #[test]
+    fn non_belongs_to_kinds_all_skip_fk_column_emission() {
+        let triples = vec![
+            t("openproject:Project", "rdf:type", "ogit:ObjectType"),
+            t("openproject:Page", "rdf:type", "ogit:ObjectType"),
+            t("openproject:Tag", "rdf:type", "ogit:ObjectType"),
+            t("openproject:Slot", "rdf:type", "ogit:ObjectType"),
+            // has_one
+            t(
+                "openproject:Project",
+                "declares_association",
+                "openproject:Project.page",
+            ),
+            t(
+                "openproject:Project.page",
+                "association_kind",
+                "has_one",
+            ),
+            // has_and_belongs_to_many
+            t(
+                "openproject:Project",
+                "declares_association",
+                "openproject:Project.tags",
+            ),
+            t(
+                "openproject:Project.tags",
+                "association_kind",
+                "has_and_belongs_to_many",
+            ),
+            // accepts_nested_attributes_for
+            t(
+                "openproject:Project",
+                "declares_association",
+                "openproject:Project.slots",
+            ),
+            t(
+                "openproject:Project.slots",
+                "association_kind",
+                "accepts_nested_attributes_for",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let project = schema
+            .tables
+            .iter()
+            .find(|t| t.name == "Project")
+            .unwrap();
+        for phantom in ["page_id", "tags_id", "slots_id"] {
+            assert!(
+                !project.fields.iter().any(|f| f.name == phantom),
+                "non-belongs_to kind must NOT emit `{phantom}` on declaring class; \
+                 fields = {:?}",
+                project.fields.iter().map(|f| &f.name).collect::<Vec<_>>(),
+            );
+        }
+        let comment = project.comment.as_deref().unwrap_or("");
+        for expected in [
+            "has_one:page→Page",
+            "has_and_belongs_to_many:tags→Tag",
+            "accepts_nested_attributes_for:slots→Slot",
+        ] {
+            assert!(
+                comment.contains(expected),
+                "expected `{expected}` in table annotation; got {comment:?}",
+            );
+        }
     }
 }
