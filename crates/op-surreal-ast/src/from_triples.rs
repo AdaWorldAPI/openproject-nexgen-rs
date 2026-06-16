@@ -54,19 +54,38 @@ use crate::{FieldDefinition, IndexDefinition, Kind, Schema, TableDefinition};
 pub fn triples_to_schema(triples: &[Triple]) -> Schema {
     // Group declarations by table IRI (the subject of an
     // `rdf:type` / `has_attribute` / `declares_association` triple).
+    // Two-pass to avoid phantom tables: pass 1 finds every subject with
+    // an explicit `rdf:type ObjectType` declaration; pass 2 only
+    // populates fields/indices on tables seen in pass 1. This guards
+    // against truncated triple streams where a body-walk predicate
+    // like `reads_field openproject:Missing.name` would otherwise
+    // materialise a phantom `Missing` table (codex P2-1).
     let mut tables: BTreeMap<String, TableBuilder> = BTreeMap::new();
+    for t in triples {
+        if t.p == "rdf:type" && t.o == "ogit:ObjectType" {
+            let Some((table_iri, _)) = split_subject(&t.s) else {
+                continue;
+            };
+            tables.entry(table_iri.clone()).or_insert_with(|| {
+                TableBuilder::new(strip_namespace(&table_iri).to_string())
+            });
+        }
+    }
 
     for t in triples {
         let Some((table_iri, member)) = split_subject(&t.s) else {
             continue;
         };
-        let builder = tables.entry(table_iri.clone()).or_insert_with(|| {
-            TableBuilder::new(strip_namespace(&table_iri).to_string())
-        });
+        let Some(builder) = tables.get_mut(&table_iri) else {
+            // Subject without an `rdf:type ObjectType` declaration —
+            // drop body-walk / declarative triples that would otherwise
+            // materialise a phantom table.
+            continue;
+        };
 
         match t.p.as_str() {
             "rdf:type" if t.o == "ogit:ObjectType" => {
-                // Already created by the entry above; no further action.
+                // Already added in the table-discovery pass above.
             }
             "has_attribute" => {
                 let attr_name = member.unwrap_or_else(|| {
@@ -86,9 +105,14 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                 let target = rails_target_class(&relation);
                 let kind = Kind::Record(vec![target.clone()]).optional();
                 let field_name = format!("{relation}_id");
-                builder.add_field(field_name.clone(), kind);
-                let idx_name = format!("idx_{}_{field_name}", builder.name);
-                builder.add_index(idx_name, vec![field_name]);
+                if builder.add_field(field_name.clone(), kind) {
+                    // Only emit the companion index when the field was
+                    // newly added — guards against duplicate
+                    // `declares_association` triples emitting duplicate
+                    // `DEFINE INDEX` statements (codex P2-2).
+                    let idx_name = format!("idx_{}_{field_name}", builder.name);
+                    builder.add_index(idx_name, vec![field_name]);
+                }
             }
             // Every other predicate is recognised by being part of the
             // 34-name closed vocab; the skeleton ignores them. D-AR-5.1
@@ -191,10 +215,17 @@ impl TableBuilder {
         }
     }
 
-    fn add_field(&mut self, name: String, kind: Kind) {
+    /// Returns `true` if the field was newly added, `false` if a field
+    /// of that name was already present and the call was a no-op. The
+    /// caller uses this to gate companion-index emission so duplicate
+    /// declarations don't produce duplicate `DEFINE INDEX` statements.
+    fn add_field(&mut self, name: String, kind: Kind) -> bool {
         if self.seen_fields.insert(name.clone()) {
             self.fields
                 .push(FieldDefinition::new(name, self.name.clone(), kind));
+            true
+        } else {
+            false
         }
     }
 
@@ -317,6 +348,63 @@ mod tests {
         ];
         let schema = triples_to_schema(&triples);
         assert_eq!(schema.tables[0].fields.len(), 1);
+    }
+
+    /// **Codex P2 regression (PR #26 r3418308887)** — a body-walk
+    /// predicate on a subject that lacks an `rdf:type ObjectType`
+    /// declaration must NOT materialise a phantom table.
+    #[test]
+    fn body_walk_predicate_without_rdf_type_does_not_create_phantom_table() {
+        let triples = vec![
+            // Note: NO `rdf:type ObjectType` for `Missing`.
+            t(
+                "openproject:Missing.some_fn",
+                "reads_field",
+                "openproject:Missing.name",
+            ),
+            // A real table to confirm the filter is precise.
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let names: Vec<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, ["WorkPackage"]);
+    }
+
+    /// **Codex P2 regression (PR #26 r3418308894)** — a duplicate
+    /// `declares_association` triple must NOT produce a duplicate
+    /// `DEFINE INDEX` statement (the field is deduped via
+    /// `seen_fields`; the companion index must follow the field's
+    /// add-or-skip decision).
+    #[test]
+    fn duplicate_declares_association_does_not_emit_duplicate_index() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t(
+                "openproject:WorkPackage",
+                "declares_association",
+                "openproject:WorkPackage.project",
+            ),
+            t(
+                "openproject:WorkPackage",
+                "declares_association",
+                "openproject:WorkPackage.project",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = &schema.tables[0];
+        // Field is deduped (the pre-existing guarantee).
+        assert_eq!(wp.fields.len(), 1);
+        // Index follows the same deduplication.
+        let project_indices: Vec<_> = wp
+            .indices
+            .iter()
+            .filter(|i| i.name == "idx_WorkPackage_project_id")
+            .collect();
+        assert_eq!(
+            project_indices.len(),
+            1,
+            "duplicate declares_association produced duplicate index",
+        );
     }
 
     /// **D-AR-5 end-to-end** — a multi-class triple set produces a
