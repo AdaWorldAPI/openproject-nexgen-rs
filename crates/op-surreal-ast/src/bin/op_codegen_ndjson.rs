@@ -176,8 +176,30 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
             other if other.starts_with("--") => {
                 return Err(format!("unknown flag `{other}`"));
             }
-            "-" => input = Some(Input::Stdin),
-            path => input = Some(Input::Path(PathBuf::from(path))),
+            "-" => {
+                if input.is_some() {
+                    // Codex P2 (PR #31): a second positional input must
+                    // be rejected, not silently overwrite the first.
+                    // `op-codegen-ndjson expected.ndjson accidental.ndjson`
+                    // would otherwise render the schema from the wrong
+                    // file. Mirror the lance-graph#512 "fail loud on
+                    // bad input" convention.
+                    return Err(
+                        "multiple positional inputs given; expected a single path or `-` for stdin"
+                            .to_string(),
+                    );
+                }
+                input = Some(Input::Stdin);
+            }
+            path => {
+                if input.is_some() {
+                    return Err(format!(
+                        "multiple positional inputs given (`{path}` after the first); \
+                         expected a single path or `-` for stdin",
+                    ));
+                }
+                input = Some(Input::Path(PathBuf::from(path)));
+            }
         }
         i += 1;
     }
@@ -340,6 +362,46 @@ mod tests {
     fn parse_args_unknown_flag_errors() {
         let err = parse_args(&["--bogus".to_string()]).expect_err("unknown flag must fail");
         assert!(err.contains("--bogus"));
+    }
+
+    /// **Codex P2 regression (PR #31)** — a second positional input
+    /// must be rejected rather than silently overwriting the first.
+    /// `op-codegen-ndjson expected.ndjson accidental.ndjson` would
+    /// otherwise render the schema from `accidental.ndjson` (wrong
+    /// corpus, valid output) — exactly the kind of silent
+    /// information loss the lance-graph#512 "fail loud" convention
+    /// guards against.
+    #[test]
+    fn parse_args_rejects_multiple_positional_inputs() {
+        let err = parse_args(&[
+            "expected.ndjson".to_string(),
+            "accidental.ndjson".to_string(),
+        ])
+        .expect_err("two positional paths must fail");
+        assert!(
+            err.contains("multiple positional inputs"),
+            "error must name the cause; got: {err}",
+        );
+        assert!(
+            err.contains("accidental.ndjson"),
+            "error should echo the offending second arg; got: {err}",
+        );
+    }
+
+    /// **Codex P2 regression** — also covers `path then -` and
+    /// `- then path` (stdin-marker as the second positional).
+    #[test]
+    fn parse_args_rejects_stdin_after_path() {
+        assert!(
+            parse_args(&["foo.ndjson".to_string(), "-".to_string()])
+                .expect_err("path then `-` must fail")
+                .contains("multiple positional inputs"),
+        );
+        assert!(
+            parse_args(&["-".to_string(), "foo.ndjson".to_string()])
+                .expect_err("`-` then path must fail")
+                .contains("multiple positional inputs"),
+        );
     }
 
     #[test]
