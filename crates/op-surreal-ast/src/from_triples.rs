@@ -100,6 +100,23 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
         .map(|t| (t.s.clone(), t.o.clone()))
         .collect();
 
+    // Pre-collect `class_name` triples (ruff D-AR-5.4 — emitted when the
+    // Rails `AssocDecl.options` carries a `class_name: 'X'` override).
+    // Keyed by the relation IRI (`openproject:WorkPackage.owner` →
+    // `"User"`). The `declares_association` arm uses these to override
+    // the Rails camelcase-singular convention when resolving FK targets.
+    //
+    // Without the override, `belongs_to :owner, class_name: 'User'`
+    // would lower to `option<record<Owner>>` — and `Owner` isn't a real
+    // table on the OP corpus, so the polymorphic fallback degrades it
+    // to `option<any>`. The override restores the typed link to the
+    // intended target.
+    let class_name_overrides: BTreeMap<String, String> = triples
+        .iter()
+        .filter(|t| t.p == "class_name")
+        .map(|t| (t.s.clone(), t.o.clone()))
+        .collect();
+
     // Pre-collect `field_type` triples (ruff `attribute :name, :type`
     // option lowering — D-AR-5.2) into a map keyed by the field IRI
     // (`openproject:WorkPackage.subject` → `"string"`). The
@@ -169,7 +186,15 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                     .next()
                     .unwrap_or("")
                     .to_string();
-                let target = rails_target_class(&relation);
+                // `class_name:` override (ruff D-AR-5.4) takes
+                // precedence over the convention — `belongs_to :owner,
+                // class_name: 'User'` makes `target = "User"` not
+                // `"Owner"`. Absent override falls back to the
+                // singularize-and-camelcase rule.
+                let target = class_name_overrides
+                    .get(&t.o)
+                    .cloned()
+                    .unwrap_or_else(|| rails_target_class(&relation));
 
                 // Look up the AssocKind for this relation (ruff#15's
                 // sibling `association_kind` triple). Only `belongs_to`
@@ -1472,5 +1497,113 @@ mod tests {
         // Unknown types fall back to None — caller substitutes Kind::Any.
         assert_eq!(Kind::from_rails_type("nonsense"), None);
         assert_eq!(Kind::from_rails_type(""), None);
+    }
+
+    /// **D-AR-5.4** — when a `class_name` triple (ruff#18) carries an
+    /// FK target override, the schema uses the override's class name
+    /// in preference to the Rails camelcase-singular convention on
+    /// the relation name. Locks the contract on the positive case.
+    #[test]
+    fn class_name_triple_overrides_rails_convention_for_fk_target() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            // The override target is a real table.
+            t("openproject:User", "rdf:type", "ogit:ObjectType"),
+            t(
+                "openproject:WorkPackage",
+                "declares_association",
+                "openproject:WorkPackage.owner",
+            ),
+            t(
+                "openproject:WorkPackage.owner",
+                "association_kind",
+                "belongs_to",
+            ),
+            // `belongs_to :owner, class_name: 'User'`.
+            t(
+                "openproject:WorkPackage.owner",
+                "class_name",
+                "User",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = schema
+            .tables
+            .iter()
+            .find(|t| t.name == "WorkPackage")
+            .unwrap();
+        let owner_id = wp.fields.iter().find(|f| f.name == "owner_id").unwrap();
+        assert_eq!(
+            owner_id.kind,
+            Kind::Record(vec!["User".to_string()]).optional(),
+            "class_name override must route the FK target to User, not Owner",
+        );
+    }
+
+    /// **D-AR-5.4 backward compat** — absence of a `class_name` triple
+    /// means "use the Rails convention". Pre-ruff#18 ndjson dumps
+    /// render bit-for-bit identical to the prior contract.
+    #[test]
+    fn declares_association_without_class_name_uses_rails_convention() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:Project", "rdf:type", "ogit:ObjectType"),
+            t(
+                "openproject:WorkPackage",
+                "declares_association",
+                "openproject:WorkPackage.project",
+            ),
+            // Note: NO class_name triple — convention applies.
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = schema
+            .tables
+            .iter()
+            .find(|t| t.name == "WorkPackage")
+            .unwrap();
+        let project_id = wp
+            .fields
+            .iter()
+            .find(|f| f.name == "project_id")
+            .unwrap();
+        assert_eq!(
+            project_id.kind,
+            Kind::Record(vec!["Project".to_string()]).optional(),
+            "no class_name triple → use rails convention (Project)",
+        );
+    }
+
+    /// **D-AR-5.4 — polymorphic-safe override** — when the
+    /// `class_name` override names a table that isn't in the known
+    /// targets set (e.g. the override points at an external/abstract
+    /// class), the FK still falls back to `option<any>` rather than
+    /// inventing a phantom `record<...>`. The override only changes
+    /// the candidate target NAME, not the existence check.
+    #[test]
+    fn class_name_override_falls_back_to_any_when_target_unknown() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            // No `Principal` table declared — but the override points at it.
+            t(
+                "openproject:WorkPackage",
+                "declares_association",
+                "openproject:WorkPackage.owner",
+            ),
+            t(
+                "openproject:WorkPackage.owner",
+                "association_kind",
+                "belongs_to",
+            ),
+            t(
+                "openproject:WorkPackage.owner",
+                "class_name",
+                "Principal",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = &schema.tables[0];
+        let owner_id = wp.fields.iter().find(|f| f.name == "owner_id").unwrap();
+        // Override class `Principal` isn't a known table → `option<any>`.
+        assert_eq!(owner_id.kind, Kind::Any.optional());
     }
 }
