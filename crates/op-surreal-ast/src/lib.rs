@@ -157,14 +157,19 @@ impl Kind {
     ///
     /// D-AR-5.2: `op_surreal_ast::from_triples` calls this on the
     /// object of `field_type` triples emitted by `ruff_spo_triplet`.
+    ///
+    /// Covers both Rails ActiveModel::Type symbols (verbatim from the
+    /// parser — `:integer`, `:big_integer`, `:immutable_string`, etc.)
+    /// AND the PostgreSQL column-type aliases that Rails surfaces
+    /// (`bigint`).
     #[must_use]
     pub fn from_rails_type(rails_type: &str) -> Option<Self> {
         Some(match rails_type {
-            "integer" | "bigint" => Self::Int,
-            "string" | "text" => Self::String,
+            "integer" | "bigint" | "big_integer" => Self::Int,
+            "string" | "text" | "immutable_string" => Self::String,
             "boolean" => Self::Bool,
             "float" => Self::Float,
-            "decimal" => Self::Decimal,
+            "decimal" | "numeric" => Self::Decimal,
             // Rails maps several time-typed columns to instants; SurrealQL
             // bundles them under `datetime` (Date/Time/Datetime/Timestamp).
             "datetime" | "timestamp" | "date" | "time" => Self::Datetime,

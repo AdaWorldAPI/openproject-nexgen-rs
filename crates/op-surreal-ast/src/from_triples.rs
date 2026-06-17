@@ -1440,11 +1440,21 @@ mod tests {
     fn rails_type_to_kind_mapping_table() {
         assert_eq!(Kind::from_rails_type("integer"), Some(Kind::Int));
         assert_eq!(Kind::from_rails_type("bigint"), Some(Kind::Int));
+        // Rails ActiveModel::Type symbol for `Type::BigInteger` is
+        // `:big_integer` verbatim (codex P2 on #36).
+        assert_eq!(Kind::from_rails_type("big_integer"), Some(Kind::Int));
         assert_eq!(Kind::from_rails_type("string"), Some(Kind::String));
         assert_eq!(Kind::from_rails_type("text"), Some(Kind::String));
+        // Rails `Type::ImmutableString` — verbatim symbol.
+        assert_eq!(
+            Kind::from_rails_type("immutable_string"),
+            Some(Kind::String),
+        );
         assert_eq!(Kind::from_rails_type("boolean"), Some(Kind::Bool));
         assert_eq!(Kind::from_rails_type("float"), Some(Kind::Float));
         assert_eq!(Kind::from_rails_type("decimal"), Some(Kind::Decimal));
+        // Rails 8+ `:numeric` is an alias for decimal.
+        assert_eq!(Kind::from_rails_type("numeric"), Some(Kind::Decimal));
         assert_eq!(Kind::from_rails_type("datetime"), Some(Kind::Datetime));
         assert_eq!(Kind::from_rails_type("timestamp"), Some(Kind::Datetime));
         assert_eq!(Kind::from_rails_type("date"), Some(Kind::Datetime));
