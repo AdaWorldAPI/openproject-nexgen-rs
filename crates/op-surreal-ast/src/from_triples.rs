@@ -408,13 +408,41 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
             "registers_journal_formatted_fields" => {
                 builder.add_annotation(format!("journal_fields:{}", t.o));
             }
-            // Other predicates (has_function, reads_field, raises,
-            // traverses_relation, defines_method, column_override,
-            // concern_*, has_dsl_call) carry method-body semantics
-            // that don't lower cleanly to schema-level facts.
-            // D-AR-5.6 lifts these into SurrealQL `DEFINE FUNCTION` /
-            // `DEFINE EVENT` once the Ruby→SurrealQL body lowering
-            // is wired.
+            "has_dsl_call" => {
+                // OpenProject + Rails-app-level DSL invocations
+                // (`state(:configuring)`, `activity_provider_for(...)`,
+                // `has_details_table(...)`, `after_transition(...)`,
+                // and the long-tail singletons). The object carries
+                // the call surface (`<method>(<args>)`); surface as a
+                // table-level `dsl:<call>` annotation so downstream
+                // consumers (schema visualizer, graph build) see the
+                // DSL surface without a separate side-table.
+                builder.add_annotation(format!("dsl:{}", t.o));
+            }
+            "column_override" => {
+                // `(model.column, column_override, "<key>=<value>")` —
+                // declarative DSL that overrides a column's behaviour
+                // (e.g. `serialize :data, JSON` / `undef_method :foo`).
+                // Surface as a table-level marker so consumers can
+                // see the non-default column treatment.
+                builder.add_annotation(format!("col_override:{}", t.o));
+            }
+            "defines_method" => {
+                // `define_method` dynamic-method declaration. Per the
+                // ruff IR doc, default provenance is `Inferred`
+                // (dynamic-method finds are heuristic). Schema can't
+                // commit to a `DEFINE FUNCTION` for these without
+                // the body lowering sprint, but a table-level
+                // `dyn_method:<expr>` annotation surfaces the
+                // existence-of-dynamic-method fact.
+                builder.add_annotation(format!("dyn_method:{}", t.o));
+            }
+            // Remaining catch-all (has_function, reads_field, raises,
+            // traverses_relation, concern_*) carry method-body
+            // semantics that need the Ruby→SurrealQL body lowering
+            // sprint (D-AR-5.6) before they can lift into
+            // `DEFINE FUNCTION` / `DEFINE EVENT`. Class-level facts
+            // (one fact per table) are lifted above.
             _ => {}
         }
     }
@@ -2281,5 +2309,71 @@ mod tests {
                 .any(|i| i.name == "idx_User_email_unique" && i.unique),
             "uniqueness must also emit a UNIQUE index alongside the ASSERT",
         );
+    }
+
+    /// **D-AR-5.10** — `has_dsl_call`, `column_override`,
+    /// `defines_method` lift to dedicated table annotations
+    /// (`dsl:`, `col_override:`, `dyn_method:`). These are the
+    /// largest remaining catch-all predicates from the OP corpus
+    /// (154 `has_dsl_call` triples on the live dump).
+    #[test]
+    fn dsl_class_level_predicates_lift_to_table_annotations() {
+        let triples = vec![
+            t(
+                "openproject:Import::JiraImportStateMachine",
+                "rdf:type",
+                "ogit:ObjectType",
+            ),
+            t(
+                "openproject:Import::JiraImportStateMachine",
+                "has_dsl_call",
+                "state(:configuring)",
+            ),
+            t(
+                "openproject:Import::JiraImportStateMachine",
+                "has_dsl_call",
+                "after_transition(<expr>)",
+            ),
+            t(
+                "openproject:Import::JiraImportStateMachine.data",
+                "column_override",
+                "serialize=JSON",
+            ),
+            t(
+                "openproject:Import::JiraImportStateMachine",
+                "defines_method",
+                "method_for_state=<body>",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let machine = &schema.tables[0];
+        let comment = machine.comment.as_deref().expect("expected comment");
+        for expected in [
+            "dsl:state(:configuring)",
+            "dsl:after_transition(<expr>)",
+            "col_override:serialize=JSON",
+            "dyn_method:method_for_state=<body>",
+        ] {
+            assert!(
+                comment.contains(expected),
+                "expected `{expected}` in annotation; got {comment:?}",
+            );
+        }
+    }
+
+    /// **D-AR-5.10 phantom-table guard** — `dsl:` / `col_override:`
+    /// / `dyn_method:` annotations on undeclared subjects must NOT
+    /// materialise phantom tables.
+    #[test]
+    fn dsl_predicates_respect_phantom_table_guard() {
+        let triples = vec![
+            t("openproject:Ghost", "has_dsl_call", "foo(...)"),
+            t("openproject:Ghost", "column_override", "key=val"),
+            t("openproject:Ghost", "defines_method", "name=body"),
+            t("openproject:Real", "rdf:type", "ogit:ObjectType"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let names: Vec<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, ["Real"]);
     }
 }
