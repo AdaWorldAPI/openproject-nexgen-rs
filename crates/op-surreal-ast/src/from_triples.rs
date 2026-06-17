@@ -1439,12 +1439,30 @@ mod tests {
     #[test]
     fn rails_type_to_kind_mapping_table() {
         assert_eq!(Kind::from_rails_type("integer"), Some(Kind::Int));
+        // PostgreSQL `bigint` is an 8-byte signed integer (fits
+        // SurrealQL int / i64).
         assert_eq!(Kind::from_rails_type("bigint"), Some(Kind::Int));
+        // Rails `:big_integer` (ActiveModel::Type::BigInteger) wraps
+        // Ruby's arbitrary-precision Integer — DOES NOT fit i64.
+        // Routed to Decimal (arbitrary-precision in SurrealDB) so
+        // values outside the i64 range that Rails accepts aren't
+        // rejected by the generated schema (codex P2 on #37).
+        assert_eq!(
+            Kind::from_rails_type("big_integer"),
+            Some(Kind::Decimal),
+        );
         assert_eq!(Kind::from_rails_type("string"), Some(Kind::String));
         assert_eq!(Kind::from_rails_type("text"), Some(Kind::String));
+        // Rails `Type::ImmutableString` — verbatim symbol.
+        assert_eq!(
+            Kind::from_rails_type("immutable_string"),
+            Some(Kind::String),
+        );
         assert_eq!(Kind::from_rails_type("boolean"), Some(Kind::Bool));
         assert_eq!(Kind::from_rails_type("float"), Some(Kind::Float));
         assert_eq!(Kind::from_rails_type("decimal"), Some(Kind::Decimal));
+        // Rails 8+ `:numeric` is an alias for decimal.
+        assert_eq!(Kind::from_rails_type("numeric"), Some(Kind::Decimal));
         assert_eq!(Kind::from_rails_type("datetime"), Some(Kind::Datetime));
         assert_eq!(Kind::from_rails_type("timestamp"), Some(Kind::Datetime));
         assert_eq!(Kind::from_rails_type("date"), Some(Kind::Datetime));
