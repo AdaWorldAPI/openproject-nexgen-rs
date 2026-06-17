@@ -323,6 +323,26 @@ fn rails_target_class(relation: &str) -> String {
 /// `responses` into `respons`. Narrowed to `-sses → -ss` so it only
 /// fires on actual double-s plurals like `accesses → access`.
 fn singularize(s: &str) -> String {
+    // Irregular plurals: the trailing `_`-segment is rewritten in place.
+    // Covers the most common English irregulars; the OP corpus only
+    // surfaces `children` today (PR follow-up to #34) but the others
+    // are cheap insurance.
+    const IRREGULAR: &[(&str, &str)] = &[
+        ("children", "child"),
+        ("people", "person"),
+        ("men", "man"),
+        ("women", "woman"),
+        ("feet", "foot"),
+        ("teeth", "tooth"),
+        ("mice", "mouse"),
+        ("geese", "goose"),
+    ];
+    let trailing_start = s.rfind('_').map_or(0, |i| i + 1);
+    let trailing = &s[trailing_start..];
+    if let Some(&(_, sing)) = IRREGULAR.iter().find(|(p, _)| *p == trailing) {
+        return format!("{}{sing}", &s[..trailing_start]);
+    }
+
     // Uncountable Rails-style nouns that surfaced on the OP corpus —
     // their singular and plural form match. Falls back to the
     // length-aware rules below if a name isn't on the list.
@@ -330,7 +350,7 @@ fn singularize(s: &str) -> String {
         "news", "series", "species", "equipment", "information",
         "money", "fish", "sheep", "deer", "rice", "staff", "data",
     ];
-    if UNCOUNTABLE.contains(&s) {
+    if UNCOUNTABLE.contains(&trailing) {
         return s.to_string();
     }
     if let Some(stem) = s.strip_suffix("ies") {
@@ -355,6 +375,13 @@ fn singularize(s: &str) -> String {
     if let Some(stem) = s.strip_suffix('s') {
         if stem.ends_with('s') {
             // `-ss` like `class` keeps the trailing s (`mass`, `glass`).
+            return s.to_string();
+        }
+        if stem.ends_with('u') {
+            // `-us` like `status`, `bus`, `virus`, `bonus` — already
+            // singular in Latin-derived English; plurals would be
+            // `-uses` (statuses, buses). Stripping the `s` would
+            // yield `job_statu` from `job_status`.
             return s.to_string();
         }
         return stem.to_string();
@@ -648,6 +675,37 @@ mod tests {
             rails_target_class("recurring_meeting_interim_responses"),
             "RecurringMeetingInterimResponse",
         );
+    }
+
+    /// **Regression (post-#34 corpus)** — `children` and `job_status`
+    /// were the two remaining target-class quirks after the
+    /// singularization tightening. Lock both.
+    #[test]
+    fn singularize_handles_irregular_plural_and_us_suffix() {
+        // Irregular plural: `children → child`.
+        assert_eq!(singularize("children"), "child");
+        // Compound irregular: trailing segment is irregular.
+        assert_eq!(singularize("wiki_children"), "wiki_child");
+        // -us suffix words are already singular and must NOT have the
+        // trailing s stripped.
+        assert_eq!(singularize("status"), "status");
+        assert_eq!(singularize("job_status"), "job_status");
+        assert_eq!(singularize("bus"), "bus");
+        assert_eq!(singularize("virus"), "virus");
+        // Other irregular plurals (cheap insurance for future corpora).
+        assert_eq!(singularize("people"), "person");
+        assert_eq!(singularize("men"), "man");
+        assert_eq!(singularize("women"), "woman");
+        assert_eq!(singularize("mice"), "mouse");
+    }
+
+    /// **Regression (post-#34 corpus)** — the camel-cased
+    /// target-class output for the irregular and `-us` cases.
+    #[test]
+    fn rails_target_class_handles_irregular_and_us() {
+        assert_eq!(rails_target_class("children"), "Child");
+        assert_eq!(rails_target_class("job_status"), "JobStatus");
+        assert_eq!(rails_target_class("people"), "Person");
     }
 
     #[test]
