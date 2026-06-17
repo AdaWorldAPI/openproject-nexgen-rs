@@ -305,15 +305,68 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                 // STI parents off into a dedicated `inherits:` slot.
                 builder.add_annotation(format!("include:{}", t.o));
             }
+            // ───── D-AR-5.5: class-level Rails facts → table annotations
+            //
+            // These predicates carry CLASS-level facts (one fact per
+            // table) rather than function-body facts. Surface them as
+            // `<verb>:<object>` annotations so downstream consumers
+            // (graph build, schema visualizer) see the AR-shape
+            // surface. The follow-on D-AR-5.6 sprint may lift the
+            // body-coupled ones (scopes, delegations) to SurrealQL
+            // `DEFINE FUNCTION` once the Ruby→SurrealQL lowering is
+            // in place.
+            "has_scope" => {
+                builder.add_annotation(format!("scope:{}", t.o));
+            }
+            "has_default_scope" => {
+                builder.add_annotation(format!("default_scope:{}", t.o));
+            }
+            "aliases_method" => {
+                builder.add_annotation(format!("alias_method:{}", t.o));
+            }
+            "aliases_attribute" => {
+                builder.add_annotation(format!("alias_attr:{}", t.o));
+            }
+            "delegates_to" => {
+                builder.add_annotation(format!("delegate:{}", t.o));
+            }
+            "extends_module" => {
+                builder.add_annotation(format!("extend:{}", t.o));
+            }
+            "prepends_module" => {
+                builder.add_annotation(format!("prepend:{}", t.o));
+            }
+            "uses_refinement" => {
+                builder.add_annotation(format!("using:{}", t.o));
+            }
+            "mounts_uploader" => {
+                builder.add_annotation(format!("mount:{}", t.o));
+            }
+            "has_paper_trail" => {
+                builder.add_annotation(format!("paper_trail:{}", t.o));
+            }
+            "has_closure_tree" => {
+                builder.add_annotation(format!("closure_tree:{}", t.o));
+            }
+            "counter_cultures" => {
+                builder.add_annotation(format!("counter_culture:{}", t.o));
+            }
+            "auto_strips" => {
+                builder.add_annotation(format!("auto_strip:{}", t.o));
+            }
+            "registers_journal_formatter" => {
+                builder.add_annotation(format!("journal_formatter:{}", t.o));
+            }
+            "registers_journal_formatted_fields" => {
+                builder.add_annotation(format!("journal_fields:{}", t.o));
+            }
             // Other predicates (has_function, reads_field, raises,
-            // traverses_relation, delegates_to, has_scope, has_default_scope,
-            // aliases_method, aliases_attribute, defines_method, uses_refinement,
-            // column_override, extends_module, prepends_module, concern_*,
-            // gem DSL, registers_journal_*, has_dsl_call) carry method-body
-            // semantics that don't lower cleanly to SurrealQL DDL today.
-            // D-AR-5.3 lifts these into SurrealQL `DEFINE FUNCTION` /
-            // `DEFINE EVENT` once the Ruby→SurrealQL body lowering is
-            // wired (separate workstream).
+            // traverses_relation, defines_method, column_override,
+            // concern_*, has_dsl_call) carry method-body semantics
+            // that don't lower cleanly to schema-level facts.
+            // D-AR-5.6 lifts these into SurrealQL `DEFINE FUNCTION` /
+            // `DEFINE EVENT` once the Ruby→SurrealQL body lowering
+            // is wired.
             _ => {}
         }
     }
@@ -1689,5 +1742,79 @@ mod tests {
         let owner_id = wp.fields.iter().find(|f| f.name == "owner_id").unwrap();
         // Override class `Principal` isn't a known table → `option<any>`.
         assert_eq!(owner_id.kind, Kind::Any.optional());
+    }
+
+    /// **D-AR-5.5** — class-level Rails predicates lift to
+    /// `<verb>:<object>` table annotations. Lock the contract on
+    /// the 15 newly-wired predicates so a future drop of any single
+    /// arm fails this test loudly.
+    #[test]
+    fn class_level_predicates_lift_to_table_annotations() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:WorkPackage", "has_scope", "active"),
+            t("openproject:WorkPackage", "has_default_scope", "visible"),
+            t("openproject:WorkPackage", "aliases_method", "old=new"),
+            t("openproject:WorkPackage", "aliases_attribute", "label=name"),
+            t("openproject:WorkPackage", "delegates_to", "name=>via:project"),
+            t("openproject:WorkPackage", "extends_module", "Reportable"),
+            t("openproject:WorkPackage", "prepends_module", "ModerationGuard"),
+            t("openproject:WorkPackage", "uses_refinement", "Refinements::Money"),
+            t("openproject:WorkPackage", "mounts_uploader", "attachment"),
+            t("openproject:WorkPackage", "has_paper_trail", "default"),
+            t("openproject:WorkPackage", "has_closure_tree", "true"),
+            t("openproject:WorkPackage", "counter_cultures", "project=>count_of:work_packages"),
+            t("openproject:WorkPackage", "auto_strips", "subject"),
+            t("openproject:WorkPackage", "registers_journal_formatter", "diff:description"),
+            t("openproject:WorkPackage", "registers_journal_formatted_fields", "description"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = &schema.tables[0];
+        let comment = wp
+            .comment
+            .as_deref()
+            .expect("expected comment with AR facts");
+        for expected in [
+            "scope:active",
+            "default_scope:visible",
+            "alias_method:old=new",
+            "alias_attr:label=name",
+            "delegate:name=>via:project",
+            "extend:Reportable",
+            "prepend:ModerationGuard",
+            "using:Refinements::Money",
+            "mount:attachment",
+            "paper_trail:default",
+            "closure_tree:true",
+            "counter_culture:project=>count_of:work_packages",
+            "auto_strip:subject",
+            "journal_formatter:diff:description",
+            "journal_fields:description",
+        ] {
+            assert!(
+                comment.contains(expected),
+                "expected `{expected}` in annotation; got {comment:?}",
+            );
+        }
+    }
+
+    /// **D-AR-5.5 phantom-table guard** — class-level annotation
+    /// predicates on a subject WITHOUT a corresponding `rdf:type
+    /// ObjectType` declaration must NOT materialise a phantom table.
+    /// (Same invariant the codex P2-1 fix introduced for
+    /// `has_attribute`.)
+    #[test]
+    fn class_level_annotations_respect_phantom_table_guard() {
+        let triples = vec![
+            // No `rdf:type ObjectType` for `Ghost`.
+            t("openproject:Ghost", "has_scope", "visible"),
+            t("openproject:Ghost", "delegates_to", "name=>via:owner"),
+            t("openproject:Ghost", "mounts_uploader", "avatar"),
+            // Real table to confirm the filter is precise.
+            t("openproject:Real", "rdf:type", "ogit:ObjectType"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let names: Vec<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, ["Real"]);
     }
 }
