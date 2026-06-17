@@ -425,7 +425,17 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                 // (e.g. `serialize :data, JSON` / `undef_method :foo`).
                 // Surface as a table-level marker so consumers can
                 // see the non-default column treatment.
-                builder.add_annotation(format!("col_override:{}", t.o));
+                //
+                // The subject carries the column name (`model.column`);
+                // the object carries the override key=value. Two
+                // columns with the same override value (e.g. both
+                // `data` and `meta` serialize as JSON) would dedupe
+                // to one annotation if we only captured the value,
+                // losing one fact (codex P2 on #44). Include the
+                // member name so each column-override is uniquely
+                // identified: `col_override:<col>:<key>=<value>`.
+                let col = member.as_deref().unwrap_or("?");
+                builder.add_annotation(format!("col_override:{col}:{}", t.o));
             }
             "defines_method" => {
                 // `define_method` dynamic-method declaration. Per the
@@ -2351,7 +2361,7 @@ mod tests {
         for expected in [
             "dsl:state(:configuring)",
             "dsl:after_transition(<expr>)",
-            "col_override:serialize=JSON",
+            "col_override:data:serialize=JSON",
             "dyn_method:method_for_state=<body>",
         ] {
             assert!(
@@ -2368,12 +2378,47 @@ mod tests {
     fn dsl_predicates_respect_phantom_table_guard() {
         let triples = vec![
             t("openproject:Ghost", "has_dsl_call", "foo(...)"),
-            t("openproject:Ghost", "column_override", "key=val"),
+            t("openproject:Ghost.col", "column_override", "key=val"),
             t("openproject:Ghost", "defines_method", "name=body"),
             t("openproject:Real", "rdf:type", "ogit:ObjectType"),
         ];
         let schema = triples_to_schema(&triples);
         let names: Vec<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, ["Real"]);
+    }
+
+    /// **D-AR-5.10 — column-override dedup safety (codex P2 on #44)** —
+    /// two columns with the same override value (e.g. `data` and
+    /// `meta` both `serialize=JSON`) must produce two distinct
+    /// annotations, not one deduped via the `TableBuilder::build`
+    /// annotation-dedup pass. Including the column name in the
+    /// annotation prefix keeps each fact uniquely identified.
+    #[test]
+    fn column_override_includes_column_name_to_avoid_dedup() {
+        let triples = vec![
+            t("openproject:Account", "rdf:type", "ogit:ObjectType"),
+            // Two distinct columns, identical override value.
+            t(
+                "openproject:Account.preferences",
+                "column_override",
+                "serialize=JSON",
+            ),
+            t(
+                "openproject:Account.metadata",
+                "column_override",
+                "serialize=JSON",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let comment = schema.tables[0].comment.as_deref().expect("comment");
+        // Both overrides must surface — no dedup collapse.
+        assert!(
+            comment.contains("col_override:preferences:serialize=JSON"),
+            "preferences override missing: {comment:?}",
+        );
+        assert!(
+            comment.contains("col_override:metadata:serialize=JSON"),
+            "metadata override missing: {comment:?}",
+        );
     }
 }
