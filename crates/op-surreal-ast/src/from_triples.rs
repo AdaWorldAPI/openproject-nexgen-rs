@@ -299,11 +299,34 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                 builder.add_annotation(format!("callback:{}", t.o));
             }
             "includes_module" => {
-                // Concerns + STI parents. Some are domain (e.g. `Acts::Customizable`),
-                // others are STI parents (`Issue` for `WorkPackage`).
-                // Emit a compact table-level note; D-AR-5.3 may split
-                // STI parents off into a dedicated `inherits:` slot.
+                // Method-body composition (Ruby `include Mod`).
+                // Distinct from STI parents, which now flow through
+                // their own `inherits_from` predicate (ruff#19) and
+                // get a dedicated `inherits:` annotation below.
                 builder.add_annotation(format!("include:{}", t.o));
+            }
+            "inherits_from" => {
+                // Rails STI parent (single-table inheritance with a
+                // type-discriminator column). Semantically distinct
+                // from `includes_module` — STI shares the physical
+                // table; concerns are method mix-ins. Surface as a
+                // dedicated `inherits:` annotation so downstream
+                // consumers (graph build, schema visualizer) can
+                // render the type hierarchy correctly.
+                //
+                // The `inherits_from` predicate is cross-frontend
+                // (ruff also emits it for C++ class inheritance with
+                // a different provenance tier). At the schema level
+                // they're semantically equivalent — both mean
+                // "this table is a subtype of <parent>".
+                //
+                // Strip the `openproject:` namespace prefix before
+                // the annotation so the rendered comment reads
+                // `inherits:Issue` (matching table-name conventions)
+                // rather than `inherits:openproject:Issue` (codex P2
+                // on #40). The bare class name is what downstream
+                // graph builders join against `known_targets`.
+                builder.add_annotation(format!("inherits:{}", strip_namespace(&t.o)));
             }
             // ───── D-AR-5.5: class-level Rails facts → table annotations
             //
@@ -1811,6 +1834,97 @@ mod tests {
             t("openproject:Ghost", "delegates_to", "name=>via:owner"),
             t("openproject:Ghost", "mounts_uploader", "avatar"),
             // Real table to confirm the filter is precise.
+            t("openproject:Real", "rdf:type", "ogit:ObjectType"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let names: Vec<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, ["Real"]);
+    }
+
+    /// **D-AR-5.7** — `inherits_from` predicate (ruff#19) lifts to a
+    /// dedicated `inherits:<Parent>` table annotation, separate from
+    /// `include:` (concerns). STI is semantically distinct from
+    /// method-body composition — both signals are now available in
+    /// the schema output.
+    ///
+    /// Wire shape: ruff emits the parent as a namespaced IRI
+    /// (`openproject:Issue`, mirroring the C++ `InheritsFrom` arm)
+    /// so the parent is joinable to its own `ObjectType` triple.
+    /// The schema annotation strips the namespace for the display
+    /// form (`inherits:Issue`).
+    #[test]
+    fn inherits_from_lifts_to_dedicated_annotation_with_stripped_namespace() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            // STI: WorkPackage inherits from openproject:Issue
+            // (ruff#19 emits the namespaced IRI).
+            t(
+                "openproject:WorkPackage",
+                "inherits_from",
+                "openproject:Issue",
+            ),
+            // Distinct from regular includes.
+            t(
+                "openproject:WorkPackage",
+                "includes_module",
+                "Acts::Customizable",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = &schema.tables[0];
+        let comment = wp.comment.as_deref().expect("expected comment");
+        assert!(
+            comment.contains("inherits:Issue"),
+            "STI parent must lift to `inherits:` annotation with stripped namespace; got {comment:?}",
+        );
+        // The `openproject:` prefix MUST NOT leak into the annotation
+        // (codex P2 on #40).
+        assert!(
+            !comment.contains("inherits:openproject:"),
+            "namespace prefix must be stripped before the annotation; got {comment:?}",
+        );
+        assert!(
+            comment.contains("include:Acts::Customizable"),
+            "concern must still lift to `include:` annotation; got {comment:?}",
+        );
+        // The STI parent must NOT also leak into the include: prefix.
+        assert!(
+            !comment.contains("include:Issue"),
+            "STI parent must not appear under `include:`; got {comment:?}",
+        );
+    }
+
+    /// **D-AR-5.7 — bare-name fallback** — if a pre-ruff#19 dump or
+    /// a non-OP-namespaced parent name arrives (e.g. a third-party
+    /// gem's class), the bare form passes through `strip_namespace`
+    /// unchanged so the annotation still renders.
+    #[test]
+    fn inherits_from_bare_name_passes_through_unchanged() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            // Bare class name (no `openproject:` prefix).
+            t("openproject:WorkPackage", "inherits_from", "Issue"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let comment = schema.tables[0].comment.as_deref().unwrap_or("");
+        assert!(
+            comment.contains("inherits:Issue"),
+            "bare parent name should pass through; got {comment:?}",
+        );
+    }
+
+    /// **D-AR-5.7 phantom-table guard** — same invariant as the
+    /// other predicates: `inherits_from` on an undeclared subject
+    /// must NOT materialise a phantom table.
+    #[test]
+    fn inherits_from_respects_phantom_table_guard() {
+        let triples = vec![
+            // No `rdf:type ObjectType` for `Ghost`.
+            t(
+                "openproject:Ghost",
+                "inherits_from",
+                "openproject:Parent",
+            ),
             t("openproject:Real", "rdf:type", "ogit:ObjectType"),
         ];
         let schema = triples_to_schema(&triples);
