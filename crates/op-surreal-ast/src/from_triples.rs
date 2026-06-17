@@ -135,6 +135,27 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
         .map(|t| (t.s.clone(), t.o.clone()))
         .collect();
 
+    // Pre-collect `validation_kind` triples (ruff#21 — sibling to
+    // `validates_constraint`). Keyed by the attribute IRI, value is
+    // a set of recognised Rails kinds (`presence`, `uniqueness`,
+    // `numericality`, etc.). The `validates_constraint` arm below
+    // uses this to compose richer SurrealQL ASSERT clauses instead
+    // of the catch-all `$value != NONE`.
+    //
+    // Multiple kinds per attribute compose with AND; an absent
+    // attribute (no `validation_kind` triple) falls back to the
+    // pre-ruff#21 `$value != NONE` ASSERT.
+    let mut validation_kinds: BTreeMap<String, std::collections::BTreeSet<String>> =
+        BTreeMap::new();
+    for t in triples {
+        if t.p == "validation_kind" {
+            validation_kinds
+                .entry(t.s.clone())
+                .or_default()
+                .insert(t.o.clone());
+        }
+    }
+
     // Asserts are buffered and applied AFTER the field-population pass
     // so the `validates_constraint` → ASSERT wiring is independent of
     // triple stream order (codex P2 PR #27 r…). A
@@ -259,18 +280,22 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                 // Buffer the assertion; apply after all fields are
                 // populated so stream-order doesn't cause drops.
                 //
-                // The Rails validation options are NOT carried on the
-                // triple (they live on `Validation::options` in the IR
-                // but `expand()` drops them); the schema-level
-                // `ASSERT $value != NONE` is the most general
-                // constraint we can express without re-parsing — it
-                // asserts "this attribute must not be null", which is
-                // the most common (and load-bearing) Rails validation
-                // effect.
+                // When ruff#21+ emits sibling `validation_kind`
+                // triples for this attribute (`presence`,
+                // `numericality`, `acceptance`, ...), compose a
+                // kind-aware ASSERT. Without kind info (pre-ruff#21
+                // ndjson or block-form `validate { ... }`), fall back
+                // to the catch-all `$value != NONE` — the most
+                // common load-bearing Rails validation effect.
+                let attr_iri = format!("{table_iri}.{}", t.o);
+                let expr = validation_kinds
+                    .get(&attr_iri)
+                    .map(|kinds| compose_validation_assert(kinds))
+                    .unwrap_or_else(|| "$value != NONE".to_string());
                 pending_asserts.push((
                     table_iri.clone(),
                     t.o.clone(),
-                    "$value != NONE".to_string(),
+                    expr,
                 ));
             }
             "normalizes_attribute" => {
@@ -447,6 +472,60 @@ fn strip_namespace(s: &str) -> &str {
 /// being present (codex P2 on #38).
 fn strip_class_namespace(s: &str) -> &str {
     s.rsplit("::").next().unwrap_or(s)
+}
+
+/// Compose a kind-aware SurrealQL ASSERT clause from the recognised
+/// Rails validation kinds on an attribute.
+///
+/// The 9-key Rails set (ruff#21) maps to SurrealQL like this:
+///
+/// | Rails kind     | clause fragment                  | parametric? |
+/// |----------------|----------------------------------|-------------|
+/// | `presence`     | `$value != NONE`                 | no          |
+/// | `numericality` | `type::is::number($value)`       | no          |
+/// | `acceptance`   | `$value == true`                 | no          |
+/// | `uniqueness`   | `$value != NONE` (presence-style)| no (index-level too — TODO) |
+/// | `length`       | `$value != NONE`                 | yes (skip)  |
+/// | `format`       | `$value != NONE`                 | yes (skip)  |
+/// | `inclusion`    | `$value != NONE`                 | yes (skip)  |
+/// | `exclusion`    | `$value != NONE`                 | yes (skip)  |
+/// | `confirmation` | `$value != NONE`                 | composite   |
+///
+/// Multiple kinds compose with `AND` in a stable order.
+/// Parametric kinds (length/format/inclusion/exclusion) need the
+/// option values that ruff#21 doesn't carry on the kind triple
+/// itself (a future predicate could surface them); for now they
+/// fall back to the presence-style `$value != NONE` so the
+/// constraint isn't silently dropped.
+///
+/// Unknown kinds in the set are skipped (forward-compat: a future
+/// `Predicate::ValidationKind` enrichment shouldn't fail the
+/// downstream).
+fn compose_validation_assert(kinds: &std::collections::BTreeSet<String>) -> String {
+    let mut clauses: Vec<&str> = Vec::new();
+    let mut has_non_none = false;
+    for kind in kinds {
+        match kind.as_str() {
+            "numericality" => clauses.push("type::is::number($value)"),
+            "acceptance" => clauses.push("$value == true"),
+            // Presence-equivalent kinds (the parameter-less ones in
+            // the catch-all fall here too — see the table above).
+            "presence" | "uniqueness" | "length" | "format" | "inclusion"
+            | "exclusion" | "confirmation" => {
+                if !has_non_none {
+                    clauses.push("$value != NONE");
+                    has_non_none = true;
+                }
+            }
+            _ => {} // forward-compat: unknown kind, skip
+        }
+    }
+    if clauses.is_empty() {
+        // Empty set (or only unknown kinds) — keep the load-bearing
+        // catch-all so the validation doesn't silently drop.
+        return "$value != NONE".to_string();
+    }
+    clauses.join(" AND ")
 }
 
 /// Apply the Rails AR convention: a relation name (`time_entries`,
@@ -1930,5 +2009,130 @@ mod tests {
         let schema = triples_to_schema(&triples);
         let names: Vec<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, ["Real"]);
+    }
+
+    /// **D-AR-5.8** — `validation_kind` triple (ruff#21) lifts to a
+    /// kind-aware ASSERT clause. The 9-key Rails set composes into
+    /// SurrealQL with AND.
+    #[test]
+    fn validation_kind_lifts_to_kind_aware_assert() {
+        let triples = vec![
+            t("openproject:User", "rdf:type", "ogit:ObjectType"),
+            t("openproject:User", "has_attribute", "age"),
+            t("openproject:User", "validates_constraint", "age"),
+            t("openproject:User.age", "validation_kind", "presence"),
+            t("openproject:User.age", "validation_kind", "numericality"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let age = schema.tables[0]
+            .fields
+            .iter()
+            .find(|f| f.name == "age")
+            .unwrap();
+        let assert_str = age.assert.as_deref().unwrap();
+        // Both clauses present, composed with AND. Order depends on
+        // BTreeSet iteration (alphabetical), so numericality precedes
+        // presence — that's stable.
+        assert!(
+            assert_str.contains("$value != NONE"),
+            "presence clause expected; got {assert_str:?}",
+        );
+        assert!(
+            assert_str.contains("type::is::number($value)"),
+            "numericality clause expected; got {assert_str:?}",
+        );
+        assert!(
+            assert_str.contains(" AND "),
+            "composed with AND; got {assert_str:?}",
+        );
+    }
+
+    /// **D-AR-5.8 backward compat** — absence of `validation_kind`
+    /// triples keeps the pre-ruff#21 ASSERT shape (`$value != NONE`).
+    #[test]
+    fn validates_constraint_without_kind_falls_back_to_presence() {
+        let triples = vec![
+            t("openproject:User", "rdf:type", "ogit:ObjectType"),
+            t("openproject:User", "has_attribute", "name"),
+            // No validation_kind triples — pre-ruff#21 ndjson shape.
+            t("openproject:User", "validates_constraint", "name"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let name = schema.tables[0]
+            .fields
+            .iter()
+            .find(|f| f.name == "name")
+            .unwrap();
+        assert_eq!(
+            name.assert.as_deref(),
+            Some("$value != NONE"),
+            "absent validation_kind → catch-all `$value != NONE`",
+        );
+    }
+
+    /// **D-AR-5.8 — acceptance** — `validates :tos, acceptance: true`
+    /// (Rails ToS-checkbox pattern) lowers to `ASSERT $value == true`.
+    #[test]
+    fn validation_kind_acceptance_lowers_to_value_eq_true() {
+        let triples = vec![
+            t("openproject:Account", "rdf:type", "ogit:ObjectType"),
+            t("openproject:Account", "has_attribute", "tos"),
+            t("openproject:Account", "validates_constraint", "tos"),
+            t("openproject:Account.tos", "validation_kind", "acceptance"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let tos = schema.tables[0]
+            .fields
+            .iter()
+            .find(|f| f.name == "tos")
+            .unwrap();
+        assert_eq!(
+            tos.assert.as_deref(),
+            Some("$value == true"),
+            "acceptance kind → boolean-equality ASSERT",
+        );
+    }
+
+    /// **D-AR-5.8 — composer unit lock** — `compose_validation_assert`
+    /// covers every recognised kind plus the empty / unknown-only
+    /// edge cases.
+    #[test]
+    fn compose_validation_assert_composes_each_kind() {
+        use std::collections::BTreeSet;
+        let mk = |kinds: &[&str]| -> BTreeSet<String> {
+            kinds.iter().map(|s| s.to_string()).collect()
+        };
+        // Single kinds.
+        assert_eq!(
+            compose_validation_assert(&mk(&["presence"])),
+            "$value != NONE",
+        );
+        assert_eq!(
+            compose_validation_assert(&mk(&["numericality"])),
+            "type::is::number($value)",
+        );
+        assert_eq!(
+            compose_validation_assert(&mk(&["acceptance"])),
+            "$value == true",
+        );
+        // Parametric kinds fall back to presence-style.
+        assert_eq!(
+            compose_validation_assert(&mk(&["length"])),
+            "$value != NONE",
+        );
+        // Multiple presence-equivalent kinds dedup to one clause.
+        assert_eq!(
+            compose_validation_assert(&mk(&["presence", "uniqueness", "length"])),
+            "$value != NONE",
+        );
+        // Empty set / only-unknown → catch-all.
+        assert_eq!(
+            compose_validation_assert(&mk(&[])),
+            "$value != NONE",
+        );
+        assert_eq!(
+            compose_validation_assert(&mk(&["tachyon", "unknown_kind"])),
+            "$value != NONE",
+        );
     }
 }
