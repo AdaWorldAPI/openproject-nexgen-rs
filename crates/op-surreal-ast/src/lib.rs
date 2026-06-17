@@ -423,6 +423,10 @@ pub struct IndexDefinition {
     pub name: String,
     pub table: String,
     pub fields: Vec<String>,
+    /// `true` → renders `DEFINE INDEX … UNIQUE …`. Used for Rails
+    /// `validates :foo, uniqueness: true` lowering. The catalog
+    /// bridge maps `unique` to `Index::Uniq` (vs `Index::Idx`).
+    pub unique: bool,
 }
 
 impl IndexDefinition {
@@ -436,7 +440,16 @@ impl IndexDefinition {
             name: name.into(),
             table: table.into(),
             fields,
+            unique: false,
         }
+    }
+
+    /// Mark this index as `UNIQUE`. Equivalent in catalog terms to
+    /// the `Index::Uniq` variant.
+    #[must_use]
+    pub fn unique(mut self) -> Self {
+        self.unique = true;
+        self
     }
 
     /// True if this index covers a single field with the given name.
@@ -461,6 +474,9 @@ impl ToSql for IndexDefinition {
                 f.push_str(", ");
             }
             f.push_str(field);
+        }
+        if self.unique {
+            f.push_str(" UNIQUE");
         }
         f.push_str(";\n");
     }
