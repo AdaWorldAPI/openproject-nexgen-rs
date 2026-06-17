@@ -353,6 +353,21 @@ fn singularize(s: &str) -> String {
     if UNCOUNTABLE.contains(&trailing) {
         return s.to_string();
     }
+    // Latin-derived `-us` singulars whose plurals are `-uses` (or
+    // Latin `-i`). The relation name is already singular — must
+    // NOT be stripped to `-u`. Explicit list, NOT the broad
+    // "stem ends in u" heuristic (codex P2 on #35: `menus → Menu`
+    // is a real Rails plural that the heuristic would falsely keep
+    // as `Menus`).
+    const SINGULAR_US: &[&str] = &[
+        "status", "bus", "virus", "bonus", "focus", "radius",
+        "chorus", "genus", "cactus", "octopus", "fungus",
+        "locus", "nucleus", "syllabus", "alumnus", "stimulus",
+        "surplus", "campus", "census", "circus", "corpus",
+    ];
+    if SINGULAR_US.contains(&trailing) {
+        return s.to_string();
+    }
     if let Some(stem) = s.strip_suffix("ies") {
         return format!("{stem}y");
     }
@@ -375,13 +390,6 @@ fn singularize(s: &str) -> String {
     if let Some(stem) = s.strip_suffix('s') {
         if stem.ends_with('s') {
             // `-ss` like `class` keeps the trailing s (`mass`, `glass`).
-            return s.to_string();
-        }
-        if stem.ends_with('u') {
-            // `-us` like `status`, `bus`, `virus`, `bonus` — already
-            // singular in Latin-derived English; plurals would be
-            // `-uses` (statuses, buses). Stripping the `s` would
-            // yield `job_statu` from `job_status`.
             return s.to_string();
         }
         return stem.to_string();
@@ -697,6 +705,26 @@ mod tests {
         assert_eq!(singularize("men"), "man");
         assert_eq!(singularize("women"), "woman");
         assert_eq!(singularize("mice"), "mouse");
+    }
+
+    /// **Regression (codex P2 on #35)** — `menus`, `gnus`, etc. are
+    /// regular plurals whose stem ends in `u` but whose singular
+    /// drops the `s`. An over-broad "stem ends in u → keep s" rule
+    /// would falsely return `Menus`. The explicit `SINGULAR_US`
+    /// whitelist must NOT include these, so they fall through to
+    /// the bare `-s` strip and singularize correctly.
+    #[test]
+    fn regular_us_plurals_singularize_normally() {
+        // Plurals with -u+s ending: singular drops the s.
+        assert_eq!(singularize("menus"), "menu");
+        assert_eq!(singularize("gnus"), "gnu");
+        assert_eq!(singularize("gurus"), "guru");
+        assert_eq!(singularize("emus"), "emu");
+        // Compound form: only the trailing segment is checked.
+        assert_eq!(singularize("nav_menus"), "nav_menu");
+        // Camel-cased target class.
+        assert_eq!(rails_target_class("menus"), "Menu");
+        assert_eq!(rails_target_class("nav_menus"), "NavMenu");
     }
 
     /// **Regression (post-#34 corpus)** — the camel-cased
