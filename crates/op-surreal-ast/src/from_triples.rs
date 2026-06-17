@@ -314,26 +314,52 @@ fn rails_target_class(relation: &str) -> String {
 
 /// Best-effort singularization. Handles the common Rails cases:
 /// `entries` → `entry`, `accesses` → `access`, `users` → `user`,
-/// `boxes` → `box`. Cases not covered fall through unchanged
-/// (Rails has hundreds of irregular forms; the D-AR-5.2 sprint can
-/// wire a fuller table if the catch-all hurts).
+/// `boxes` → `box`, `watches` → `watch`, `news` → `news`. Cases
+/// not covered fall through to a bare `-s` strip; the D-AR-5.2
+/// sprint can wire a fuller irregular-forms table if needed.
+///
+/// The old `-ses → -s` rule was too greedy: it transformed `phases`
+/// into `phas` (target class `Phas` instead of `Phase`) and
+/// `responses` into `respons`. Narrowed to `-sses → -ss` so it only
+/// fires on actual double-s plurals like `accesses → access`.
 fn singularize(s: &str) -> String {
-    if let Some(stem) = s.strip_suffix("ies") {
-        format!("{stem}y")
-    } else if let Some(stem) = s.strip_suffix("ses") {
-        format!("{stem}s")
-    } else if let Some(stem) = s.strip_suffix("xes") {
-        format!("{stem}x")
-    } else if let Some(stem) = s.strip_suffix('s') {
-        if stem.ends_with('s') {
-            // e.g. "access" → keep as-is (the source already lacked a plural-s)
-            s.to_string()
-        } else {
-            stem.to_string()
-        }
-    } else {
-        s.to_string()
+    // Uncountable Rails-style nouns that surfaced on the OP corpus —
+    // their singular and plural form match. Falls back to the
+    // length-aware rules below if a name isn't on the list.
+    const UNCOUNTABLE: &[&str] = &[
+        "news", "series", "species", "equipment", "information",
+        "money", "fish", "sheep", "deer", "rice", "staff", "data",
+    ];
+    if UNCOUNTABLE.contains(&s) {
+        return s.to_string();
     }
+    if let Some(stem) = s.strip_suffix("ies") {
+        return format!("{stem}y");
+    }
+    // `-es` plural: only valid when the underlying singular ends in
+    // a sibilant/affricate cluster (`-ch`, `-sh`, `-ss`, `-x`, `-z`).
+    // Otherwise the `-es` is just `-s` glued onto a final `-e`
+    // (`phases → phase`, `responses → response`) — fall through to
+    // the bare `-s` strip below. The old `-ses → -s` rule fired on
+    // those too eagerly.
+    if let Some(stem) = s.strip_suffix("es") {
+        if stem.ends_with("ch")
+            || stem.ends_with("sh")
+            || stem.ends_with("ss")
+            || stem.ends_with('x')
+            || stem.ends_with('z')
+        {
+            return stem.to_string();
+        }
+    }
+    if let Some(stem) = s.strip_suffix('s') {
+        if stem.ends_with('s') {
+            // `-ss` like `class` keeps the trailing s (`mass`, `glass`).
+            return s.to_string();
+        }
+        return stem.to_string();
+    }
+    s.to_string()
 }
 
 /// Mutable builder for one table — captures fields and indexes as
@@ -586,6 +612,42 @@ mod tests {
         assert_eq!(singularize("boxes"), "box");
         assert_eq!(singularize("accesses"), "access");
         assert_eq!(singularize("project"), "project");
+    }
+
+    /// **Regression** — corpus run surfaced four singularization
+    /// quirks where the old `-ses → -s` rule was too greedy or
+    /// where uncountable nouns weren't recognised. Lock each one.
+    #[test]
+    fn singularize_handles_op_corpus_quirks() {
+        // -ses no longer triggers on -aSes/-nSes/-rSes etc.; only
+        // genuine double-s plurals (-sses) do.
+        assert_eq!(singularize("phases"), "phase");
+        assert_eq!(singularize("responses"), "response");
+        // -ches and -shes drop only -es, keep the ch/sh.
+        assert_eq!(singularize("watches"), "watch");
+        assert_eq!(singularize("dishes"), "dish");
+        // Uncountable: singular == plural.
+        assert_eq!(singularize("news"), "news");
+        assert_eq!(singularize("series"), "series");
+        assert_eq!(singularize("species"), "species");
+        // -ss like `class`/`mass` stays unchanged (no false stripping).
+        assert_eq!(singularize("class"), "class");
+    }
+
+    /// **Regression** — the AR-shape target class for a `has_many`
+    /// uses the singularized relation name. Lock the camel-cased
+    /// outputs for the four corpus-surfaced cases so the
+    /// `has_many:<rel>→<Target>` annotations stay correct.
+    #[test]
+    fn rails_target_class_lowers_corpus_quirks_correctly() {
+        assert_eq!(rails_target_class("phases"), "Phase");
+        assert_eq!(rails_target_class("watches"), "Watch");
+        assert_eq!(rails_target_class("news"), "News");
+        // Compound name with the -ses pitfall on the trailing segment.
+        assert_eq!(
+            rails_target_class("recurring_meeting_interim_responses"),
+            "RecurringMeetingInterimResponse",
+        );
     }
 
     #[test]
