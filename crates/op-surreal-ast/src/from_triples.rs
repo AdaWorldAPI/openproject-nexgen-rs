@@ -1439,10 +1439,18 @@ mod tests {
     #[test]
     fn rails_type_to_kind_mapping_table() {
         assert_eq!(Kind::from_rails_type("integer"), Some(Kind::Int));
+        // PostgreSQL `bigint` is an 8-byte signed integer (fits
+        // SurrealQL int / i64).
         assert_eq!(Kind::from_rails_type("bigint"), Some(Kind::Int));
-        // Rails ActiveModel::Type symbol for `Type::BigInteger` is
-        // `:big_integer` verbatim (codex P2 on #36).
-        assert_eq!(Kind::from_rails_type("big_integer"), Some(Kind::Int));
+        // Rails `:big_integer` (ActiveModel::Type::BigInteger) wraps
+        // Ruby's arbitrary-precision Integer — DOES NOT fit i64.
+        // Routed to Decimal (arbitrary-precision in SurrealDB) so
+        // values outside the i64 range that Rails accepts aren't
+        // rejected by the generated schema (codex P2 on #37).
+        assert_eq!(
+            Kind::from_rails_type("big_integer"),
+            Some(Kind::Decimal),
+        );
         assert_eq!(Kind::from_rails_type("string"), Some(Kind::String));
         assert_eq!(Kind::from_rails_type("text"), Some(Kind::String));
         // Rails `Type::ImmutableString` — verbatim symbol.

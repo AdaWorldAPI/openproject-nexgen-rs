@@ -162,10 +162,22 @@ impl Kind {
     /// parser — `:integer`, `:big_integer`, `:immutable_string`, etc.)
     /// AND the PostgreSQL column-type aliases that Rails surfaces
     /// (`bigint`).
+    ///
+    /// **Width note**: PostgreSQL `bigint` is an 8-byte signed integer
+    /// that maps cleanly to SurrealQL `int` (also i64). Rails'
+    /// `:big_integer` is a different beast — `ActiveModel::Type::BigInteger`
+    /// wraps Ruby's arbitrary-precision `Integer`, so values outside
+    /// the i64 range are valid. Mapping it to `Kind::Int` would make
+    /// the generated schema reject values the Rails app happily
+    /// stores (codex P2 on #37), so `:big_integer` lowers to
+    /// `Kind::Decimal` — SurrealDB's `decimal` is arbitrary-precision.
     #[must_use]
     pub fn from_rails_type(rails_type: &str) -> Option<Self> {
         Some(match rails_type {
-            "integer" | "bigint" | "big_integer" => Self::Int,
+            "integer" | "bigint" => Self::Int,
+            // Rails ActiveModel::Type::BigInteger is arbitrary-precision
+            // (Ruby Integer); narrow to Decimal not Int.
+            "big_integer" => Self::Decimal,
             "string" | "text" | "immutable_string" => Self::String,
             "boolean" => Self::Bool,
             "float" => Self::Float,
