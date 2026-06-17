@@ -430,6 +430,27 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
         }
     }
 
+    // Emit a UNIQUE index for every attribute whose `validation_kind`
+    // set contains `"uniqueness"`. SurrealDB's catalog renders this
+    // as `Index::Uniq`; the bridge maps the boolean across via the
+    // `IndexDefinition.unique` field. Skips fields not declared via
+    // `has_attribute` (phantom-field guard mirrors the assert path).
+    for (attr_iri, kinds) in &validation_kinds {
+        if !kinds.contains("uniqueness") {
+            continue;
+        }
+        let Some((table_iri, Some(attr_name))) = split_subject(attr_iri) else {
+            continue;
+        };
+        if let Some(builder) = tables.get_mut(&table_iri) {
+            if !builder.has_field(&attr_name) {
+                continue;
+            }
+            let idx_name = format!("idx_{}_{attr_name}_unique", builder.name);
+            builder.add_unique_index(idx_name, vec![attr_name]);
+        }
+    }
+
     let mut schema = Schema::new();
     for (_iri, builder) in tables {
         schema.tables.push(builder.build());
@@ -682,9 +703,29 @@ impl TableBuilder {
         }
     }
 
+    /// `true` if this builder has a field with the given name. Used
+    /// by the UNIQUE-index post-pass to guard against
+    /// validation-on-phantom-field cases — mirrors the phantom-field
+    /// guard on `add_field_assert`.
+    fn has_field(&self, name: &str) -> bool {
+        self.seen_fields.contains(name)
+    }
+
     fn add_index(&mut self, name: String, fields: Vec<String>) {
         self.indices
             .push(IndexDefinition::new(name, self.name.clone(), fields));
+    }
+
+    /// Add a UNIQUE index, deduplicated by name. Returns `true` if the
+    /// index was newly added.
+    fn add_unique_index(&mut self, name: String, fields: Vec<String>) -> bool {
+        if self.indices.iter().any(|i| i.name == name) {
+            return false;
+        }
+        self.indices.push(
+            IndexDefinition::new(name, self.name.clone(), fields).unique(),
+        );
+        true
     }
 
     /// Attach a `validates_constraint`-style ASSERT clause to the
@@ -2155,6 +2196,90 @@ mod tests {
         assert_eq!(
             compose_validation_assert(&mk(&["tachyon", "unknown_kind"])),
             "$value != NONE",
+        );
+    }
+
+    /// **D-AR-5.9** — `validates :email, uniqueness: true` lifts to
+    /// a `DEFINE INDEX ... UNIQUE` statement on the attribute, on
+    /// top of the existing presence-style ASSERT. The downstream
+    /// catalog bridge maps `unique: true` to `Index::Uniq`.
+    #[test]
+    fn validation_kind_uniqueness_emits_unique_index() {
+        let triples = vec![
+            t("openproject:User", "rdf:type", "ogit:ObjectType"),
+            t("openproject:User", "has_attribute", "email"),
+            t("openproject:User", "validates_constraint", "email"),
+            t("openproject:User.email", "validation_kind", "uniqueness"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let user = &schema.tables[0];
+        let unique_idx = user
+            .indices
+            .iter()
+            .find(|i| i.name == "idx_User_email_unique")
+            .expect("uniqueness validation must emit a UNIQUE index");
+        assert!(
+            unique_idx.unique,
+            "the emitted index must carry unique=true",
+        );
+        assert_eq!(unique_idx.fields, vec!["email".to_string()]);
+
+        // The render must include the UNIQUE keyword.
+        let sql = unique_idx.to_sql();
+        assert!(
+            sql.contains("UNIQUE"),
+            "SQL render must include UNIQUE; got {sql:?}",
+        );
+    }
+
+    /// **D-AR-5.9 — phantom-field guard** — a `validation_kind=
+    /// uniqueness` triple on an attribute that wasn't declared via
+    /// `has_attribute` must NOT emit a phantom UNIQUE index.
+    #[test]
+    fn uniqueness_on_phantom_field_emits_no_index() {
+        let triples = vec![
+            t("openproject:User", "rdf:type", "ogit:ObjectType"),
+            // No has_attribute for `ghost_attr` — but validation
+            // declared.
+            t("openproject:User", "validates_constraint", "ghost_attr"),
+            t(
+                "openproject:User.ghost_attr",
+                "validation_kind",
+                "uniqueness",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let user = &schema.tables[0];
+        assert!(
+            !user.indices.iter().any(|i| i.unique),
+            "phantom-field uniqueness must NOT emit a UNIQUE index",
+        );
+    }
+
+    /// **D-AR-5.9 — combined uniqueness + presence** — `validates
+    /// :email, presence: true, uniqueness: true` emits both the
+    /// presence-style ASSERT AND the UNIQUE index — they're
+    /// complementary, not exclusive.
+    #[test]
+    fn presence_and_uniqueness_emit_both_assert_and_unique_index() {
+        let triples = vec![
+            t("openproject:User", "rdf:type", "ogit:ObjectType"),
+            t("openproject:User", "has_attribute", "email"),
+            t("openproject:User", "validates_constraint", "email"),
+            t("openproject:User.email", "validation_kind", "presence"),
+            t("openproject:User.email", "validation_kind", "uniqueness"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let user = &schema.tables[0];
+        // The ASSERT clause lands on the field.
+        let email = user.fields.iter().find(|f| f.name == "email").unwrap();
+        assert_eq!(email.assert.as_deref(), Some("$value != NONE"));
+        // The UNIQUE index lands separately.
+        assert!(
+            user.indices
+                .iter()
+                .any(|i| i.name == "idx_User_email_unique" && i.unique),
+            "uniqueness must also emit a UNIQUE index alongside the ASSERT",
         );
     }
 }
