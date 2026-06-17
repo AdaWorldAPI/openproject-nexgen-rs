@@ -100,6 +100,24 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
         .map(|t| (t.s.clone(), t.o.clone()))
         .collect();
 
+    // Pre-collect `field_type` triples (ruff `attribute :name, :type`
+    // option lowering — D-AR-5.2) into a map keyed by the field IRI
+    // (`openproject:WorkPackage.subject` → `"string"`). The
+    // `has_attribute` arm below looks up the kind and uses
+    // `Kind::from_rails_type` to upgrade `Kind::Any` to a concrete
+    // SurrealQL kind. Unknown Rails types fall back to `Any`.
+    //
+    // Nullability: Rails attributes are nullable by default — so the
+    // typed kind is wrapped in `option<…>` to preserve the
+    // catch-all NONE acceptance. The `validates_constraint` arm
+    // already adds `ASSERT $value != NONE` for validated attributes,
+    // so the schema-level non-null gate stays correct.
+    let field_types: BTreeMap<String, String> = triples
+        .iter()
+        .filter(|t| t.p == "field_type")
+        .map(|t| (t.s.clone(), t.o.clone()))
+        .collect();
+
     // Asserts are buffered and applied AFTER the field-population pass
     // so the `validates_constraint` → ASSERT wiring is independent of
     // triple stream order (codex P2 PR #27 r…). A
@@ -127,7 +145,20 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                 let attr_name = member.unwrap_or_else(|| {
                     strip_namespace(&t.o).rsplit('.').next().unwrap_or("").to_string()
                 });
-                builder.add_field(attr_name, Kind::Any);
+                // Look up the Rails `attribute :name, :type` annotation
+                // for this field (ruff#15+ emits the companion
+                // `field_type` triple keyed by `<model>.<attr>`). When
+                // present and mappable, the field upgrades from
+                // `Kind::Any` to a typed `option<T>`; Rails attributes
+                // are nullable by default so the option wrapper keeps
+                // NONE legal until a `validates_constraint` adds an
+                // explicit `ASSERT $value != NONE`.
+                let field_iri = format!("{table_iri}.{attr_name}");
+                let kind = field_types
+                    .get(&field_iri)
+                    .and_then(|rails_type| Kind::from_rails_type(rails_type))
+                    .map_or(Kind::Any, Kind::optional);
+                builder.add_field(attr_name, kind);
             }
             "declares_association" => {
                 // Object is `openproject:WorkPackage.project` —
@@ -1289,5 +1320,139 @@ mod tests {
                 "expected `{expected}` in table annotation; got {comment:?}",
             );
         }
+    }
+
+    /// **D-AR-5.2** — a `field_type` triple paired with `has_attribute`
+    /// upgrades the field from `Kind::Any` to a typed
+    /// `option<T>`. The optional wrapper preserves Rails' default
+    /// nullable semantics; `validates_constraint` still gates
+    /// non-null via the existing ASSERT mechanism.
+    #[test]
+    fn field_type_triple_upgrades_attribute_kind() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:WorkPackage", "has_attribute", "subject"),
+            // Companion `field_type` triple keyed by the field IRI.
+            t(
+                "openproject:WorkPackage.subject",
+                "field_type",
+                "string",
+            ),
+            t("openproject:WorkPackage", "has_attribute", "version"),
+            t(
+                "openproject:WorkPackage.version",
+                "field_type",
+                "integer",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = &schema.tables[0];
+        let subject = wp.fields.iter().find(|f| f.name == "subject").unwrap();
+        assert_eq!(
+            subject.kind,
+            Kind::String.optional(),
+            "string-typed attribute lowers to option<string>",
+        );
+        let version = wp.fields.iter().find(|f| f.name == "version").unwrap();
+        assert_eq!(
+            version.kind,
+            Kind::Int.optional(),
+            "integer-typed attribute lowers to option<int>",
+        );
+    }
+
+    /// **D-AR-5.2 backward compat** — a `has_attribute` triple
+    /// without a companion `field_type` triple keeps the prior
+    /// `Kind::Any` behaviour (no wrapper). This is the pre-#29 ndjson
+    /// dump shape; landing this PR can't regress those.
+    #[test]
+    fn field_type_absent_falls_back_to_kind_any() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:WorkPackage", "has_attribute", "subject"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = &schema.tables[0];
+        let subject = wp.fields.iter().find(|f| f.name == "subject").unwrap();
+        assert_eq!(
+            subject.kind,
+            Kind::Any,
+            "missing field_type triple keeps Kind::Any (no option wrapper)",
+        );
+    }
+
+    /// **D-AR-5.2** — an unknown rails type falls through to
+    /// `Kind::Any` (no option wrapper) so a Rails sprint shipping
+    /// a brand-new attribute type doesn't accidentally make the
+    /// schema reject NONE.
+    #[test]
+    fn field_type_unknown_rails_type_falls_back_to_any() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:WorkPackage", "has_attribute", "weird"),
+            t(
+                "openproject:WorkPackage.weird",
+                "field_type",
+                "tachyon",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = &schema.tables[0];
+        let weird = wp.fields.iter().find(|f| f.name == "weird").unwrap();
+        assert_eq!(weird.kind, Kind::Any);
+    }
+
+    /// **D-AR-5.2** — when a validates_constraint pairs with a
+    /// field_type, the ASSERT clause must apply to the option-wrapped
+    /// typed field (the order-independence guarantee already locked
+    /// by PR #27/#28).
+    #[test]
+    fn field_type_and_validates_constraint_compose() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            t("openproject:WorkPackage", "has_attribute", "subject"),
+            t(
+                "openproject:WorkPackage.subject",
+                "field_type",
+                "string",
+            ),
+            t("openproject:WorkPackage", "validates_constraint", "subject"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let subject = schema.tables[0]
+            .fields
+            .iter()
+            .find(|f| f.name == "subject")
+            .unwrap();
+        assert_eq!(subject.kind, Kind::String.optional());
+        assert_eq!(
+            subject.assert.as_deref(),
+            Some("$value != NONE"),
+            "ASSERT must land on the typed field; the option-wrap and \
+             non-null gate together produce: TYPE option<string> ASSERT $value != NONE",
+        );
+    }
+
+    /// **D-AR-5.2 — kind table** — every Rails type literal that
+    /// ruff emits via `field_type` maps to the expected SurrealQL
+    /// kind. Locks the mapping contract.
+    #[test]
+    fn rails_type_to_kind_mapping_table() {
+        assert_eq!(Kind::from_rails_type("integer"), Some(Kind::Int));
+        assert_eq!(Kind::from_rails_type("bigint"), Some(Kind::Int));
+        assert_eq!(Kind::from_rails_type("string"), Some(Kind::String));
+        assert_eq!(Kind::from_rails_type("text"), Some(Kind::String));
+        assert_eq!(Kind::from_rails_type("boolean"), Some(Kind::Bool));
+        assert_eq!(Kind::from_rails_type("float"), Some(Kind::Float));
+        assert_eq!(Kind::from_rails_type("decimal"), Some(Kind::Decimal));
+        assert_eq!(Kind::from_rails_type("datetime"), Some(Kind::Datetime));
+        assert_eq!(Kind::from_rails_type("timestamp"), Some(Kind::Datetime));
+        assert_eq!(Kind::from_rails_type("date"), Some(Kind::Datetime));
+        assert_eq!(Kind::from_rails_type("time"), Some(Kind::Datetime));
+        assert_eq!(Kind::from_rails_type("binary"), Some(Kind::Bytes));
+        assert_eq!(Kind::from_rails_type("uuid"), Some(Kind::Uuid));
+        // Unknown types fall back to None — caller substitutes Kind::Any.
+        assert_eq!(Kind::from_rails_type("nonsense"), None);
+        assert_eq!(Kind::from_rails_type(""), None);
     }
 }
