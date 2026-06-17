@@ -191,9 +191,19 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                 // class_name: 'User'` makes `target = "User"` not
                 // `"Owner"`. Absent override falls back to the
                 // singularize-and-camelcase rule.
+                //
+                // Normalize namespaced overrides like
+                // `class_name: 'Storages::FileLink'` down to the leaf
+                // class name `FileLink` — `triples_to_schema` keys
+                // tables by their leaf name (the extractor strips the
+                // module-path prefix at `rdf:type` time), so the
+                // verbatim namespaced string would miss the
+                // `known_targets` membership gate and downgrade the FK
+                // to `option<any>` even when the leaf table is
+                // declared (codex P2 on #38).
                 let target = class_name_overrides
                     .get(&t.o)
-                    .cloned()
+                    .map(|s| strip_class_namespace(s).to_string())
                     .unwrap_or_else(|| rails_target_class(&relation));
 
                 // Look up the AssocKind for this relation (ruff#15's
@@ -347,6 +357,20 @@ fn split_subject(s: &str) -> Option<(String, Option<String>)> {
 /// intact.
 fn strip_namespace(s: &str) -> &str {
     s.strip_prefix("openproject:").unwrap_or(s)
+}
+
+/// Strip a Ruby module-path prefix off a class name, returning the
+/// leaf class. `Storages::FileLink` → `FileLink`, `User` → `User`.
+///
+/// The triples extractor declares tables by their leaf class name
+/// (the `rdf:type ogit:ObjectType` triple's subject IRI is
+/// `openproject:FileLink`, NOT `openproject:Storages::FileLink`).
+/// A `class_name: 'Storages::FileLink'` override therefore must be
+/// stripped before the `known_targets.contains(&target)` membership
+/// check, or the FK degrades to `option<any>` despite the leaf table
+/// being present (codex P2 on #38).
+fn strip_class_namespace(s: &str) -> &str {
+    s.rsplit("::").next().unwrap_or(s)
 }
 
 /// Apply the Rails AR convention: a relation name (`time_entries`,
@@ -1499,6 +1523,21 @@ mod tests {
         assert_eq!(Kind::from_rails_type(""), None);
     }
 
+    /// Unit-level lock on the namespace-stripper — covers single,
+    /// multi-segment, and bare-name inputs.
+    #[test]
+    fn strip_class_namespace_returns_leaf_class() {
+        assert_eq!(strip_class_namespace("Storages::FileLink"), "FileLink");
+        assert_eq!(
+            strip_class_namespace("My::Deeply::Nested::Class"),
+            "Class",
+        );
+        // Bare name: pass through unchanged.
+        assert_eq!(strip_class_namespace("User"), "User");
+        // Empty string: pass through.
+        assert_eq!(strip_class_namespace(""), "");
+    }
+
     /// **D-AR-5.4** — when a `class_name` triple (ruff#18) carries an
     /// FK target override, the schema uses the override's class name
     /// in preference to the Rails camelcase-singular convention on
@@ -1570,6 +1609,51 @@ mod tests {
             project_id.kind,
             Kind::Record(vec!["Project".to_string()]).optional(),
             "no class_name triple → use rails convention (Project)",
+        );
+    }
+
+    /// **D-AR-5.4 — namespaced override (codex P2 on #38)** — Rails
+    /// often namespaces a `class_name:` override like
+    /// `class_name: 'Storages::FileLink'`, but the extractor declares
+    /// tables by their leaf class name (`FileLink`). The bridge must
+    /// strip the module-path prefix before the `known_targets`
+    /// membership check, otherwise the FK degrades to `option<any>`
+    /// despite the leaf table being present.
+    #[test]
+    fn class_name_override_strips_module_namespace_before_target_lookup() {
+        let triples = vec![
+            t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
+            // Table declared by its leaf name (the extractor strips
+            // module paths at rdf:type time).
+            t("openproject:FileLink", "rdf:type", "ogit:ObjectType"),
+            t(
+                "openproject:WorkPackage",
+                "declares_association",
+                "openproject:WorkPackage.file_link",
+            ),
+            t(
+                "openproject:WorkPackage.file_link",
+                "association_kind",
+                "belongs_to",
+            ),
+            // Namespaced override: should normalize to `FileLink`.
+            t(
+                "openproject:WorkPackage.file_link",
+                "class_name",
+                "Storages::FileLink",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let wp = schema
+            .tables
+            .iter()
+            .find(|t| t.name == "WorkPackage")
+            .unwrap();
+        let fk = wp.fields.iter().find(|f| f.name == "file_link_id").unwrap();
+        assert_eq!(
+            fk.kind,
+            Kind::Record(vec!["FileLink".to_string()]).optional(),
+            "namespaced override must strip `Storages::` and resolve to leaf table FileLink",
         );
     }
 
