@@ -482,7 +482,8 @@ fn strip_class_namespace(s: &str) -> &str {
 /// | Rails kind     | clause fragment                  | parametric? |
 /// |----------------|----------------------------------|-------------|
 /// | `presence`     | `$value != NONE`                 | no          |
-/// | `numericality` | `type::is::number($value)`       | no          |
+/// | `numericality` | `type::is_number($value)`        | no          |
+/// | `absence`      | `$value == NONE`                 | no          |
 /// | `acceptance`   | `$value == true`                 | no          |
 /// | `uniqueness`   | `$value != NONE` (presence-style)| no (index-level too — TODO) |
 /// | `length`       | `$value != NONE`                 | yes (skip)  |
@@ -506,12 +507,21 @@ fn compose_validation_assert(kinds: &std::collections::BTreeSet<String>) -> Stri
     let mut has_non_none = false;
     for kind in kinds {
         match kind.as_str() {
-            "numericality" => clauses.push("type::is::number($value)"),
+            // SurrealDB 3.0.0-beta renamed the `type::is::*`
+            // colon-namespace functions to underscore form
+            // (`type::is_number`, `type::is_string`, etc.) — codex P1
+            // on #41. Older SurrealDB versions had `type::is::number`;
+            // the underscore form is the documented current API.
+            "numericality" => clauses.push("type::is_number($value)"),
             "acceptance" => clauses.push("$value == true"),
+            // `validates :foo, absence: true` is the inverse of
+            // presence — the attribute MUST be nil. SurrealDB
+            // represents nil as NONE.
+            "absence" => clauses.push("$value == NONE"),
             // Presence-equivalent kinds (the parameter-less ones in
             // the catch-all fall here too — see the table above).
             "presence" | "uniqueness" | "length" | "format" | "inclusion"
-            | "exclusion" | "confirmation" => {
+            | "exclusion" | "confirmation" | "comparison" => {
                 if !has_non_none {
                     clauses.push("$value != NONE");
                     has_non_none = true;
@@ -2038,8 +2048,8 @@ mod tests {
             "presence clause expected; got {assert_str:?}",
         );
         assert!(
-            assert_str.contains("type::is::number($value)"),
-            "numericality clause expected; got {assert_str:?}",
+            assert_str.contains("type::is_number($value)"),
+            "numericality clause expected (SurrealDB 3.x underscore form); got {assert_str:?}",
         );
         assert!(
             assert_str.contains(" AND "),
@@ -2109,11 +2119,23 @@ mod tests {
         );
         assert_eq!(
             compose_validation_assert(&mk(&["numericality"])),
-            "type::is::number($value)",
+            "type::is_number($value)",
         );
         assert_eq!(
             compose_validation_assert(&mk(&["acceptance"])),
             "$value == true",
+        );
+        // `absence: true` is the inverse of presence.
+        assert_eq!(
+            compose_validation_assert(&mk(&["absence"])),
+            "$value == NONE",
+        );
+        // `comparison` is parametric (greater_than/less_than/etc.);
+        // falls back to presence-style until ruff carries the
+        // comparand on the wire.
+        assert_eq!(
+            compose_validation_assert(&mk(&["comparison"])),
+            "$value != NONE",
         );
         // Parametric kinds fall back to presence-style.
         assert_eq!(
