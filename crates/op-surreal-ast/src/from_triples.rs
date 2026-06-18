@@ -500,6 +500,12 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
     // as `Index::Uniq`; the bridge maps the boolean across via the
     // `IndexDefinition.unique` field. Skips fields not declared via
     // `has_attribute` (phantom-field guard mirrors the assert path).
+    //
+    // Rails `uniqueness: { scope: [...] }` (ruff#25 sibling
+    // `validation_param`) composes a multi-column UNIQUE index: the
+    // attribute + each scope column. The index name encodes the
+    // full column list so two scoped uniqueness validations on the
+    // same attribute (rare but legal) produce distinct indices.
     for (attr_iri, kinds) in &validation_kinds {
         if !kinds.contains("uniqueness") {
             continue;
@@ -511,8 +517,22 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
             if !builder.has_field(&attr_name) {
                 continue;
             }
-            let idx_name = format!("idx_{}_{attr_name}_unique", builder.name);
-            builder.add_unique_index(idx_name, vec![attr_name]);
+            let scope_cols = validation_params
+                .get(attr_iri)
+                .map(|params| extract_uniqueness_scope(params))
+                .unwrap_or_default();
+            let mut cols = vec![attr_name.clone()];
+            cols.extend(scope_cols.iter().cloned());
+            let idx_name = if scope_cols.is_empty() {
+                format!("idx_{}_{attr_name}_unique", builder.name)
+            } else {
+                format!(
+                    "idx_{}_{attr_name}_{}_unique",
+                    builder.name,
+                    scope_cols.join("_"),
+                )
+            };
+            builder.add_unique_index(idx_name, cols);
         }
     }
 
@@ -704,6 +724,64 @@ fn param_clause(param: &str) -> Option<String> {
         ("numericality" | "comparison", "equal_to") => Some(format!("$value == {trimmed}")),
         _ => None, // forward-compat: unknown kind:key, skip
     }
+}
+
+/// Extract the scope column list from Rails `uniqueness: { scope:
+/// ... }` `validation_param` triples on an attribute. Returns the
+/// scope column names in declaration order (with the leading `:`
+/// symbol prefix stripped); empty Vec if no `uniqueness:scope=...`
+/// param is present.
+///
+/// Value shapes the ruff producer emits:
+///
+/// - Single symbol: `uniqueness:scope=:project_id`
+///   → `["project_id"]`
+/// - Array of symbols: `uniqueness:scope=[:project_id]` or
+///   `[:type, :project_id]` → `["project_id"]` / `["type",
+///   "project_id"]`
+/// - Anything else (constants like `SCOPE_COLS`, `<expr>` etc.)
+///   → empty Vec (safer than splicing a Ruby identifier into the
+///   `DEFINE INDEX FIELDS` list).
+fn extract_uniqueness_scope(
+    params: &std::collections::BTreeSet<String>,
+) -> Vec<String> {
+    for param in params {
+        let Some(rest) = param.strip_prefix("uniqueness:scope=") else {
+            continue;
+        };
+        // Array form `[:a, :b]` (or `[:a,:b]` — comma-spacing may
+        // vary in render_node output).
+        if let Some(inner) = rest.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
+            return inner
+                .split(',')
+                .filter_map(|seg| {
+                    let trimmed = seg.trim();
+                    let stripped = trimmed.strip_prefix(':').unwrap_or(trimmed);
+                    // Reject non-identifier-shaped segments
+                    // (forward-compat: an `<expr>` or constant
+                    // reference shouldn't splice into the FIELDS
+                    // list).
+                    if stripped.is_empty()
+                        || !stripped.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    {
+                        return None;
+                    }
+                    Some(stripped.to_string())
+                })
+                .collect();
+        }
+        // Single symbol form `:project_id`.
+        if let Some(sym) = rest.strip_prefix(':') {
+            if !sym.is_empty()
+                && sym.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            {
+                return vec![sym.to_string()];
+            }
+        }
+        // Anything else (bare constant, <expr>) — skip silently.
+        return Vec::new();
+    }
+    Vec::new()
 }
 
 /// Apply the Rails AR convention: a relation name (`time_entries`,
@@ -2702,5 +2780,148 @@ mod tests {
             comment.contains("col_override:metadata:serialize=JSON"),
             "metadata override missing: {comment:?}",
         );
+    }
+
+    /// **D-AR-5.12** — `validates :name, uniqueness: { scope:
+    /// :project_id }` (single-symbol form) lifts to a composite
+    /// UNIQUE index covering `[name, project_id]`.
+    #[test]
+    fn uniqueness_scope_single_symbol_emits_composite_unique_index() {
+        let triples = vec![
+            t("openproject:Category", "rdf:type", "ogit:ObjectType"),
+            t("openproject:Category", "has_attribute", "name"),
+            t("openproject:Category", "validates_constraint", "name"),
+            t(
+                "openproject:Category.name",
+                "validation_kind",
+                "uniqueness",
+            ),
+            t(
+                "openproject:Category.name",
+                "validation_param",
+                "uniqueness:scope=:project_id",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let category = &schema.tables[0];
+        let unique = category
+            .indices
+            .iter()
+            .find(|i| i.unique)
+            .expect("composite UNIQUE index must be emitted");
+        assert_eq!(unique.fields, vec!["name".to_string(), "project_id".to_string()]);
+        assert_eq!(unique.name, "idx_Category_name_project_id_unique");
+    }
+
+    /// **D-AR-5.12** — `validates :name, uniqueness: { scope:
+    /// [:type, :project_id] }` (array form) lifts to a composite
+    /// UNIQUE index with the attr + every scope column.
+    #[test]
+    fn uniqueness_scope_array_emits_multi_column_unique_index() {
+        let triples = vec![
+            t("openproject:Enumeration", "rdf:type", "ogit:ObjectType"),
+            t("openproject:Enumeration", "has_attribute", "name"),
+            t("openproject:Enumeration", "validates_constraint", "name"),
+            t(
+                "openproject:Enumeration.name",
+                "validation_kind",
+                "uniqueness",
+            ),
+            t(
+                "openproject:Enumeration.name",
+                "validation_param",
+                "uniqueness:scope=[:type,:project_id]",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let enumeration = &schema.tables[0];
+        let unique = enumeration
+            .indices
+            .iter()
+            .find(|i| i.unique)
+            .expect("composite UNIQUE index must be emitted");
+        assert_eq!(
+            unique.fields,
+            vec![
+                "name".to_string(),
+                "type".to_string(),
+                "project_id".to_string(),
+            ],
+        );
+        assert_eq!(unique.name, "idx_Enumeration_name_type_project_id_unique");
+    }
+
+    /// **D-AR-5.12 — non-symbol scope skip** — when the scope value
+    /// is a constant reference (`SCOPE_COLS`) or `<expr>` (unrendered),
+    /// the safety check rejects it and the index falls back to the
+    /// single-column form rather than splicing a Ruby identifier
+    /// into the `DEFINE INDEX FIELDS` clause.
+    #[test]
+    fn uniqueness_scope_with_non_symbol_value_falls_back_to_single_column() {
+        let triples = vec![
+            t("openproject:CalculatedValueError", "rdf:type", "ogit:ObjectType"),
+            t("openproject:CalculatedValueError", "has_attribute", "error_code"),
+            t(
+                "openproject:CalculatedValueError",
+                "validates_constraint",
+                "error_code",
+            ),
+            t(
+                "openproject:CalculatedValueError.error_code",
+                "validation_kind",
+                "uniqueness",
+            ),
+            // Constant reference — must NOT splice.
+            t(
+                "openproject:CalculatedValueError.error_code",
+                "validation_param",
+                "uniqueness:scope=SCOPE_COLS",
+            ),
+        ];
+        let schema = triples_to_schema(&triples);
+        let unique = schema.tables[0]
+            .indices
+            .iter()
+            .find(|i| i.unique)
+            .unwrap();
+        // No scope columns added — single-column UNIQUE.
+        assert_eq!(unique.fields, vec!["error_code".to_string()]);
+        assert_eq!(unique.name, "idx_CalculatedValueError_error_code_unique");
+    }
+
+    /// **D-AR-5.12** — `extract_uniqueness_scope` unit-level lock
+    /// across the value shapes.
+    #[test]
+    fn extract_uniqueness_scope_handles_value_shapes() {
+        use std::collections::BTreeSet;
+        let mk = |s: &str| -> BTreeSet<String> {
+            std::iter::once(s.to_string()).collect()
+        };
+        // Single symbol.
+        assert_eq!(
+            extract_uniqueness_scope(&mk("uniqueness:scope=:project_id")),
+            vec!["project_id".to_string()],
+        );
+        // Array of one.
+        assert_eq!(
+            extract_uniqueness_scope(&mk("uniqueness:scope=[:project_id]")),
+            vec!["project_id".to_string()],
+        );
+        // Array of many (spaced and unspaced separators).
+        assert_eq!(
+            extract_uniqueness_scope(&mk("uniqueness:scope=[:type, :project_id]")),
+            vec!["type".to_string(), "project_id".to_string()],
+        );
+        assert_eq!(
+            extract_uniqueness_scope(&mk("uniqueness:scope=[:a,:b,:c]")),
+            vec!["a".to_string(), "b".to_string(), "c".to_string()],
+        );
+        // Non-symbol-shaped values — skip silently.
+        assert!(extract_uniqueness_scope(&mk("uniqueness:scope=SCOPE_COLS")).is_empty());
+        assert!(extract_uniqueness_scope(&mk("uniqueness:scope=<expr>")).is_empty());
+        // Other params — ignored (no `uniqueness:scope=` prefix).
+        assert!(extract_uniqueness_scope(&mk("length:maximum=255")).is_empty());
+        // Empty.
+        assert!(extract_uniqueness_scope(&BTreeSet::new()).is_empty());
     }
 }
