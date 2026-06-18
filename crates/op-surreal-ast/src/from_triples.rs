@@ -156,6 +156,29 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
         }
     }
 
+    // Pre-collect `validation_param` triples (ruff#25 — sibling to
+    // `validation_kind` carrying inner-hash option values for
+    // parametric Rails validators like
+    // `length: { maximum: 255 }`). Keyed by the attribute IRI, value
+    // is a set of `<kind>:<inner_key>=<value>` strings.
+    //
+    // The composer reads these alongside the kinds to lift Rails
+    // parametric validators into typed SurrealQL clauses
+    // (`length:maximum=N` → `string::len($value) <= N`,
+    // `numericality:greater_than=N` → `$value > N`, etc.). Absent
+    // params keep the pre-ruff#25 fallback (catch-all presence
+    // ASSERT) — additive change.
+    let mut validation_params: BTreeMap<String, std::collections::BTreeSet<String>> =
+        BTreeMap::new();
+    for t in triples {
+        if t.p == "validation_param" {
+            validation_params
+                .entry(t.s.clone())
+                .or_default()
+                .insert(t.o.clone());
+        }
+    }
+
     // Asserts are buffered and applied AFTER the field-population pass
     // so the `validates_constraint` → ASSERT wiring is independent of
     // triple stream order (codex P2 PR #27 r…). A
@@ -288,9 +311,13 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                 // to the catch-all `$value != NONE` — the most
                 // common load-bearing Rails validation effect.
                 let attr_iri = format!("{table_iri}.{}", t.o);
+                let empty_params = std::collections::BTreeSet::new();
+                let params = validation_params
+                    .get(&attr_iri)
+                    .unwrap_or(&empty_params);
                 let expr = validation_kinds
                     .get(&attr_iri)
-                    .map(|kinds| compose_validation_assert(kinds))
+                    .map(|kinds| compose_validation_assert(kinds, params))
                     .unwrap_or_else(|| "$value != NONE".to_string());
                 pending_asserts.push((
                     table_iri.clone(),
@@ -561,8 +588,11 @@ fn strip_class_namespace(s: &str) -> &str {
 /// Unknown kinds in the set are skipped (forward-compat: a future
 /// `Predicate::ValidationKind` enrichment shouldn't fail the
 /// downstream).
-fn compose_validation_assert(kinds: &std::collections::BTreeSet<String>) -> String {
-    let mut clauses: Vec<&str> = Vec::new();
+fn compose_validation_assert(
+    kinds: &std::collections::BTreeSet<String>,
+    params: &std::collections::BTreeSet<String>,
+) -> String {
+    let mut clauses: Vec<String> = Vec::new();
     let mut has_non_none = false;
     for kind in kinds {
         match kind.as_str() {
@@ -571,22 +601,36 @@ fn compose_validation_assert(kinds: &std::collections::BTreeSet<String>) -> Stri
             // (`type::is_number`, `type::is_string`, etc.) — codex P1
             // on #41. Older SurrealDB versions had `type::is::number`;
             // the underscore form is the documented current API.
-            "numericality" => clauses.push("type::is_number($value)"),
-            "acceptance" => clauses.push("$value == true"),
+            //
+            // `numericality: { greater_than: N, less_than: M }`
+            // contributes range clauses via the params loop below;
+            // the kind itself emits the type check.
+            "numericality" => clauses.push("type::is_number($value)".to_string()),
+            "acceptance" => clauses.push("$value == true".to_string()),
             // `validates :foo, absence: true` is the inverse of
             // presence — the attribute MUST be nil. SurrealDB
             // represents nil as NONE.
-            "absence" => clauses.push("$value == NONE"),
+            "absence" => clauses.push("$value == NONE".to_string()),
             // Presence-equivalent kinds (the parameter-less ones in
-            // the catch-all fall here too — see the table above).
+            // the catch-all fall here too).
             "presence" | "uniqueness" | "length" | "format" | "inclusion"
             | "exclusion" | "confirmation" | "comparison" => {
                 if !has_non_none {
-                    clauses.push("$value != NONE");
+                    clauses.push("$value != NONE".to_string());
                     has_non_none = true;
                 }
             }
             _ => {} // forward-compat: unknown kind, skip
+        }
+    }
+    // Parametric kind options (`length:maximum=255`,
+    // `numericality:greater_than=0`, …) emitted by ruff#25's
+    // `validation_param` predicate. Each becomes its own AND-clause.
+    // The kind-level presence/numericality clauses above already
+    // fired; params add range/length/regex checks on top.
+    for param in params {
+        if let Some(clause) = param_clause(param) {
+            clauses.push(clause);
         }
     }
     if clauses.is_empty() {
@@ -595,6 +639,71 @@ fn compose_validation_assert(kinds: &std::collections::BTreeSet<String>) -> Stri
         return "$value != NONE".to_string();
     }
     clauses.join(" AND ")
+}
+
+/// Lower a single `validation_param` triple object
+/// (`<kind>:<inner_key>=<value>`) to a SurrealQL clause fragment.
+/// Returns `None` for unrecognised shapes (caller skips silently).
+///
+/// Recognised cases (every `<value>` MUST parse as a numeric
+/// literal — see the safety note below):
+///
+/// | Param                                     | Clause                       |
+/// |-------------------------------------------|------------------------------|
+/// | `length:maximum=N`                        | `string::len($value) <= N`   |
+/// | `length:minimum=N`                        | `string::len($value) >= N`   |
+/// | `length:is=N`                             | `string::len($value) == N`   |
+/// | `numericality:greater_than=N`             | `$value > N`                 |
+/// | `numericality:less_than=N`                | `$value < N`                 |
+/// | `numericality:greater_than_or_equal_to=N` | `$value >= N`                |
+/// | `numericality:less_than_or_equal_to=N`    | `$value <= N`                |
+/// | `numericality:equal_to=N`                 | `$value == N`                |
+/// | `comparison:greater_than=N`               | `$value > N`                 |
+/// | `comparison:less_than=N`                  | `$value < N`                 |
+/// | `comparison:greater_than_or_equal_to=N`   | `$value >= N`                |
+/// | `comparison:less_than_or_equal_to=N`      | `$value <= N`                |
+/// | `comparison:equal_to=N`                   | `$value == N`                |
+///
+/// **Safety: numeric-literal-only values** (codex P2 on #46).
+///
+/// Rails apps commonly write `length: { maximum: MAX_NAME_LENGTH }`
+/// where the value is a Ruby constant reference, not a literal —
+/// ruff forwards the raw text `MAX_NAME_LENGTH`. Splicing that
+/// verbatim into the ASSERT produces invalid SurrealQL like
+/// `string::len($value) <= MAX_NAME_LENGTH`. The catalog would
+/// either reject the schema outright or compare against an
+/// unintended identifier.
+///
+/// Gate every numeric-shaped param on `i64::from_str` (positive,
+/// negative, zero) so non-literal values fall back to the safe
+/// presence assertion (`None` here → caller skips, the kind-level
+/// `$value != NONE` from `length`/`numericality`/`comparison`
+/// still fires).
+fn param_clause(param: &str) -> Option<String> {
+    let (kind_key, value) = param.split_once('=')?;
+    let (kind, key) = kind_key.split_once(':')?;
+    let trimmed = value.trim();
+    // Only emit if the value parses as a numeric literal — see
+    // safety note above.
+    trimmed.parse::<i64>().ok()?;
+    match (kind, key) {
+        ("length", "maximum") => Some(format!("string::len($value) <= {trimmed}")),
+        ("length", "minimum") => Some(format!("string::len($value) >= {trimmed}")),
+        ("length", "is") => Some(format!("string::len($value) == {trimmed}")),
+        // `numericality` and `comparison` share the same operator
+        // set in Rails (greater_than / less_than / etc.) — lower
+        // both kinds via the same arms.
+        ("numericality" | "comparison", "greater_than") => Some(format!("$value > {trimmed}")),
+        ("numericality" | "comparison", "less_than") => Some(format!("$value < {trimmed}")),
+        ("numericality" | "comparison", "greater_than_or_equal_to") => {
+            Some(format!("$value >= {trimmed}"))
+        }
+        ("numericality" | "comparison", "less_than_or_equal_to") => {
+            Some(format!("$value <= {trimmed}"))
+        }
+        ("numericality" | "comparison", "equal_to") => Some(format!("$value == {trimmed}")),
+        _ => None, // forward-compat: unknown kind:key, skip
+    }
 }
 
 /// Apply the Rails AR convention: a relation name (`time_entries`,
@@ -2191,49 +2300,222 @@ mod tests {
         let mk = |kinds: &[&str]| -> BTreeSet<String> {
             kinds.iter().map(|s| s.to_string()).collect()
         };
+        let no_params = BTreeSet::new();
         // Single kinds.
         assert_eq!(
-            compose_validation_assert(&mk(&["presence"])),
+            compose_validation_assert(&mk(&["presence"]), &no_params),
             "$value != NONE",
         );
         assert_eq!(
-            compose_validation_assert(&mk(&["numericality"])),
+            compose_validation_assert(&mk(&["numericality"]), &no_params),
             "type::is_number($value)",
         );
         assert_eq!(
-            compose_validation_assert(&mk(&["acceptance"])),
+            compose_validation_assert(&mk(&["acceptance"]), &no_params),
             "$value == true",
         );
         // `absence: true` is the inverse of presence.
         assert_eq!(
-            compose_validation_assert(&mk(&["absence"])),
+            compose_validation_assert(&mk(&["absence"]), &no_params),
             "$value == NONE",
         );
         // `comparison` is parametric (greater_than/less_than/etc.);
         // falls back to presence-style until ruff carries the
         // comparand on the wire.
         assert_eq!(
-            compose_validation_assert(&mk(&["comparison"])),
+            compose_validation_assert(&mk(&["comparison"]), &no_params),
             "$value != NONE",
         );
-        // Parametric kinds fall back to presence-style.
+        // Parametric kinds without params fall back to presence-style.
         assert_eq!(
-            compose_validation_assert(&mk(&["length"])),
+            compose_validation_assert(&mk(&["length"]), &no_params),
             "$value != NONE",
         );
         // Multiple presence-equivalent kinds dedup to one clause.
         assert_eq!(
-            compose_validation_assert(&mk(&["presence", "uniqueness", "length"])),
+            compose_validation_assert(&mk(&["presence", "uniqueness", "length"]), &no_params),
             "$value != NONE",
         );
         // Empty set / only-unknown → catch-all.
         assert_eq!(
-            compose_validation_assert(&mk(&[])),
+            compose_validation_assert(&mk(&[]), &no_params),
             "$value != NONE",
         );
         assert_eq!(
-            compose_validation_assert(&mk(&["tachyon", "unknown_kind"])),
+            compose_validation_assert(&mk(&["tachyon", "unknown_kind"]), &no_params),
             "$value != NONE",
+        );
+    }
+
+    /// **D-AR-5.11** — parametric validation lift (ruff#25 sibling):
+    /// `validation_param` triples carry inner-hash values
+    /// (`length:maximum=255`, `numericality:greater_than=0`, etc.)
+    /// — the composer emits typed SurrealQL clauses for each.
+    #[test]
+    fn compose_validation_assert_lifts_parametric_kinds() {
+        use std::collections::BTreeSet;
+        let mk_set = |items: &[&str]| -> BTreeSet<String> {
+            items.iter().map(|s| s.to_string()).collect()
+        };
+        // length:maximum=255 → string::len($value) <= 255
+        let kinds = mk_set(&["length"]);
+        let params = mk_set(&["length:maximum=255"]);
+        assert_eq!(
+            compose_validation_assert(&kinds, &params),
+            "$value != NONE AND string::len($value) <= 255",
+        );
+        // length:maximum=N AND length:minimum=M (BTreeSet
+        // alphabetical: maximum precedes minimum).
+        let params = mk_set(&["length:maximum=255", "length:minimum=3"]);
+        let composed = compose_validation_assert(&kinds, &params);
+        assert!(
+            composed.contains("string::len($value) <= 255"),
+            "maximum clause missing: {composed:?}",
+        );
+        assert!(
+            composed.contains("string::len($value) >= 3"),
+            "minimum clause missing: {composed:?}",
+        );
+        // numericality kind + greater_than param → both clauses fire.
+        let kinds = mk_set(&["numericality"]);
+        let params = mk_set(&["numericality:greater_than=0"]);
+        let composed = compose_validation_assert(&kinds, &params);
+        assert!(
+            composed.contains("type::is_number($value)"),
+            "numericality kind clause missing: {composed:?}",
+        );
+        assert!(
+            composed.contains("$value > 0"),
+            "greater_than param clause missing: {composed:?}",
+        );
+        // Range constraint (greater_than + less_than).
+        let params = mk_set(&[
+            "numericality:greater_than=0",
+            "numericality:less_than=150",
+        ]);
+        let composed = compose_validation_assert(&kinds, &params);
+        assert!(composed.contains("$value > 0"));
+        assert!(composed.contains("$value < 150"));
+    }
+
+    /// **D-AR-5.11 — unknown param shapes** — a `validation_param`
+    /// triple with an unrecognised kind:key skips silently. This is
+    /// the forward-compat path for new Rails validators that ruff
+    /// hasn't taught the consumer to lower yet.
+    #[test]
+    fn compose_validation_assert_skips_unknown_params() {
+        use std::collections::BTreeSet;
+        let mk_set = |items: &[&str]| -> BTreeSet<String> {
+            items.iter().map(|s| s.to_string()).collect()
+        };
+        let kinds = mk_set(&["length"]);
+        let params = mk_set(&[
+            "length:maximum=255",
+            "length:custom_op=42", // unknown key, but numeric value
+        ]);
+        let composed = compose_validation_assert(&kinds, &params);
+        assert!(composed.contains("string::len($value) <= 255"));
+        // The unknown param leaves no trace.
+        assert!(!composed.contains("custom_op"));
+    }
+
+    /// **D-AR-5.11 — non-literal value safety (codex P2 on #46)** —
+    /// Rails commonly writes `length: { maximum: MAX_NAME_LENGTH }`
+    /// where the value is a constant reference, not a numeric
+    /// literal. Splicing the raw text into the ASSERT would emit
+    /// invalid SurrealQL. Non-numeric values MUST be skipped at
+    /// the param-clause layer; the kind-level catch-all
+    /// (`$value != NONE`) still fires.
+    #[test]
+    fn param_clause_skips_non_numeric_values() {
+        // Constant reference — must NOT splice.
+        assert_eq!(param_clause("length:maximum=MAX_NAME_LENGTH"), None);
+        // Symbol — must NOT splice.
+        assert_eq!(param_clause("comparison:greater_than=:start_date"), None);
+        // String literal — must NOT splice.
+        assert_eq!(param_clause("length:maximum=\"255\""), None);
+        // Float — currently not supported (i64 only); skip
+        // until SurrealQL float semantics are decided.
+        assert_eq!(param_clause("numericality:less_than=3.14"), None);
+        // Numeric literal IS allowed (positive, negative, zero).
+        assert_eq!(
+            param_clause("length:maximum=255"),
+            Some("string::len($value) <= 255".to_string()),
+        );
+        assert_eq!(
+            param_clause("numericality:greater_than=-1"),
+            Some("$value > -1".to_string()),
+        );
+        assert_eq!(
+            param_clause("numericality:equal_to=0"),
+            Some("$value == 0".to_string()),
+        );
+        // Whitespace tolerated (`extract_hash_options` trims, but
+        // be defensive).
+        assert_eq!(
+            param_clause("length:maximum= 255 "),
+            Some("string::len($value) <= 255".to_string()),
+        );
+    }
+
+    /// **D-AR-5.11 — comparison kind params (codex P2 on #46)** —
+    /// Rails `comparison` validator shares the operator set with
+    /// `numericality` (greater_than / less_than / equal_to etc.).
+    /// `comparison:greater_than=0` lifts the same way as
+    /// `numericality:greater_than=0`.
+    #[test]
+    fn param_clause_handles_comparison_kind() {
+        assert_eq!(
+            param_clause("comparison:greater_than=0"),
+            Some("$value > 0".to_string()),
+        );
+        assert_eq!(
+            param_clause("comparison:less_than=100"),
+            Some("$value < 100".to_string()),
+        );
+        assert_eq!(
+            param_clause("comparison:greater_than_or_equal_to=18"),
+            Some("$value >= 18".to_string()),
+        );
+        assert_eq!(
+            param_clause("comparison:less_than_or_equal_to=65"),
+            Some("$value <= 65".to_string()),
+        );
+        assert_eq!(
+            param_clause("comparison:equal_to=42"),
+            Some("$value == 42".to_string()),
+        );
+    }
+
+    /// **D-AR-5.11 — end-to-end through `triples_to_schema`** —
+    /// a `length: { maximum: 255 }` triple stream lowers to a
+    /// `FieldDefinition.assert` carrying both the presence-style
+    /// `$value != NONE` (from the `validation_kind` "length") AND
+    /// the `string::len($value) <= 255` (from the
+    /// `validation_param` "length:maximum=255").
+    #[test]
+    fn validation_param_end_to_end_through_triples_to_schema() {
+        let triples = vec![
+            t("openproject:User", "rdf:type", "ogit:ObjectType"),
+            t("openproject:User", "has_attribute", "name"),
+            t("openproject:User", "validates_constraint", "name"),
+            t("openproject:User.name", "validation_kind", "length"),
+            t("openproject:User.name", "validation_param", "length:maximum=255"),
+        ];
+        let schema = triples_to_schema(&triples);
+        let name = schema.tables[0]
+            .fields
+            .iter()
+            .find(|f| f.name == "name")
+            .unwrap();
+        let assert_str = name.assert.as_deref().unwrap();
+        assert!(
+            assert_str.contains("$value != NONE"),
+            "presence clause missing: {assert_str:?}",
+        );
+        assert!(
+            assert_str.contains("string::len($value) <= 255"),
+            "length-max param clause missing: {assert_str:?}",
         );
     }
 
