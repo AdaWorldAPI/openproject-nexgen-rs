@@ -1424,6 +1424,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "ogar-vocab"
+version = "0.1.0"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#6d2aa579aec02bb29860112172100b560c85bc75"
+
+[[package]]
 name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1498,6 +1503,7 @@ dependencies = [
 name = "op-canon"
 version = "0.1.0"
 dependencies = [
+ "ogar-vocab",
  "serde",
  "serde_json",
 ]
