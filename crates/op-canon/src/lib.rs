@@ -56,6 +56,8 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod class_ids;
+
 use serde::Deserialize;
 
 /// The raw vendored snapshot JSON (the single source of truth).
