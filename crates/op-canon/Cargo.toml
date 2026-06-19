@@ -1,0 +1,9 @@
+[package]
+name = "op-canon"
+version.workspace = true
+edition.workspace = true
+description = "Canonical contract for the OpenProject → Rust port: the OGAR codebook extraction snapshot of the OpenProject corpus, exposed as typed Rust."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

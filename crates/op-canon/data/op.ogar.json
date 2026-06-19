@@ -1,0 +1,43 @@
+{
+  "schema_version": "op-canon/1",
+  "provenance": {
+    "source_curator": "openproject",
+    "source_repo": "AdaWorldAPI/openproject",
+    "source_domain": "project",
+    "extractor": "ogar-from-rails::extract_app_with → ruff_ruby_spo::extract_app_with (engine-walk) → ogar-from-ruff::lift_model_graph → ogar-vocab",
+    "ogar_codebook": "AdaWorldAPI/OGAR ogar-vocab CODEBOOK (0xDDCC domain-encoded)",
+    "generated": "2026-06-19"
+  },
+  "source_curator": "openproject",
+  "source_domain": "project",
+  "total_classes_extracted": 922,
+  "promoted_classes": 31,
+  "concepts": [
+    { "canonical_concept": "billable_work_entry", "class_id": "0x0103", "class_id_le": [3, 1], "curator_classes": ["TimeEntry"] },
+    { "canonical_concept": "priority", "class_id": "0x0107", "class_id_le": [7, 1], "curator_classes": ["IssuePriority"] },
+    { "canonical_concept": "project", "class_id": "0x0101", "class_id_le": [1, 1], "curator_classes": ["Project"] },
+    { "canonical_concept": "project_actor", "class_id": "0x0104", "class_id_le": [4, 1], "curator_classes": ["Group", "Principal", "User"] },
+    { "canonical_concept": "project_attachment", "class_id": "0x010E", "class_id_le": [14, 1], "curator_classes": ["Attachment"] },
+    { "canonical_concept": "project_changeset", "class_id": "0x0112", "class_id_le": [18, 1], "curator_classes": ["Changeset"] },
+    { "canonical_concept": "project_comment", "class_id": "0x010F", "class_id_le": [15, 1], "curator_classes": ["Comment"] },
+    { "canonical_concept": "project_custom_field", "class_id": "0x0110", "class_id_le": [16, 1], "curator_classes": ["CustomField", "ProjectCustomField"] },
+    { "canonical_concept": "project_custom_value", "class_id": "0x0119", "class_id_le": [25, 1], "curator_classes": ["CustomValue"] },
+    { "canonical_concept": "project_enabled_module", "class_id": "0x011A", "class_id_le": [26, 1], "curator_classes": ["EnabledModule"] },
+    { "canonical_concept": "project_forum", "class_id": "0x0116", "class_id_le": [22, 1], "curator_classes": ["Forum"] },
+    { "canonical_concept": "project_journal", "class_id": "0x0109", "class_id_le": [9, 1], "curator_classes": ["Journal"] },
+    { "canonical_concept": "project_member_role", "class_id": "0x0118", "class_id_le": [24, 1], "curator_classes": ["MemberRole"] },
+    { "canonical_concept": "project_membership", "class_id": "0x0108", "class_id_le": [8, 1], "curator_classes": ["Member"] },
+    { "canonical_concept": "project_message", "class_id": "0x0115", "class_id_le": [21, 1], "curator_classes": ["Message"] },
+    { "canonical_concept": "project_news", "class_id": "0x0114", "class_id_le": [20, 1], "curator_classes": ["News"] },
+    { "canonical_concept": "project_query", "class_id": "0x010D", "class_id_le": [13, 1], "curator_classes": ["ProjectQuery", "Query"] },
+    { "canonical_concept": "project_relation", "class_id": "0x0111", "class_id_le": [17, 1], "curator_classes": ["Relation"] },
+    { "canonical_concept": "project_repository", "class_id": "0x010A", "class_id_le": [10, 1], "curator_classes": ["Repository"] },
+    { "canonical_concept": "project_role", "class_id": "0x0117", "class_id_le": [23, 1], "curator_classes": ["ProjectRole", "Role"] },
+    { "canonical_concept": "project_status", "class_id": "0x0105", "class_id_le": [5, 1], "curator_classes": ["Status"] },
+    { "canonical_concept": "project_type", "class_id": "0x0106", "class_id_le": [6, 1], "curator_classes": ["Type"] },
+    { "canonical_concept": "project_version", "class_id": "0x010B", "class_id_le": [11, 1], "curator_classes": ["Version"] },
+    { "canonical_concept": "project_watcher", "class_id": "0x0113", "class_id_le": [19, 1], "curator_classes": ["Watcher"] },
+    { "canonical_concept": "project_wiki_page", "class_id": "0x010C", "class_id_le": [12, 1], "curator_classes": ["WikiPage"] },
+    { "canonical_concept": "project_work_item", "class_id": "0x0102", "class_id_le": [2, 1], "curator_classes": ["WorkPackage"] }
+  ]
+}
