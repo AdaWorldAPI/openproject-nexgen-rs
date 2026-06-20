@@ -13,3 +13,12 @@ name = "op_codegen_projection"
 [dependencies]
 lance-graph-contract = { path = "../../vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" }
 op-surreal-ast       = { path = "../op-surreal-ast" }
+# Canonical class layer + askama rendering kit. Northstar plan §3 C1:
+# op-codegen-projection adopts the OGAR render-askama kit as a sibling
+# render path next to the existing triples → AST → SurrealQL pipeline.
+# The kit's `ArtifactKind::SurrealqlTable` emitter consumes a typed
+# `ogar_vocab::Class` directly and produces DDL via the canonical
+# template — same shape redmine-canon + every other port renders
+# through.
+ogar-vocab          = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+ogar-render-askama  = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
