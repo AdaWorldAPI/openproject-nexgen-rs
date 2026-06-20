@@ -35,10 +35,27 @@
 //! **`DEFINE FIELD`** stubs are recognised in the projection. A future sprint
 //! widens the input vocabulary (FK record links, ASSERT clauses, indexes,
 //! PERMISSIONS) without touching the projection contract.
+//!
+//! # Two render paths (Northstar §3 C1)
+//!
+//! - **Triples-driven** (this lib): [`OpSurrealProjection`] +
+//!   [`surreal_text`] — consumes a `Vec<Triple>`, walks the typed AST
+//!   ([`op_surreal_ast`]), renders byte-identically to the C9-C15 baseline.
+//! - **Class-driven** ([`class_schema`]): consumes a calcified
+//!   [`ogar_vocab::Class`] directly, renders via the OGAR askama kit
+//!   (`ogar_render_askama::ArtifactKind::SurrealqlTable`) — same shape
+//!   every other port (redmine-canon, future medcare-canon, …) emits
+//!   through.
+//!
+//! Sibling paths, not a replacement. The byte-identical-output pin on
+//! the triples path stays untouched.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use lance_graph_contract::codegen_spine::{Triple, TripletProjection};
+
+pub mod class_schema;
+pub use class_schema::{render_class_schema, render_classes_schema};
 
 // ---------------------------------------------------------------------------
 // The DDL IR
