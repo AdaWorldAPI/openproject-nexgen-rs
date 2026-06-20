@@ -33,7 +33,9 @@
 
 use std::fmt::Write;
 
+pub mod from_class;
 pub mod from_triples;
+pub use from_class::class_to_table;
 pub use from_triples::triples_to_schema;
 
 // ---------------------------------------------------------------------------
