@@ -57,6 +57,7 @@
 #![warn(missing_docs)]
 
 pub mod class_ids;
+pub mod class_view;
 
 use serde::Deserialize;
 
