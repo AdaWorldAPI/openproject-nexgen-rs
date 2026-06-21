@@ -22,3 +22,9 @@ op-surreal-ast       = { path = "../op-surreal-ast" }
 # through.
 ogar-vocab          = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 ogar-render-askama  = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+# Direct askama dep — `class_schema::render_class_schema` exposes
+# `askama::Error` in its public signature (codex P1 on PR #53).
+# Transitive deps via `ogar-render-askama` aren't available as extern
+# crates in this crate's build graph, so the type must be reachable
+# directly. Same version `ogar-render-askama` pins.
+askama              = "0.12"
