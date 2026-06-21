@@ -1635,6 +1635,7 @@ dependencies = [
 name = "op-codegen-projection"
 version = "0.1.0"
 dependencies = [
+ "askama",
  "lance-graph-contract 0.1.0",
  "ogar-render-askama",
  "ogar-vocab",
