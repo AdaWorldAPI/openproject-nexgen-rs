@@ -35,15 +35,20 @@
 //! is machine-checked **upstream** in OGAR's port tests
 //! (`openproject_and_redmine_converge_on_shared_concepts`), not here.
 //!
-//! Composing the high half here is the consumer **stamping its own reserved
-//! prefix** (`APP-CLASS-CODEBOOK-LAYOUT.md` §1, §3d), not minting an OGAR
-//! codebook class — that mint is gated on OGAR's 5+3 pass. The pull (low
-//! half) is the part that is canonical and available today.
+//! # One source of truth — the OGAR surface
 //!
-//! > **Follow-up:** [`APP_PREFIX`] is a local mirror of the §2 allocation
-//! > table. Once OGAR exports the prefix as a typed port constant
-//! > (`OpenProjectPort::APP_PREFIX`), re-export that instead — same
-//! > one-source-of-truth discipline `class_ids` / `class_view` already follow.
+//! Both halves of the composition come from `ogar-vocab` (OGAR PR #97 + #98):
+//!
+//! - [`APP_PREFIX`] is a `pub const` re-export of
+//!   [`ogar_vocab::ports::OpenProjectPort::APP_PREFIX`] — the typed §2
+//!   allocation-table value, not a local literal.
+//! - [`render_classid`] re-exports `ogar_vocab::app::render_classid_for::<OpenProjectPort>`
+//!   — the central `(prefix << 16) | concept` composition; one place owns the
+//!   bit math.
+//!
+//! Same discipline as [`crate::class_ids`] (which re-exports
+//! `ogar_vocab::class_ids::*`): the canonical layer mints; this crate
+//! re-exports. Drift between local and OGAR is now structurally impossible.
 
 use ogar_vocab::ports::{OpenProjectPort, PortSpec};
 
@@ -51,9 +56,10 @@ use ogar_vocab::ports::{OpenProjectPort, PortSpec};
 /// `classid` (`APP-CLASS-CODEBOOK-LAYOUT.md` §2 allocation table). Pairs with
 /// Redmine's `0x0007`: same low-half concept, different render lens.
 ///
-/// Local mirror of the §2 table (SPEC-status, pending OGAR's 5+3 pass); to be
-/// replaced by a re-export of the typed upstream constant when OGAR ships it.
-pub const APP_PREFIX: u16 = 0x0001;
+/// `pub const` re-export of [`ogar_vocab::ports::OpenProjectPort::APP_PREFIX`]
+/// (OGAR PR #97). Promoted from a local mirror to the typed upstream constant —
+/// one source of truth.
+pub const APP_PREFIX: u16 = OpenProjectPort::APP_PREFIX;
 
 /// Pull the canonical class-id for an OpenProject surface name **via the OGAR
 /// port** — the #589 "pull OGAR via class" path (no bridge, no registry).
@@ -75,20 +81,21 @@ pub fn class_id_of(surface_name: &str) -> Option<u16> {
 }
 
 /// Compose the full 32-bit **render** classid for a shared `concept` under
-/// OpenProject's prefix: `(APP_PREFIX << 16) | concept` → `0x0001_DDCC`.
+/// OpenProject's prefix: `0x0001_DDCC`.
 ///
-/// Pure bit-stamp: it does not validate that `concept` is a low-half
-/// (project-mgmt `0x01XX`) id — composing a foreign concept would still
-/// produce a value. Pass a [`crate::class_ids`] constant or a [`class_id_of`]
-/// result.
+/// Re-export of `ogar_vocab::app::render_classid_for::<OpenProjectPort>(concept)`
+/// (OGAR PR #97) — the central composition, not local bit math. Pure stamp: it
+/// does not validate that `concept` is a low-half (project-mgmt `0x01XX`) id —
+/// composing a foreign concept would still produce a value. Pass a
+/// [`crate::class_ids`] constant or a [`class_id_of`] result.
 ///
 /// ```
 /// use op_canon::{app, class_ids};
 /// assert_eq!(app::render_classid(class_ids::PROJECT_WORK_ITEM), 0x0001_0102);
 /// ```
 #[must_use]
-pub const fn render_classid(concept: u16) -> u32 {
-    ((APP_PREFIX as u32) << 16) | (concept as u32)
+pub fn render_classid(concept: u16) -> u32 {
+    ogar_vocab::app::render_classid_for::<OpenProjectPort>(concept)
 }
 
 /// Pull + compose in one step: an OpenProject surface name → its full render
@@ -132,8 +139,15 @@ mod tests {
     }
 
     #[test]
-    fn render_classid_composes_openproject_prefix() {
+    fn app_prefix_re_exports_the_typed_ogar_constant() {
+        // One source of truth: the local constant IS the upstream typed
+        // PortSpec::APP_PREFIX, not a parallel literal. (#97)
+        assert_eq!(APP_PREFIX, OpenProjectPort::APP_PREFIX);
         assert_eq!(APP_PREFIX, 0x0001);
+    }
+
+    #[test]
+    fn render_classid_composes_openproject_prefix() {
         // Full render classid = 0x0001_DDCC (W0 worked table).
         assert_eq!(render_classid(class_ids::PROJECT_WORK_ITEM), 0x0001_0102);
         assert_eq!(render_classid(class_ids::BILLABLE_WORK_ENTRY), 0x0001_0103);
@@ -141,6 +155,24 @@ mod tests {
         // Pull + compose.
         assert_eq!(render_classid_of("WorkPackage"), Some(0x0001_0102));
         assert_eq!(render_classid_of("TimeEntry"), Some(0x0001_0103));
+    }
+
+    #[test]
+    fn render_classid_agrees_with_the_central_ogar_composition() {
+        // The local function is exactly OGAR's `render_classid_for::<P>`; no
+        // local bit math. If this assertion ever fails, the local impl drifted
+        // from the canonical upstream composition.
+        for &concept in &[
+            class_ids::PROJECT_WORK_ITEM,
+            class_ids::PROJECT,
+            class_ids::BILLABLE_WORK_ENTRY,
+            class_ids::PROJECT_ROLE,
+        ] {
+            assert_eq!(
+                render_classid(concept),
+                ogar_vocab::app::render_classid_for::<OpenProjectPort>(concept),
+            );
+        }
     }
 
     #[test]
@@ -155,12 +187,18 @@ mod tests {
             class_ids::PROJECT_ROLE,
         ] {
             let cid = render_classid(concept);
+            // Decompose via OGAR's central helpers (one source of truth on the
+            // bit math, not local shifts).
             assert_eq!(
-                (cid >> 16) as u16,
+                ogar_vocab::app::app_of(cid),
                 APP_PREFIX,
-                "high half = OpenProject lens"
+                "high half = OpenProject lens",
             );
-            assert_eq!(cid as u16, concept, "low half = shared concept");
+            assert_eq!(
+                ogar_vocab::app::concept_of(cid),
+                concept,
+                "low half = shared concept",
+            );
         }
     }
 
