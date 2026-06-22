@@ -56,6 +56,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod app;
 pub mod class_ids;
 pub mod class_view;
 
@@ -142,6 +143,14 @@ impl Snapshot {
 
     /// Reverse lookup: which canonical concept an OpenProject Rails class
     /// maps to (`"WorkPackage"` → `project_work_item`).
+    ///
+    /// This is the **corpus-evidence mirror**, not the canonical resolver:
+    /// for "surface name → class-id", prefer [`crate::app::class_id_of`]
+    /// (which pulls the OGAR port — the single source of truth). This method
+    /// stays because it returns the full [`Concept`] record (curator classes,
+    /// provenance) the port's `Option<u16>` cannot; the
+    /// [`crate::app::tests::port_pull_agrees_with_the_snapshot`] guard keeps
+    /// the two in agreement.
     #[must_use]
     pub fn concept_of_class(&self, curator_class: &str) -> Option<&Concept> {
         self.concepts
