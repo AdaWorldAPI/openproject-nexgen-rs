@@ -241,36 +241,34 @@ mod tests {
         );
     }
 
-    /// Pins the one snapshot↔port vocabulary divergence the overlap guard
-    /// silently skips (flagged by the 5+3 review, R4 + B1): the OpenProject
-    /// corpus snapshot carries **`Member`** for `project_membership` (0x0108),
-    /// but `OPENPROJECT_ALIASES` aliases that concept under **`Membership`**.
-    /// So `class_id_of("Member")` is `None` today and the drift guard skips it.
-    ///
-    /// This test makes the divergence VISIBLE and tracked: when OGAR aligns
-    /// the alias to the corpus name (`Member`), this test flips and reminds us
-    /// to drop the pin. (The OGAR-side fix is the proper resolution; here we
-    /// only document the current state so it can't hide.)
+    /// **Closes** the previously-pinned `port_and_snapshot_membership_vocab_mismatch_is_known`
+    /// drift guard — its trigger fired on OGAR `main` after PR #113 (the
+    /// Member alias add). Now `class_id_of("Member")` and
+    /// `class_id_of("Membership")` BOTH resolve to `PROJECT_MEMBERSHIP`:
+    /// the port matches the OpenProject corpus snapshot (`Member`) AND
+    /// keeps the deprecated synonym (`Membership`) for any consumer
+    /// holding the old name. The vocab divergence is gone; this is the
+    /// successor positive assertion.
     #[test]
-    fn port_and_snapshot_membership_vocab_mismatch_is_known() {
+    fn member_and_membership_both_resolve_after_ogar_113() {
         let s = Snapshot::load();
         let membership = s
             .concept("project_membership")
             .expect("snapshot carries project_membership");
+        // Snapshot uses `Member` — that's the OP corpus name.
         assert!(
             membership.curator_classes.iter().any(|c| c == "Member"),
-            "snapshot is expected to carry `Member` for project_membership; saw {:?}",
+            "snapshot expected to carry `Member` for project_membership; saw {:?}",
             membership.curator_classes,
         );
-        // KNOWN GAP: the port aliases this concept as `Membership`, not `Member`.
-        assert_eq!(
-            class_id_of("Member"),
-            None,
-            "if this is now Some(_), OGAR aligned the alias to the corpus name — \
-             update the OPENPROJECT_ALIASES follow-up and remove this pin",
-        );
-        // The port DOES resolve `Membership` to the same concept id, so the
-        // concept itself converges; only the surface spelling differs.
-        assert_eq!(class_id_of("Membership"), Some(membership.class_id_u16()));
+        // Both surface names now pull the same canonical id (OGAR #113):
+        //   - `Member`     — canonical, matches the corpus + Redmine
+        //   - `Membership` — deprecated synonym kept for backcompat
+        // So the overlap drift guard above now covers `Member` too (no
+        // silent skip), and the cross-port convergence is byte-symmetric:
+        // OP `Member` ↔ RM `Member` → 0x0108.
+        let target = Some(membership.class_id_u16());
+        assert_eq!(class_id_of("Member"), target);
+        assert_eq!(class_id_of("Membership"), target);
     }
 }
