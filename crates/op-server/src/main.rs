@@ -2,13 +2,10 @@
 //!
 //! Production-ready HTTP server for OpenProject Rust implementation.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::{
-    middleware,
-    routing::get,
-    Json, Router,
-};
+use axum::{middleware, routing::get, Json, Router};
 use tower::ServiceBuilder;
 use tower_http::{
     compression::CompressionLayer,
@@ -54,7 +51,10 @@ async fn main() -> anyhow::Result<()> {
             Some(db)
         }
         Err(e) => {
-            tracing::warn!("Failed to connect to database: {}. Running without database.", e);
+            tracing::warn!(
+                "Failed to connect to database: {}. Running without database.",
+                e
+            );
             None
         }
     };
@@ -75,8 +75,12 @@ async fn main() -> anyhow::Result<()> {
     // Build router
     let app = build_router(app_state.clone(), metrics.clone());
 
-    // Start server
-    let addr = config.server_addr();
+    // Start server — honor $PORT for PaaS deploys (Railway / Heroku / Cloud Run /
+    // Fly route their public edge to $PORT; the app must bind 0.0.0.0:$PORT or the
+    // proxy can't reach it). Falls back to the configured host:port for local /
+    // non-PaaS deploys. See lance-graph CONSUMER_SCAN_TODO §B1 (canonical pattern
+    // landed in medcare-server first).
+    let addr = resolve_bind_addr(std::env::var("PORT").ok(), config.server_addr())?;
     info!("Listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -88,13 +92,33 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Resolve the bind address from the `$PORT` env var (when set) or the
+/// configured fallback. PaaS proxies (Railway / Heroku / Cloud Run / Fly) route
+/// the public edge to `$PORT` and require `0.0.0.0` so the proxy can reach the
+/// container; non-PaaS deploys keep the configured host:port. Whitespace-only
+/// `$PORT` values are treated as unset.
+///
+/// Pure helper — extracted so the parse logic is testable without touching
+/// process env (the crate forbids unsafe; `std::env::set_var` is unsafe in
+/// recent Rust). Tests cover the four input shapes (set/empty/whitespace/
+/// malformed) directly.
+///
+/// See lance-graph `CONSUMER_SCAN_TODO.md` §B1.
+fn resolve_bind_addr(env_port: Option<String>, fallback: SocketAddr) -> anyhow::Result<SocketAddr> {
+    match env_port.as_deref().map(str::trim) {
+        Some(p) if !p.is_empty() => format!("0.0.0.0:{p}")
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid PORT env var `{p}`: {e}")),
+        _ => Ok(fallback),
+    }
+}
+
 /// Initialize tracing/logging
 fn init_tracing() {
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                "info,op_server=debug,op_api=debug,tower_http=debug".into()
-            }),
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,op_server=debug,op_api=debug,tower_http=debug".into()),
         )
         .with(
             tracing_subscriber::fmt::layer()
@@ -315,5 +339,53 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    // ── PaaS deploy: $PORT bind (CONSUMER_SCAN_TODO §B1) ────────────────
+
+    fn fallback_addr() -> SocketAddr {
+        // Stand-in for `config.server_addr()` in the no-env-override branch;
+        // mirrors the default in `AppConfig::default()` (port 8080).
+        "127.0.0.1:8080".parse().unwrap()
+    }
+
+    #[test]
+    fn resolve_bind_addr_uses_port_env_when_set() {
+        // The PaaS case: proxy routes to $PORT → bind 0.0.0.0:$PORT so it
+        // can be reached. Host fixed to all-interfaces, port from the env.
+        let addr = resolve_bind_addr(Some("3000".into()), fallback_addr()).unwrap();
+        assert_eq!(addr, "0.0.0.0:3000".parse().unwrap());
+    }
+
+    #[test]
+    fn resolve_bind_addr_falls_back_when_port_env_is_unset() {
+        // Local / non-PaaS: $PORT unset, use the configured host:port.
+        let addr = resolve_bind_addr(None, fallback_addr()).unwrap();
+        assert_eq!(addr, fallback_addr());
+    }
+
+    #[test]
+    fn resolve_bind_addr_treats_empty_or_whitespace_port_as_unset() {
+        // Whitespace-only values (a common docker-compose / env-file
+        // mistake) should not be parsed as a port; fall back instead of
+        // failing the boot.
+        for empty in ["", " ", "\t", " \n "] {
+            let addr = resolve_bind_addr(Some(empty.into()), fallback_addr()).unwrap();
+            assert_eq!(addr, fallback_addr(), "input {empty:?} should fall back");
+        }
+    }
+
+    #[test]
+    fn resolve_bind_addr_rejects_malformed_port_with_diagnostic() {
+        // A misconfigured $PORT must surface as a boot error naming the bad
+        // value, not silently fall back (which would hide the bug).
+        for bad in ["abc", "70000", "-1", "8080:extra"] {
+            let err = resolve_bind_addr(Some(bad.into()), fallback_addr()).unwrap_err();
+            let msg = err.to_string();
+            assert!(
+                msg.contains("invalid PORT") && msg.contains(bad),
+                "input {bad:?} should yield a diagnostic naming the value; got {msg}"
+            );
+        }
     }
 }
