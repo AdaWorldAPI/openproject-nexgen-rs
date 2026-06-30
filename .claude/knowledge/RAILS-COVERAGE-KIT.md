@@ -196,3 +196,70 @@ billable hours" — is exactly cross-consumer concept convergence: OpenProject's
 converge on one class concept (`BILLABLE_WORK_ENTRY`, `0x0103`). The recipe
 vocabulary must converge the same way, or the behavioural arm fragments back
 into the zoo the structural arm escaped.
+
+## 6. Function catalog = CRITERIA over shipped verbs + the body-pass triage
+
+> Canon: OGAR `E-FUNCTION-CATALOG` + `E-ACCIDENTAL-IMPERATIVE` + `F17`. This
+> section is the bounded build spec the next session executes — it is NOT
+> "decompile Ruby," and it is NOT "build filter/map/project."
+
+**The verbs are already shipped, deterministic — do not re-implement them.**
+`filter` = the query/predicate engine · `project` = the compute/recompute DAG
+(`KausalSpec::Depends`) · `map` = a deterministic table/lookup · `reduce` = the
+semirings. A consumer function is `(verb, criteria)`; the deliverable is the
+**criteria** (a selection-condition + params), EXTRACTED from source, keyed by a
+canonical concept id, grounded on a domain ontology. The landing zone is the
+existing `lance-graph-contract::action` (`actions_for`/`OgarResolver`) +
+`ogar-render-askama` artifact_kinds + `ogar-vocab`.
+
+**Two corrections to avoid (both were mistakes this session):**
+- **`map` ≠ CAM-PQ.** Kontenerkennung (account determination) is a deterministic
+  relational rule resolution — product/category default account → fiscal-position
+  remap → precedent (`reduce(filter(prior_bookings, partner×product), most-recent
+  account)`) with a fallback order. Natural keys ⇒ register (relational lookup +
+  history query), not ANN (`I-VSA-IDENTITIES` Test 0). CAM-PQ is a *separate
+  opt-in* layer for fuzzy suggestion on unseen combinations only.
+- **CRUD is generic, not hand-rolled.** create/update = the generic AR lifecycle
+  (defaults → validate → hooks → persist → journal); per-class criteria = the
+  recipe + the permission (RBAC) + the writable-field set; the action is a
+  HandlerKind (`create/update-for-tenant`). Only a non-standard hook *body*
+  escapes.
+
+**The residue split.** What's left ("hand-rolled hook bodies") is two
+populations, not one:
+- **accidentally-imperative** — AR verbs on AR targets, written imperatively only
+  because the source had no declarative form (Odoo `@api.depends` vs Rails
+  `before_save { total = lines.sum }` — same logic, source-expressiveness, not
+  complexity). Recoverable to `(verb, criteria)`.
+- **essentially-foreign** — real algorithms / external / ledger math. The only
+  true escape (point-to-body, lossless-DO §1).
+
+**The body pass TRIAGES — it does not decompile.** The bounded thing to build:
+per hook body, recover `(target classid, verb-class, order-signature)` —
+"something that calls an update on X, in some order" — grouped by target. Three
+landing tiers (a body drops only as far as its deformity forces):
+
+| Tier | Recovered | Lands as |
+|---|---|---|
+| clean | `(verb, criteria)` | declarative emit |
+| coarse | `(target classid, verb-class)`, order unknown | catalog at coarse key + point-to-body; **order-signature gates recover vs preserve** |
+| foreign | no clean target/verb | full escape |
+
+**"random orders" is the gate, not noise.** Incidental order (ops commute) →
+the order-free `(verb,criteria)` round-trips → RECOVER. Significant order →
+PRESERVE (sequenced/foreign body) + RFC if behaviour diverges ("runs" can hide
+ordering/side-effect quirks the app now depends on — behaviour-preserving, never
+silently "fix"). Arbiter = the **round-trip-order-free parity check**.
+
+**Falsifier (`F17` / `PROBE-OGAR-BODY-TRIAGE`).** Body pass → `(target,
+verb-class, order-sig)` per hook → round-trip-order-free each coarse group.
+PASS-rate = the *real* "how many were accidentally-imperative" number;
+FAIL-rate = the order-dependent / foreign tail. Control = Odoo `_compute_*`
+(already declarative); test = Rails `before_*`/`after_*`.
+
+**The one prerequisite (gated build).** F17 needs a ruff extension: capture
+**writes/calls** per function (today `ruff_ruby_spo` captures `reads`/`raises`/
+`traverses` — NOT writes), so "calls `update` on X" is extractable. That is the
+single, bounded thing to add — a classifier + a parity gate, not a Ruby
+decompiler. (A name-only proxy — classify by method-name shape — is possible
+sooner but is weak; the real triage needs the write/call capture.)
