@@ -165,6 +165,43 @@ port — keep them distinct so neither dilutes the other.
 
 ---
 
+## Update — the inheritance axis is now measured (constructor chaining)
+
+Since this handover was first written, the odoo-rs side added the **second**
+collapse axis and measured it (OGAR `E-RECIPE-BITMASK-CHAIN` / `F16` /
+`odoo-rs tests/recipe_chaining_collapse.rs`):
+
+- **Mechanism:** a derived class's ClassView is built by *chaining its base
+  `LazyLock<ClassView>` constants + its own delta* — inherited recipe parts are
+  stored once at the base and shared by every subclass (not per-class leftover).
+  This dissolves "out-of-slice" (the base is a registry constant, not a slice
+  dependency) and makes "redundant = content-identical-to-default" **structural**
+  (referential identity — the inherited part IS the shared cached constant, not a
+  hash comparison). Chain = MRO; lance-graph #533 `resolve_overrides` is the order.
+- **Odoo measured (lower bound):** the full Odoo inheritance manifest (388
+  classes, 166 `inherits_from`, 3328 methods) → naive flatten 4215 vs chained
+  3328 = **21.0% collapse / 22.7% behavioural**. Lower bound, because the Python
+  corpus's mixin harvest is shallow (real `mail.thread` ~100 methods, a handful
+  captured).
+
+**Why this matters for your leg, doubly.** Rails captures concerns/STI as
+first-class `Model` data, so (a) your `ruff_ruby_spo` parse sees the *real*
+mixin/concern recipes the Python corpus under-harvested, and (b) you can resolve
+concern/STI bases through the *same* constructor chain. So the OpenProject probe
+should measure **both** axes:
+  1. within-class callback/validation override density (the F15 leg above);
+  2. **the inheritance axis** — chain concern/STI bases via `inherits_from`/STI
+     and measure naive-flatten vs chained over the Rails inheritance DAG (mirror
+     `odoo-rs tests/recipe_chaining_collapse.rs`).
+Because Rails concerns carry genuine callback recipes (not a shallow harvest),
+the inheritance-collapse on the Rails side could **far exceed** Odoo's 22.7% —
+that's the cleanest path to the 7%-leftover target: both axes stacking on a
+consumer whose recipe is actually captured.
+
+Chain-order correctness is the existing `F1` falsifier (the diamond test); the
+chain must be acyclic (a `LazyLock` cycle deadlocks — resolve in topological
+order).
+
 ## Blockers
 
 1. **Confirm the frontend captures callbacks on the path you use.** The scout
