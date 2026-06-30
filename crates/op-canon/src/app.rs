@@ -45,6 +45,10 @@
 //! - [`render_classid`] re-exports `ogar_vocab::app::render_classid_for::<OpenProjectPort>`
 //!   — the central `(prefix << 16) | concept` composition; one place owns the
 //!   bit math.
+//! - [`app_of`] / [`concept_of`] re-export `ogar_vocab::app::{app_of, concept_of}`
+//!   — the inverse decomposition (`0x0001_DDCC` → prefix + concept), so a render
+//!   classid round-trips entirely on this crate's surface without reaching into
+//!   `ogar_vocab::app`.
 //!
 //! Same discipline as [`crate::class_ids`] (which re-exports
 //! `ogar_vocab::class_ids::*`): the canonical layer mints; this crate
@@ -109,6 +113,41 @@ pub fn render_classid(concept: u16) -> u32 {
 #[must_use]
 pub fn render_classid_of(surface_name: &str) -> Option<u32> {
     class_id_of(surface_name).map(render_classid)
+}
+
+/// Decompose a 32-bit render classid into its **OpenProject render prefix**
+/// (the high u16) — the inverse of [`render_classid`]'s high half.
+///
+/// Re-export of `ogar_vocab::app::app_of` (OGAR PR #97) — the central
+/// decomposition, not local bit math; paired with [`concept_of`]. For any
+/// concept, `app_of(render_classid(concept)) == APP_PREFIX`.
+///
+/// ```
+/// use op_canon::{app, class_ids};
+/// let cid = app::render_classid(class_ids::PROJECT_WORK_ITEM); // 0x0001_0102
+/// assert_eq!(app::app_of(cid), app::APP_PREFIX);               // 0x0001
+/// ```
+#[must_use]
+pub fn app_of(classid: u32) -> u16 {
+    ogar_vocab::app::app_of(classid)
+}
+
+/// Decompose a 32-bit render classid into its **shared concept** (the low
+/// u16) — the inverse of [`render_classid`]'s low half, recovering the
+/// cross-app currency a [`class_id_of`] pull returns.
+///
+/// Re-export of `ogar_vocab::app::concept_of` (OGAR PR #97), paired with
+/// [`app_of`]. For any concept, `concept_of(render_classid(concept)) == concept`;
+/// this is the id Redmine's twin carries under prefix `0x0007`.
+///
+/// ```
+/// use op_canon::{app, class_ids};
+/// let cid = app::render_classid(class_ids::PROJECT_WORK_ITEM); // 0x0001_0102
+/// assert_eq!(app::concept_of(cid), class_ids::PROJECT_WORK_ITEM); // 0x0102
+/// ```
+#[must_use]
+pub fn concept_of(classid: u32) -> u16 {
+    ogar_vocab::app::concept_of(classid)
 }
 
 #[cfg(test)]
@@ -200,6 +239,34 @@ mod tests {
                 "low half = shared concept",
             );
         }
+    }
+
+    #[test]
+    fn app_of_and_concept_of_invert_render_classid() {
+        // The local decomposition surface round-trips render_classid: app_of
+        // recovers the OpenProject prefix, concept_of the shared concept.
+        for &concept in &[
+            class_ids::PROJECT_WORK_ITEM,
+            class_ids::PROJECT,
+            class_ids::BILLABLE_WORK_ENTRY,
+            class_ids::PROJECT_ROLE,
+            class_ids::PROJECT_ACTOR,
+        ] {
+            let cid = render_classid(concept);
+            assert_eq!(app_of(cid), APP_PREFIX, "app_of recovers the prefix");
+            assert_eq!(concept_of(cid), concept, "concept_of recovers the concept");
+        }
+    }
+
+    #[test]
+    fn app_of_concept_of_are_the_central_ogar_decomposition() {
+        // The re-exports ARE OGAR's app_of/concept_of — same one-source-of-truth
+        // discipline as render_classid (no local bit math to drift).
+        let cid = render_classid(class_ids::PROJECT_WORK_ITEM);
+        assert_eq!(app_of(cid), ogar_vocab::app::app_of(cid));
+        assert_eq!(concept_of(cid), ogar_vocab::app::concept_of(cid));
+        // And the full decomposition reconstructs the classid bit-for-bit.
+        assert_eq!(((app_of(cid) as u32) << 16) | (concept_of(cid) as u32), cid,);
     }
 
     #[test]
