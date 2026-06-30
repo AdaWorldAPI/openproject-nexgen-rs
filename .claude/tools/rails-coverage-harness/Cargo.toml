@@ -1,0 +1,37 @@
+# Rails AR-DSL coverage / chaining-collapse harness.
+#
+# Standalone workspace (the empty [workspace] table below) — DO NOT build this
+# from inside the ruff workspace: resolving the full ruff workspace drags in
+# `ruff_server`'s `lsp-types` git dep, which the agent proxy 403s. Path/git-
+# depping ONLY ruff_ruby_spo + ruff_spo_triplet builds just that subgraph
+# (no ruff_server, no lsp-types).
+#
+# Deps form A (PORTABLE, recommended — what the next session should use):
+#   git deps to AdaWorldAPI/ruff. cargo fetches the ruff repo, resolves the
+#   two crates' `workspace = true` inheritance from ruff's own workspace, and
+#   builds only their subgraph. Verified-equivalent this session via form B.
+#
+# Deps form B (OFFLINE — what was actually run 2026-06-30):
+#   point both at a local ruff checkout that contains the workspace root, e.g.
+#     ruff_ruby_spo    = { path = "/home/user/ruff/crates/ruff_ruby_spo" }
+#     ruff_spo_triplet = { path = "/home/user/ruff/crates/ruff_spo_triplet" }
+#   (or the repo's own vendor/AdaWorldAPI-ruff/crates/* IF ruff_ruby_spo is
+#   vendored there — it carries the ruby frontend; op-codegen uses
+#   ruff_openproject, so confirm the crate is present before using this form.)
+
+[package]
+name = "rails_coverage_harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "rails_coverage_harness"
+path = "src/main.rs"
+
+[dependencies]
+ruff_ruby_spo = { git = "https://github.com/AdaWorldAPI/ruff", branch = "main" }
+ruff_spo_triplet = { git = "https://github.com/AdaWorldAPI/ruff", branch = "main" }
+
+# Isolate from the parent openproject-nexgen-rs workspace.
+[workspace]
