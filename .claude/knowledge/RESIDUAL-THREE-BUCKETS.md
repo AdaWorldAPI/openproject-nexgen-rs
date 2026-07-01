@@ -62,9 +62,9 @@ set with unstable ordering) is B1-then-B2 — normalize first, land second.
 Source: `op-codegen /home/user/openproject` (C9 pipeline, extraction =
 `extract_core_triples`, i.e. `app/models` filtered to the 18 curated
 `CORE_V3_RESOURCES`), measured 2026-07-01. Every `TYPE option<any>` field the
-projection emitted is a residual entry; the emitted DDL also carried 15 of the
-18 tables (`Activity`, `TimeEntry` and one more resource produced no DDL —
-worth a follow-up probe). <!-- MANIFEST:BEGIN -->
+projection emitted is a residual entry; the emitted DDL carried 16 of the 18
+tables — `Activity` and `TimeEntry` produced no DDL (root causes probed and
+pinned in §4b). <!-- MANIFEST:BEGIN -->
 
 *(regenerate with: `cargo run -p op-cli -- <openproject-checkout>` — but see
 §4: the build needs the OGAR git deps reachable, which this session's network
@@ -125,7 +125,61 @@ not random. The true B3 tail for OpenProject core is two interface mints.
    rollup iface (estimated/spent hours). Each mints its interface as a
    *candidate* B2 zone for the Redmine pass.
 
-## 4. Caveats (record honestly)
+## 4. Full-surface B2 survey (measured 2026-07-01, agent sweep)
+
+A sweep of the FULL model surface (`app/models` + `modules/*/app/models`)
+for landing-zone members — the widening §5-caveat anticipated. Result: the
+B2 amortization claim strengthens; **69 zone members** land behind a handful
+of adapters:
+
+| Zone | Members | Anchors |
+|---|---:|---|
+| Acl | 12 | `Role`+STI subtree, `RolePermission`, `Member`/`MemberRole`, `Capability` (tableless allowed-actions carrier), `Users::PermissionChecks` |
+| Locale | 3 | `UserPreference` (serialized settings hash + `method_missing` over `UserPreferences::Schema` — JSON-schema-driven, a *specification* for the DTO adapter) |
+| AuditChain | 17 | `Journal` (pred/succ over `version`), the whole `Journal::*Journal` per-entity family (11 core + 6 module-side), `Changeset`/`Change`, PaperTrail audits |
+| DocLink | 10 | `Attachment` (polymorphic container ref), `Wiki`/`WikiPage`/`WikiRedirect`, `Storages::FileLink` (external-doc ref), `Wikis::PageLink` family |
+| **Session/Token/AuthCredential** (new) | 17 | `Token::Base`/`HashedToken`/`ExpirableToken` STI framework (9 core token kinds + 2FA module tokens), `Sessions::*`, `OAuthClient(Token)`, `OpenIDConnect::UserToken`, `AuthProvider`/`UserAuthProviderLink`/`RemoteIdentity`, `ScimClient` |
+| **Subscription/Watch** (new) | 7 | `Watcher` (polymorphic watchable+user), `Notification` (reason enum), `NotificationSetting`, `Favorite` (same subject+subscriber shape), `ReminderNotification` |
+| **GroupMembership** (new) | 3 | `LdapGroups::Membership`, `LdapDepartments::Membership`, `OpenIDConnect::GroupMembership` — the "external directory group ↔ local user" sync record, distinct from Acl's `Member`/`MemberRole` (no role/permission payload) |
+
+Decisions taken on the survey:
+
+- **Session/Token/AuthCredential is accepted as a zone** — this is the
+  operator's original example ("OGIT auth emits the typical auth, session
+  etc, do it once as a dto adapter") and the measured largest family. The
+  `Token::` STI hierarchy is effectively a ready-made DTO spec.
+- **Subscription/Watch is accepted** — `Watcher`/`Favorite`/`Notification`
+  share one shape: polymorphic subject + subscribing principal +
+  reason/channel.
+- **GroupMembership is accepted as a candidate** (3 members, all
+  module-side) — kept separate from Acl because the payload differs (sync
+  provenance, not permission grant).
+- The zone registry lives in `op-codegen-residual::LandingZone`; the three
+  new zones are registered there with zero manifest rows for now (their
+  members are whole *models*, not core-18 residual fields — they enter the
+  manifest when the pipeline widens to `extract_app_with`).
+
+## 4b. Missing-DDL probe (measured 2026-07-01, agent diagnosis)
+
+Why 2 of the 18 curated `CORE_V3_RESOURCES` emitted no DDL — three distinct
+root causes, all verified against source with file:line evidence. Total
+absence of `DEFINE TABLE` is diagnostic of "no `Model` produced upstream":
+the expander unconditionally emits `rdf:type` per model
+(`ruff_spo_triplet/src/expand.rs:69-75`) and the projection unconditionally
+tables it (`op-codegen-projection/src/lib.rs:233-249`), so the projection
+layer never swallows a model.
+
+| Resource | Root cause | Fix category (owner) |
+|---|---|---|
+| `Activity` | **No AR class exists** — only `module Projects::Activity` (mixin), `Activities::Event` (a Struct), and `*ActivityProvider` classes. The curated entry names an API-v3 *aggregate resource*, not a model. | Curated-list rethink (ruff session): drop the entry or model the provider classes. |
+| `TimeEntry` | **Extractor-walk gap** — real class at `modules/costs/app/models/time_entry.rb:31`, but `ruff_ruby_spo::parse::parse_models` walks only `<root>/app/models` (`parse.rs:64-68`); engine model dirs (`modules/*/app/models`) are invisible. | Extractor-walk widening (ruff session) — the same gap hides ~half of OpenProject's domain (cf. coverage kit §3's `extract_app_with`). |
+| `Priority` | **Name mismatch in the current vendored filter** — the real class is `IssuePriority < Enumeration` (`app/models/issue_priority.rb:31`); `filter_to_core` exact-matches `"Priority"` (`ruff_openproject/src/lib.rs:100`), which silently drops it. NOTE: the measured 2026-07-01 run *did* emit `DEFINE TABLE Priority` — that run used the pre-recycle pipeline build, which evidently differed here; with the currently-vendored code the table count would be 15, not 16. | Curated-list rename `Priority` → `IssuePriority` (one string, `ruff_openproject/src/lib.rs:67`; upstream-owned, so recorded rather than patched in the vendor mirror). |
+
+Both actionable fixes are **upstream-owned** (`AdaWorldAPI/ruff`): patching
+the vendor mirror here would silently drift from the emitter session's
+source of truth, so they are pinned as the handoff instead.
+
+## 5. Caveats (record honestly)
 
 - The manifest covers the **curated 18-resource core** (`CORE_V3_RESOURCES`,
   `app/models` only). OpenProject keeps ~half its domain in `modules/*` —

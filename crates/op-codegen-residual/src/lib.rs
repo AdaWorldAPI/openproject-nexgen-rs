@@ -59,23 +59,69 @@ pub enum Bucket {
     B3Manual,
 }
 
-/// The B2 ontological landing zones the core residual needs — one DTO
-/// adapter each. Names are ontology *families*; the content-addressable
-/// concept ids are minted OGAR-side (RESERVE-DON'T-RECLAIM), and this enum
-/// carries only the repo-local handle.
+/// The B2 ontological landing zones — one DTO adapter each. Names are
+/// ontology *families*; the content-addressable concept ids are minted
+/// OGAR-side (RESERVE-DON'T-RECLAIM), and this enum carries only the
+/// repo-local handle.
+///
+/// This enum is the repo-local **zone registry**. The first four zones
+/// carry rows in [`RESIDUAL_MANIFEST`] (core-18 residual fields); the last
+/// three were established by the 2026-07-01 full-surface survey
+/// (RESIDUAL-THREE-BUCKETS.md §4) — their members are whole *models*
+/// (`app/models` + `modules/*/app/models`), which enter the manifest when
+/// the pipeline widens to `extract_app_with`. Registering them now pins the
+/// zone names before adapters exist (append-only, like concept ids).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LandingZone {
     /// Authorization / permission sets (OGIT-auth family):
     /// `allowed_actions`, `allowed_permissions`, and normalized value sets.
-    /// Consumed by the `apply mask` verb.
+    /// Consumed by the `apply mask` verb. Survey: 12 members
+    /// (`Role`+STI subtree, `RolePermission`, `Member`/`MemberRole`,
+    /// `Capability`, …).
     Acl,
-    /// Locale / timezone / user-preference surface.
+    /// Locale / timezone / user-preference surface. Survey: 3 members —
+    /// `UserPreference`'s serialized settings hash is schema-driven
+    /// (`UserPreferences::Schema`), i.e. the DTO adapter has a ready spec.
     Locale,
     /// Audit / revision chain (temporal linked list):
-    /// `Journal.predecessor` / `Journal.successor`.
+    /// `Journal.predecessor` / `Journal.successor`. Survey: 17 members
+    /// (the `Journal::*Journal` per-entity family, `Changeset`/`Change`,
+    /// PaperTrail audits).
     AuditChain,
-    /// Cross-domain document reference: `Version.wiki_page`.
+    /// Cross-domain document reference: `Version.wiki_page`. Survey: 10
+    /// members (`Attachment`, wiki family, `Storages::FileLink`).
     DocLink,
+    /// Session / token / auth-credential family — the operator's original
+    /// B2 example ("OGIT auth emits the typical auth, session etc").
+    /// Survey: 17 members; `Token::Base`/`HashedToken`/`ExpirableToken` is
+    /// already a clean STI framework, effectively a ready-made DTO spec.
+    /// No manifest rows yet (models live outside the core-18 field set).
+    Session,
+    /// Subscription / watch family: polymorphic subject + subscribing
+    /// principal + reason/channel. Survey: 7 members (`Watcher`,
+    /// `Notification`, `NotificationSetting`, `Favorite`, …). No manifest
+    /// rows yet.
+    Subscription,
+    /// External-directory group sync record ("external group ↔ local
+    /// user"), distinct from [`LandingZone::Acl`]'s `Member`/`MemberRole`
+    /// (no role/permission payload). Survey: 3 members (LDAP groups/
+    /// departments, OIDC group membership). No manifest rows yet.
+    GroupMembership,
+}
+
+impl LandingZone {
+    /// Every registered zone, in registration order (append-only — new
+    /// zones go at the end, existing positions never change, mirroring
+    /// RESERVE-DON'T-RECLAIM for the OGAR-side concept ids these map to).
+    pub const REGISTRY: [LandingZone; 7] = [
+        LandingZone::Acl,
+        LandingZone::Locale,
+        LandingZone::AuditChain,
+        LandingZone::DocLink,
+        LandingZone::Session,
+        LandingZone::Subscription,
+        LandingZone::GroupMembership,
+    ];
 }
 
 /// The B3 interface mints the core residual requires. Each is a *candidate*
@@ -344,6 +390,34 @@ mod tests {
         mints.sort_by_key(|m| format!("{m:?}"));
         mints.dedup();
         assert_eq!(mints.len(), 2);
+    }
+
+    /// Every zone a manifest row lands on is registered, and the registry
+    /// carries the three survey-established zones ahead of their manifest
+    /// rows (they arrive with the `extract_app_with` widening).
+    #[test]
+    fn manifest_zones_are_registered() {
+        assert_eq!(LandingZone::REGISTRY.len(), 7);
+        for e in RESIDUAL_MANIFEST {
+            if let Some(z) = e.zone {
+                assert!(
+                    LandingZone::REGISTRY.contains(&z),
+                    "{}.{} lands on unregistered zone {z:?}",
+                    e.model,
+                    e.field
+                );
+            }
+        }
+        for z in [
+            LandingZone::Session,
+            LandingZone::Subscription,
+            LandingZone::GroupMembership,
+        ] {
+            assert!(
+                !RESIDUAL_MANIFEST.iter().any(|e| e.zone == Some(z)),
+                "{z:?} unexpectedly gained manifest rows — update this test and the doc"
+            );
+        }
     }
 
     /// Structural invariants: mints only on B3 rows; every B3 row mints;
