@@ -157,6 +157,21 @@ impl Snapshot {
             .iter()
             .find(|c| c.curator_classes.iter().any(|n| n == curator_class))
     }
+
+    /// Reverse lookup by codebook id: the full [`Concept`] record whose
+    /// `class_id` equals `id` (`0x0102` → the `project_work_item` concept,
+    /// with its curator classes + wire bytes).
+    ///
+    /// Complements [`crate::app::canonical_concept_name`] (which returns only
+    /// the name, via the OGAR reverse map): this returns the whole snapshot
+    /// record — curator classes, `class_id_le` — that the name-only map
+    /// cannot. Snapshot-backed, so it covers exactly the OpenProject promoted
+    /// concepts, and the name it carries agrees with the OGAR map (pinned by
+    /// [`crate::app::tests::canonical_concept_name_agrees_with_the_snapshot`]).
+    #[must_use]
+    pub fn concept_by_class_id(&self, id: u16) -> Option<&Concept> {
+        self.concepts.iter().find(|c| c.class_id_u16() == id)
+    }
 }
 
 #[cfg(test)]
@@ -199,6 +214,30 @@ mod tests {
             // The hex string and the LE bytes agree.
             assert_eq!(format!("0x{:04X}", c.class_id_u16()), c.class_id);
         }
+    }
+
+    #[test]
+    fn concept_by_class_id_finds_the_full_record_and_round_trips() {
+        let s = Snapshot::load();
+        // Known id → the project_work_item concept, with its curator classes.
+        let wp = s
+            .concept_by_class_id(class_ids::PROJECT_WORK_ITEM)
+            .expect("0x0102 is a promoted OpenProject concept");
+        assert_eq!(wp.canonical_concept, "project_work_item");
+        assert!(
+            wp.curator_classes.iter().any(|c| c == "WorkPackage"),
+            "expected WorkPackage among curator classes, saw {:?}",
+            wp.curator_classes,
+        );
+        // Every concept round-trips: look up by its own id, get the same record.
+        for c in &s.concepts {
+            let found = s
+                .concept_by_class_id(c.class_id_u16())
+                .expect("a concept's own id must resolve");
+            assert_eq!(found.canonical_concept, c.canonical_concept);
+        }
+        // Unknown id → None (not a panic).
+        assert!(s.concept_by_class_id(0xFFFF).is_none());
     }
 
     #[test]
