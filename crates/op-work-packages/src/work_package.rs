@@ -65,8 +65,10 @@ pub struct WorkPackage {
     pub type_id: Id,
     /// Status FK (New / In progress / Closed / …).
     pub status_id: Id,
-    /// Priority FK (Low / Normal / High / …).
-    pub priority_id: Id,
+    /// Priority FK (Low / Normal / High / …). Optional — the OpenProject
+    /// column is nullable (`op-db` carries `Option<i64>`), so a work package
+    /// may legitimately have no explicit priority.
+    pub priority_id: Option<Id>,
     /// Author FK — who created the WP.
     pub author_id: Id,
     /// Assignee FK — who is working on it (optional).
@@ -92,15 +94,16 @@ pub struct WorkPackage {
 }
 
 impl WorkPackage {
-    /// Create a new (unpersisted) work package from its required attributes.
-    /// Timestamps are stamped now; optional fields default to empty / `None`;
-    /// `done_ratio` starts at `0` and `lock_version` at `0`.
+    /// Create a new (unpersisted) work package from its required (NOT NULL)
+    /// attributes. Timestamps are stamped now; optional fields — including
+    /// `priority_id` (nullable in OpenProject) — default to empty / `None`;
+    /// `done_ratio` starts at `0` and `lock_version` at `0`. Attach an
+    /// explicit priority with [`WorkPackage::with_priority`].
     pub fn new(
         subject: impl Into<String>,
         project_id: Id,
         type_id: Id,
         status_id: Id,
-        priority_id: Id,
         author_id: Id,
     ) -> Self {
         let now = Utc::now();
@@ -111,7 +114,7 @@ impl WorkPackage {
             project_id,
             type_id,
             status_id,
-            priority_id,
+            priority_id: None,
             author_id,
             assigned_to_id: None,
             responsible_id: None,
@@ -135,6 +138,12 @@ impl WorkPackage {
     /// Assign the WP to a user.
     pub fn with_assignee(mut self, user_id: Id) -> Self {
         self.assigned_to_id = Some(user_id);
+        self
+    }
+
+    /// Attach an explicit priority (the column is otherwise nullable).
+    pub fn with_priority(mut self, priority_id: Id) -> Self {
+        self.priority_id = Some(priority_id);
         self
     }
 
@@ -173,10 +182,16 @@ impl WorkPackage {
     }
 
     /// Overdue relative to `today`: a due date strictly in the past **and**
-    /// not yet complete. A WP with no due date, or one already done, is never
-    /// overdue.
-    pub fn is_overdue(&self, today: NaiveDate) -> bool {
-        self.due_date.is_some_and(|due| due < today) && !self.is_complete()
+    /// the work package still **open**.
+    ///
+    /// Openness is a property of the *status* record (OpenProject's
+    /// `Status.is_closed`), **not** of `done_ratio` — a closed status can sit
+    /// below 100%, and an open one can reach it — so the caller supplies
+    /// `status_is_closed` rather than the helper inferring it from progress.
+    /// This matches `op-queries`' overdue scope (`overdue().open()`). A WP with
+    /// no due date, or a closed one, is never overdue.
+    pub fn is_overdue(&self, today: NaiveDate, status_is_closed: bool) -> bool {
+        !status_is_closed && self.due_date.is_some_and(|due| due < today)
     }
 }
 
@@ -217,8 +232,8 @@ mod tests {
     use super::*;
 
     fn sample() -> WorkPackage {
-        // subject, project, type, status, priority, author
-        WorkPackage::new("Fix the thing", 1, 2, 3, 4, 10)
+        // subject, project, type, status, author (priority is optional)
+        WorkPackage::new("Fix the thing", 1, 2, 3, 10)
     }
 
     #[test]
@@ -228,8 +243,9 @@ mod tests {
         assert_eq!(wp.project_id, 1);
         assert_eq!(wp.type_id, 2);
         assert_eq!(wp.status_id, 3);
-        assert_eq!(wp.priority_id, 4);
         assert_eq!(wp.author_id, 10);
+        // Priority is nullable and unset by `new` (matches op-db Option<i64>).
+        assert!(wp.priority_id.is_none());
         // Unpersisted, no optional relations, zero progress, lock 0.
         assert!(wp.id.is_none());
         assert!(!wp.is_child());
@@ -255,38 +271,45 @@ mod tests {
         let wp = sample()
             .with_assignee(20)
             .with_parent(7)
+            .with_priority(5)
             .with_done_ratio(150u8) // clamps to 100
             .with_description(Formattable::plain("body"));
         assert_eq!(wp.assigned_to_id, Some(20));
         assert!(wp.has_assignee());
         assert_eq!(wp.parent_id, Some(7));
         assert!(wp.is_child());
+        assert_eq!(wp.priority_id, Some(5), "with_priority sets the FK");
         assert!(wp.is_complete(), "done_ratio clamped to 100 → complete");
         assert_eq!(wp.description.raw, "body");
     }
 
     #[test]
-    fn is_overdue_only_when_past_due_and_incomplete() {
+    fn is_overdue_keys_off_open_status_not_done_ratio() {
         let today = NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
         let yesterday = NaiveDate::from_ymd_opt(2026, 6, 30).unwrap();
         let tomorrow = NaiveDate::from_ymd_opt(2026, 7, 2).unwrap();
+        const OPEN: bool = false; // status_is_closed = false
+        const CLOSED: bool = true;
 
-        // Past due + incomplete → overdue.
-        let overdue = sample().with_dates(None, Some(yesterday));
-        assert!(overdue.is_overdue(today));
+        let past_due = sample().with_dates(None, Some(yesterday));
+        // Open + past due → overdue.
+        assert!(past_due.is_overdue(today, OPEN));
+        // Closed + past due → NOT overdue (even though done_ratio is 0 < 100).
+        assert!(!past_due.is_overdue(today, CLOSED));
 
-        // Past due but complete → NOT overdue.
-        let done = sample()
+        // Completion no longer gates it: an OPEN, past-due WP at 100% is still
+        // overdue — only the status closes it out (the bug this PR fixes).
+        let done_but_open = sample()
             .with_dates(None, Some(yesterday))
             .with_done_ratio(100u8);
-        assert!(!done.is_overdue(today));
+        assert!(done_but_open.is_overdue(today, OPEN));
 
-        // Future due → NOT overdue.
+        // Future due → NOT overdue regardless of status.
         let future = sample().with_dates(None, Some(tomorrow));
-        assert!(!future.is_overdue(today));
+        assert!(!future.is_overdue(today, OPEN));
 
         // No due date → never overdue.
-        assert!(!sample().is_overdue(today));
+        assert!(!sample().is_overdue(today, OPEN));
     }
 
     #[test]
