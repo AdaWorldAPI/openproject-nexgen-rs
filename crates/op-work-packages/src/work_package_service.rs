@@ -13,12 +13,13 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
+use chrono::Utc;
 use op_core::traits::Id;
 use op_core::types::Formattable;
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::work_package::WorkPackage;
+use crate::work_package::{DoneRatio, WorkPackage};
 
 /// Work package service errors.
 #[derive(Debug, Error)]
@@ -29,6 +30,15 @@ pub enum WorkPackageError {
     /// The write-model failed validation (e.g. blank subject).
     #[error("validation failed: {0}")]
     Validation(String),
+    /// Optimistic-lock conflict — the caller's expected `lock_version` is
+    /// stale (someone else updated the row first).
+    #[error("version conflict: expected {expected}, found {actual}")]
+    Conflict {
+        /// The `lock_version` the caller believed was current.
+        expected: i32,
+        /// The `lock_version` actually stored.
+        actual: i32,
+    },
     /// The underlying store failed.
     #[error("database error: {0}")]
     Database(String),
@@ -110,6 +120,66 @@ impl NewWorkPackage {
     }
 }
 
+/// Update write-model — a sparse patch of the mutable attributes. Each `Some`
+/// field is applied; `None` leaves the current value untouched.
+///
+/// Un-setting a nullable FK back to `NULL` (e.g. clearing an assignee) is a
+/// deliberate follow-up — this shape only *sets* values, matching the common
+/// PATCH case; the `None`-means-"no change" convention can't also express
+/// "change to null" without an `Option<Option<_>>`, which lands later.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct UpdateWorkPackage {
+    /// New subject (must stay non-blank — validated on apply).
+    #[serde(default)]
+    pub subject: Option<String>,
+    /// New description (markdown source).
+    #[serde(default)]
+    pub description: Option<String>,
+    /// New type FK.
+    #[serde(default)]
+    pub type_id: Option<Id>,
+    /// New status FK.
+    #[serde(default)]
+    pub status_id: Option<Id>,
+    /// New priority FK.
+    #[serde(default)]
+    pub priority_id: Option<Id>,
+    /// New assignee FK.
+    #[serde(default)]
+    pub assigned_to_id: Option<Id>,
+    /// New progress `0..=100` (clamped).
+    #[serde(default)]
+    pub done_ratio: Option<u8>,
+}
+
+impl UpdateWorkPackage {
+    /// Apply the set (`Some`) fields onto `wp`, leaving `None` fields as-is.
+    /// Does not touch `lock_version` / timestamps — the service owns those.
+    fn apply_to(&self, wp: &mut WorkPackage) {
+        if let Some(subject) = &self.subject {
+            wp.subject = subject.clone();
+        }
+        if let Some(body) = &self.description {
+            wp.description = Formattable::markdown(body.clone());
+        }
+        if let Some(type_id) = self.type_id {
+            wp.type_id = type_id;
+        }
+        if let Some(status_id) = self.status_id {
+            wp.status_id = status_id;
+        }
+        if let Some(priority_id) = self.priority_id {
+            wp.priority_id = Some(priority_id);
+        }
+        if let Some(assigned_to_id) = self.assigned_to_id {
+            wp.assigned_to_id = Some(assigned_to_id);
+        }
+        if let Some(done_ratio) = self.done_ratio {
+            wp.done_ratio = DoneRatio::new(done_ratio);
+        }
+    }
+}
+
 /// Persistence port for work packages (mirrors OpenProject's repository).
 #[async_trait]
 pub trait WorkPackageStore: Send + Sync {
@@ -117,6 +187,8 @@ pub trait WorkPackageStore: Send + Sync {
     async fn insert(&self, wp: &WorkPackage) -> WorkPackageResult<Id>;
     /// Fetch by id.
     async fn get(&self, id: Id) -> WorkPackageResult<Option<WorkPackage>>;
+    /// Persist changes to an existing work package (matched by `wp.id`).
+    async fn update(&self, wp: &WorkPackage) -> WorkPackageResult<()>;
     /// All work packages in a project.
     async fn list_for_project(&self, project_id: Id) -> WorkPackageResult<Vec<WorkPackage>>;
 }
@@ -163,6 +235,43 @@ impl WorkPackageService {
             .get(id)
             .await?
             .ok_or(WorkPackageError::NotFound(id))
+    }
+
+    /// Apply a sparse update with **optimistic locking**.
+    /// `expected_lock_version` must equal the stored row's `lock_version`,
+    /// otherwise [`WorkPackageError::Conflict`] (someone else wrote first). On
+    /// success the patch is applied, `lock_version` is bumped, `updated_at`
+    /// refreshed, and the row persisted; the updated entity is returned.
+    ///
+    /// # Errors
+    ///
+    /// [`WorkPackageError::NotFound`] if `id` is absent;
+    /// [`WorkPackageError::Conflict`] on a stale `expected_lock_version`;
+    /// [`WorkPackageError::Validation`] if the patch would blank the subject;
+    /// [`WorkPackageError::Database`] on store failure.
+    pub async fn update(
+        &self,
+        id: Id,
+        expected_lock_version: i32,
+        changes: UpdateWorkPackage,
+    ) -> WorkPackageResult<WorkPackage> {
+        let mut wp = self.find(id).await?;
+        if wp.lock_version != expected_lock_version {
+            return Err(WorkPackageError::Conflict {
+                expected: expected_lock_version,
+                actual: wp.lock_version,
+            });
+        }
+        changes.apply_to(&mut wp);
+        if wp.subject.trim().is_empty() {
+            return Err(WorkPackageError::Validation(
+                "subject can't be blank".to_string(),
+            ));
+        }
+        wp.lock_version += 1;
+        wp.updated_at = Utc::now();
+        self.store.update(&wp).await?;
+        Ok(wp)
     }
 
     /// All work packages in a project.
@@ -216,6 +325,19 @@ impl WorkPackageStore for MemoryWorkPackageStore {
             .read()
             .map_err(|e| WorkPackageError::Database(e.to_string()))?;
         Ok(rows.iter().find(|wp| wp.id == Some(id)).cloned())
+    }
+
+    async fn update(&self, wp: &WorkPackage) -> WorkPackageResult<()> {
+        let mut rows = self
+            .rows
+            .write()
+            .map_err(|e| WorkPackageError::Database(e.to_string()))?;
+        let slot = rows
+            .iter_mut()
+            .find(|existing| existing.id == wp.id)
+            .ok_or(WorkPackageError::NotFound(wp.id.unwrap_or(0)))?;
+        *slot = wp.clone();
+        Ok(())
     }
 
     async fn list_for_project(&self, project_id: Id) -> WorkPackageResult<Vec<WorkPackage>> {
@@ -320,5 +442,96 @@ mod tests {
         let wp = nwp.to_work_package();
         assert!(wp.id.is_none());
         assert_eq!(wp.status_id, 3);
+    }
+
+    #[tokio::test]
+    async fn update_applies_changes_and_bumps_lock_version() {
+        let svc = service();
+        let created = svc.create(input()).await.unwrap();
+        let id = created.id.unwrap();
+        assert_eq!(created.lock_version, 0);
+
+        let changes = UpdateWorkPackage {
+            subject: Some("Renamed".to_string()),
+            status_id: Some(9),
+            done_ratio: Some(150), // clamps to 100
+            ..Default::default()
+        };
+        let updated = svc.update(id, 0, changes).await.unwrap();
+        assert_eq!(updated.subject, "Renamed");
+        assert_eq!(updated.status_id, 9);
+        assert_eq!(updated.done_ratio.value(), 100);
+        assert_eq!(updated.lock_version, 1, "lock_version bumps on update");
+        // Persisted: a re-read sees the new state + version.
+        let reread = svc.find(id).await.unwrap();
+        assert_eq!(reread.subject, "Renamed");
+        assert_eq!(reread.lock_version, 1);
+    }
+
+    #[tokio::test]
+    async fn update_rejects_stale_lock_version_as_conflict() {
+        let svc = service();
+        let id = svc.create(input()).await.unwrap().id.unwrap();
+        // First update at version 0 → now version 1.
+        svc.update(
+            id,
+            0,
+            UpdateWorkPackage {
+                subject: Some("v1".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        // Second update still claiming version 0 → conflict (actual is 1).
+        let err = svc
+            .update(
+                id,
+                0,
+                UpdateWorkPackage {
+                    subject: Some("v2".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                WorkPackageError::Conflict {
+                    expected: 0,
+                    actual: 1
+                }
+            ),
+            "stale version → Conflict, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn update_unknown_id_is_not_found() {
+        let svc = service();
+        let err = svc
+            .update(999, 0, UpdateWorkPackage::default())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, WorkPackageError::NotFound(999)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn update_rejects_blanking_the_subject() {
+        let svc = service();
+        let id = svc.create(input()).await.unwrap().id.unwrap();
+        let err = svc
+            .update(
+                id,
+                0,
+                UpdateWorkPackage {
+                    subject: Some("   ".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, WorkPackageError::Validation(_)), "{err:?}");
     }
 }
