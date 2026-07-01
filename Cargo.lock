@@ -1807,7 +1807,10 @@ dependencies = [
 name = "op-work-packages"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "op-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
