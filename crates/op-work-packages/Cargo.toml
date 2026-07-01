@@ -9,6 +9,9 @@ op-core = { path = "../op-core" }
 
 serde.workspace = true
 chrono.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+tokio.workspace = true

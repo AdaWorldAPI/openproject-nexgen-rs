@@ -1807,10 +1807,13 @@ dependencies = [
 name = "op-work-packages"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "op-core",
  "serde",
  "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
