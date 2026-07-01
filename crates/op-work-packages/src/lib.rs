@@ -13,6 +13,6 @@ pub mod work_package_service;
 
 pub use work_package::{DoneRatio, WorkPackage};
 pub use work_package_service::{
-    MemoryWorkPackageStore, NewWorkPackage, WorkPackageError, WorkPackageResult,
+    MemoryWorkPackageStore, NewWorkPackage, UpdateWorkPackage, WorkPackageError, WorkPackageResult,
     WorkPackageService, WorkPackageStore,
 };
