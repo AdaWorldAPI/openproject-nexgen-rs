@@ -2,6 +2,13 @@
 name = "op-work-packages"
 version.workspace = true
 edition.workspace = true
+description = "Work package model + services for OpenProject RS"
 
 [dependencies]
 op-core = { path = "../op-core" }
+
+serde.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
