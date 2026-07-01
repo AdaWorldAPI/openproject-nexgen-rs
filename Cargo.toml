@@ -33,6 +33,13 @@ members = [
 exclude = [
     "vendor/AdaWorldAPI-ruff",
     "vendor/AdaWorldAPI-lance-graph",
+    # Standalone on purpose: dependency-free doctrine data + B1 blade that
+    # must build in sessions whose network scope 403s the OGAR/lance-graph
+    # git deps (workspace membership forces resolving ALL members' git deps,
+    # even for `cargo build -p`). Promote to a member once the OGAR crates
+    # are path-vendored like the two mirrors above. Build/test it from its
+    # own directory: `cd crates/op-codegen-residual && cargo test`.
+    "crates/op-codegen-residual",
 ]
 
 [workspace.package]

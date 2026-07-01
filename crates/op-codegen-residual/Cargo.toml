@@ -1,0 +1,25 @@
+# Standalone workspace (empty table): excluded from the nexgen root
+# workspace so it builds in sessions that cannot reach the OGAR /
+# lance-graph git deps other members pull (see root Cargo.toml `exclude`).
+# Field values mirror [workspace.package]; promote to `*.workspace = true`
+# inheritance when the crate becomes a member.
+[workspace]
+
+[package]
+name = "op-codegen-residual"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+authors = ["OpenProject RS Contributors"]
+license = "GPL-3.0"
+repository = "https://github.com/example/openproject-rs"
+description = "OpenProject codegen residual — the three-buckets doctrine (B1 fuzzy / B2 landing-zone / B3 manual) as typed data + the B1 canonicalize blade. Machine-readable counterpart of .claude/knowledge/RESIDUAL-THREE-BUCKETS.md; dependency-free so it builds without the OGAR git deps."
+
+[lib]
+name = "op_codegen_residual"
+
+[dependencies]
+# Deliberately empty. This crate is the one piece of the codegen stack that
+# must build in sessions whose network scope cannot reach the OGAR /
+# lance-graph git deps (see RESIDUAL-THREE-BUCKETS.md §4). The projection
+# consumes it; it consumes nothing.

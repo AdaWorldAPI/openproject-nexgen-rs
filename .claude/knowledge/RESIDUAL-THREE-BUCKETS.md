@@ -101,6 +101,14 @@ doc-link), ~5× B3 (behind ~2 interfaces: `ProgressDerivation`, version
 rollups). The residual is **B1/B2-heavy** — most of the 28% is *anticipated*,
 not random. The true B3 tail for OpenProject core is two interface mints.
 
+> **Machine-readable form:** `crates/op-codegen-residual` carries this
+> manifest as typed data (`RESIDUAL_MANIFEST` + `lookup`) plus the B1 blade
+> (`canonicalize`) and the membership gate (`order_free_eq`), with the §2
+> composition pinned by tests. It is a **standalone workspace** (dep-free) so
+> it builds even where the OGAR git deps 403 — build it from its own dir:
+> `cd crates/op-codegen-residual && cargo test`. Promote it to a workspace
+> member once OGAR is vendored.
+
 ## 3. What each bucket costs (build order)
 
 1. **B1 normalizer** (cheapest, unblocks the most): one deterministic
