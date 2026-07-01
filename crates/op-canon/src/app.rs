@@ -49,6 +49,9 @@
 //!   — the inverse decomposition (`0x0001_DDCC` → prefix + concept), so a render
 //!   classid round-trips entirely on this crate's surface without reaching into
 //!   `ogar_vocab::app`.
+//! - [`canonical_concept_name`] re-exports `ogar_vocab::canonical_concept_name`
+//!   — the reverse codebook map (shared concept id → canonical name), the
+//!   inverse of [`class_id_of`] at the concept level.
 //!
 //! Same discipline as [`crate::class_ids`] (which re-exports
 //! `ogar_vocab::class_ids::*`): the canonical layer mints; this crate
@@ -148,6 +151,33 @@ pub fn app_of(classid: u32) -> u16 {
 #[must_use]
 pub fn concept_of(classid: u32) -> u16 {
     ogar_vocab::app::concept_of(classid)
+}
+
+/// Reverse of [`class_id_of`] at the concept level: a shared canonical
+/// **concept id** (the low u16 / port-pull currency) → its canonical
+/// concept **name** (e.g. `project_work_item`). `None` for an id the
+/// codebook does not carry.
+///
+/// Re-export of `ogar_vocab::canonical_concept_name` (OGAR PR #98) — the
+/// central reverse map, same one-source-of-truth discipline as the forward
+/// resolvers. It returns the **shared** canonical name, not the OpenProject
+/// surface name: `class_id_of("WorkPackage")` and Redmine's `Issue` both map
+/// back to `project_work_item`.
+///
+/// ```
+/// use op_canon::{app, class_ids};
+/// assert_eq!(
+///     app::canonical_concept_name(class_ids::PROJECT_WORK_ITEM),
+///     Some("project_work_item"),
+/// );
+/// // Round-trip with class_id_of through the shared concept id:
+/// let id = app::class_id_of("WorkPackage").unwrap();
+/// assert_eq!(app::canonical_concept_name(id), Some("project_work_item"));
+/// assert_eq!(app::canonical_concept_name(0xFFFF), None);
+/// ```
+#[must_use]
+pub fn canonical_concept_name(concept: u16) -> Option<&'static str> {
+    ogar_vocab::canonical_concept_name(concept)
 }
 
 #[cfg(test)]
@@ -267,6 +297,44 @@ mod tests {
         assert_eq!(concept_of(cid), ogar_vocab::app::concept_of(cid));
         // And the full decomposition reconstructs the classid bit-for-bit.
         assert_eq!(((app_of(cid) as u32) << 16) | (concept_of(cid) as u32), cid,);
+    }
+
+    #[test]
+    fn canonical_concept_name_reverses_class_id_of() {
+        // Forward: surface name -> shared concept id. Reverse: shared concept
+        // id -> canonical concept name. The reverse yields the SHARED name, not
+        // the OpenProject surface name (WorkPackage and Redmine's Issue both
+        // land on `project_work_item`).
+        let id = class_id_of("WorkPackage").expect("WorkPackage resolves");
+        assert_eq!(canonical_concept_name(id), Some("project_work_item"));
+        assert_eq!(canonical_concept_name(class_ids::PROJECT), Some("project"));
+        // Unknown ids resolve to None, not a panic.
+        assert_eq!(canonical_concept_name(0xFFFF), None);
+    }
+
+    #[test]
+    fn canonical_concept_name_agrees_with_the_snapshot() {
+        // The re-export is OGAR's central reverse map; every snapshot concept
+        // whose id the map resolves must round-trip to the snapshot's own
+        // canonical_concept name (the checked-mirror discipline). Coverage is
+        // asserted too, so it isn't a vacuous pass.
+        let s = Snapshot::load();
+        let mut checked = 0u32;
+        for concept in &s.concepts {
+            if let Some(name) = canonical_concept_name(concept.class_id_u16()) {
+                assert_eq!(
+                    name,
+                    concept.canonical_concept.as_str(),
+                    "reverse map disagrees with snapshot for 0x{:04X}",
+                    concept.class_id_u16(),
+                );
+                checked += 1;
+            }
+        }
+        assert!(
+            checked >= 20,
+            "expected the reverse map to cover most snapshot concepts, only matched {checked}",
+        );
     }
 
     #[test]
