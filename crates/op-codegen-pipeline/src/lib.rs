@@ -77,9 +77,25 @@ pub fn bridge_triples(triples: &[RuffTriple]) -> Vec<SpineTriple> {
 pub fn extract_core_triples_with_schema(
     rails_root: &std::path::Path,
 ) -> (Vec<RuffTriple>, ruff_ruby_spo::SchemaReport) {
+    let (triples, report, _) = extract_core_triples_with_schema_and_targets(rails_root);
+    (triples, report)
+}
+
+/// [`extract_core_triples_with_schema`] plus the FULL extracted
+/// model-name set (pre-filter). The filter-before-snapshot fix: the
+/// curated core filter bounds *emission*, but FK typing needs
+/// *knowledge* of every model the app declares — `assigned_to →
+/// Principal` should type as `record<Principal>` even though Principal
+/// isn't curated. Callers pass the third element to
+/// [`op_surreal_ast::from_triples::triples_to_schema_with_targets`].
+#[must_use]
+pub fn extract_core_triples_with_schema_and_targets(
+    rails_root: &std::path::Path,
+) -> (Vec<RuffTriple>, ruff_ruby_spo::SchemaReport, Vec<String>) {
     let (mut graph, report) = ruff_ruby_spo::extract_app_with_schema(rails_root, NAMESPACE);
+    let all_models: Vec<String> = graph.models.iter().map(|m| m.name.clone()).collect();
     filter_to_core(&mut graph);
-    (ruff_spo_triplet::expand(&graph), report)
+    (ruff_spo_triplet::expand(&graph), report, all_models)
 }
 
 /// The typed render path ("compiled, not parsed" direction): triples →
@@ -92,9 +108,9 @@ pub fn extract_core_triples_with_schema(
 #[must_use]
 pub fn render_typed_surreal(rails_root: &std::path::Path) -> String {
     use op_surreal_ast::ToSql;
-    let (triples, report) = extract_core_triples_with_schema(rails_root);
+    let (triples, report, all_models) = extract_core_triples_with_schema_and_targets(rails_root);
     let spine = bridge_triples(&triples);
-    let schema = op_surreal_ast::from_triples::triples_to_schema(&spine);
+    let schema = op_surreal_ast::from_triples::triples_to_schema_with_targets(&spine, &all_models);
     let mut out = schema.to_sql();
     // Conservation trailer: the artifact accounts for what it covers.
     out.push_str(&format!(

@@ -56,6 +56,26 @@ use crate::{FieldDefinition, IndexDefinition, Kind, Schema, TableDefinition};
 /// Idempotent for duplicate triples (de-duplicated by `(s, p, o)`).
 #[must_use]
 pub fn triples_to_schema(triples: &[Triple]) -> Schema {
+    triples_to_schema_with_targets(triples, &[])
+}
+
+/// [`triples_to_schema`] with **extra known FK targets** beyond the
+/// tables declared in the triple stream itself.
+///
+/// Why this exists (the filter-before-snapshot fix): a pipeline that
+/// curates its emission set (e.g. `CORE_V3_RESOURCES`) filters models
+/// BEFORE expansion, so `belongs_to :assigned_to → Principal` finds no
+/// `Principal` table in the stream and the phantom-guard degrades the
+/// FK to `any` — the curated list was bounding *knowledge*, not just
+/// emission. Passing the FULL extracted model-name set here restores
+/// the knowledge: FKs to any name in `extra_targets` type as
+/// `record<Target>`, and each referenced-but-undeclared target is
+/// emitted as a **stub table** (bare `DEFINE TABLE` + a comment) so
+/// the record links never dangle. Stubs are real tables in the DDL —
+/// callers that account for their artifacts should name them (the
+/// pipeline's conservation trailer does).
+#[must_use]
+pub fn triples_to_schema_with_targets(triples: &[Triple], extra_targets: &[String]) -> Schema {
     // Group declarations by table IRI (the subject of an
     // `rdf:type` / `has_attribute` / `declares_association` triple).
     // Two-pass to avoid phantom tables: pass 1 finds every subject with
@@ -82,7 +102,14 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
     // polymorphic: true`) name a non-existent class; this set lets us
     // fall back to `option<any>` instead of inventing a phantom
     // `record<Ownable>`.
-    let known_targets: std::collections::HashSet<String> =
+    let mut known_targets: std::collections::HashSet<String> =
+        tables.values().map(|tb| tb.name.clone()).collect();
+    known_targets.extend(extra_targets.iter().cloned());
+    // Targets referenced via `belongs_to` that are known (in
+    // `extra_targets`) but not declared in the stream — they become
+    // stub tables at the end so `record<Target>` links resolve.
+    let mut stub_targets: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let declared: std::collections::HashSet<String> =
         tables.values().map(|tb| tb.name.clone()).collect();
 
     // Pre-collect `association_kind` triples (ruff#15) into a map from
@@ -341,6 +368,12 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                     // the Rails-default nullable `option<…>`.
                     let fk_iri = format!("{table_iri}.{field_name}");
                     let base = if known_targets.contains(&target) {
+                        if !declared.contains(&target) {
+                            // Known via extra_targets but not declared in
+                            // the stream — schedule a stub table so the
+                            // record link resolves.
+                            stub_targets.insert(target.clone());
+                        }
                         Kind::Record(vec![target])
                     } else {
                         Kind::Any
@@ -608,6 +641,17 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
     for (_iri, builder) in tables {
         schema.tables.push(builder.build());
     }
+    // Referenced-but-undeclared FK targets (known via `extra_targets`):
+    // emit bare stub tables so every `record<Target>` link resolves.
+    // BTreeSet → deterministic order; sorted into place below.
+    for target in stub_targets {
+        let mut tb = TableBuilder::new(target);
+        tb.add_annotation(
+            "stub: referenced by a core FK; not in the curated emission set".to_string(),
+        );
+        schema.tables.push(tb.build());
+    }
+    schema.tables.sort_by(|a, b| a.name.cmp(&b.name));
     schema
 }
 
@@ -706,10 +750,11 @@ fn compose_validation_assert(
             // the catch-all fall here too).
             "presence" | "uniqueness" | "length" | "format" | "inclusion" | "exclusion"
             | "confirmation" | "comparison"
-                if !has_non_none => {
-                    clauses.push("$value != NONE".to_string());
-                    has_non_none = true;
-                }
+                if !has_non_none =>
+            {
+                clauses.push("$value != NONE".to_string());
+                has_non_none = true;
+            }
             _ => {} // forward-compat: unknown kind, skip
         }
     }
@@ -842,9 +887,11 @@ fn extract_uniqueness_scope(params: &std::collections::BTreeSet<String>) -> Vec<
         }
         // Single symbol form `:project_id`.
         if let Some(sym) = rest.strip_prefix(':')
-            && !sym.is_empty() && sym.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-                return vec![sym.to_string()];
-            }
+            && !sym.is_empty()
+            && sym.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return vec![sym.to_string()];
+        }
         // Anything else (bare constant, <expr>) — skip silently.
         return Vec::new();
     }
@@ -950,9 +997,9 @@ fn singularize(s: &str) -> String {
             || stem.ends_with("ss")
             || stem.ends_with('x')
             || stem.ends_with('z'))
-        {
-            return stem.to_string();
-        }
+    {
+        return stem.to_string();
+    }
     if let Some(stem) = s.strip_suffix('s') {
         if stem.ends_with('s') {
             // `-ss` like `class` keeps the trailing s (`mass`, `glass`).
@@ -1010,10 +1057,11 @@ impl TableBuilder {
     /// when the field is absent or already carries the kind.
     fn upgrade_field_kind(&mut self, name: &str, kind: &Kind) -> bool {
         if let Some(f) = self.fields.iter_mut().find(|f| f.name == name)
-            && &f.kind != kind {
-                f.kind = kind.clone();
-                return true;
-            }
+            && &f.kind != kind
+        {
+            f.kind = kind.clone();
+            return true;
+        }
         false
     }
 

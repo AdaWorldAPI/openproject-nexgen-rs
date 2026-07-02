@@ -65,9 +65,10 @@ pub fn class_to_table(class: &Class) -> TableDefinition {
     // Provenance comment — codebook id only when the concept is
     // promoted. Unpromoted classes get the bare DEFINE TABLE line.
     if let Some(concept) = class.canonical_concept.as_deref()
-        && let Some(id) = canonical_concept_id(concept) {
-            t = t.with_comment(Some(format!("OGAR codebook id 0x{id:04X} ({concept})")));
-        }
+        && let Some(id) = canonical_concept_id(concept)
+    {
+        t = t.with_comment(Some(format!("OGAR codebook id 0x{id:04X} ({concept})")));
+    }
 
     // Typed attributes — Rails type → SurrealQL kind via `from_rails_type`.
     // Unknown types fall back to `Any` so the long-tail (custom-field
