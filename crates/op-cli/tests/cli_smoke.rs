@@ -54,6 +54,17 @@ fn run_codegen_on_rails_mini_emits_expected_define_statements() {
     assert!(text.contains(
         "-- columns-from: baseline-only | tables seen: 2 matched: 2 unmatched: 0 skipped: 0"
     ));
+    // P0 provenance stamp: self-consistent against the exported constant
+    // rather than a pinned sha, so the test survives every future commit.
+    assert!(text.contains(&format!(
+        "-- generated-by: op-codegen@{}",
+        op_cli::NEXGEN_GIT_SHA
+    )));
+    assert!(
+        text.trim_end()
+            .ends_with(&format!("op-codegen@{}", op_cli::NEXGEN_GIT_SHA)),
+        "provenance line must be the final trailer line"
+    );
 }
 
 #[test]

@@ -9,19 +9,63 @@
 # local deviations. Prints a report; does NOT test, commit, or push —
 # run `cargo test --workspace` and commit yourself after reviewing.
 #
-# Recorded deviations (re-applied after sync, in this order):
-#   1. lance-graph-contract/src/codegen_spine.rs ← codegen_spine.diff
-#      (C6 RouteBucketTyped — absent upstream; op-codegen-bucket needs it)
-#   2. ogar-class-view/Cargo.toml lance-graph-contract git→path redirect
+# P0 accuracy fix (2026-07-03): the report is a snapshot-diff of FINAL
+# committed byte content (sha256 before vs. after the whole pipeline —
+# fetch + deviation re-apply), not an intermediate fetch-step diff. A
+# file that a raw fetch overwrites and a deviation re-apply then
+# restores to its prior bytes (patch churn) is correctly reported
+# unchanged — the prior version of this script called that "SYNCED",
+# true of the intermediate state but false of the thing that matters
+# (does `git status` show anything to commit). Observed in the field:
+# a #630 sync reported 6 files SYNCED; 4 were pure churn, only 2 were
+# real (`git diff --stat` showed 0 lines for the 4, 193 for the 2).
 #
-# Usage: .claude/tools/vendor-sync.sh   (from the repo root)
+# Recorded deviations (re-applied after sync, in this order):
+#   1. RETIRED — lance-graph-contract/src/codegen_spine.rs
+#      (C6 RouteBucketTyped merged upstream in lance-graph #632; guard
+#      only, no patch step — see the check below)
+#   2. ogar-class-view/Cargo.toml lance-graph-contract git→path redirect
+#   3. ruff D-AR-3.5-column-stratum.diff (pending upstream: wishlist R1)
+#
+# Usage: .claude/tools/vendor-sync.sh   (from anywhere; resolves ROOT itself)
 set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
-CHANGED_TOTAL=0
 
-sweep() { # sweep <vendor-subdir> <github-repo> <repo-prefix>
-  local vdir="$1" repo="$2" prefix="$3" changed=""
+VENDOR_DIRS=(
+  vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract
+  vendor/AdaWorldAPI-OGAR/crates/ogar-vocab
+  vendor/AdaWorldAPI-OGAR/crates/ogar-render-askama
+  vendor/AdaWorldAPI-OGAR/crates/ogar-class-view
+  vendor/AdaWorldAPI-ruff/crates/ruff_ruby_spo
+  vendor/AdaWorldAPI-ruff/crates/ruff_spo_triplet
+)
+
+BEFORE_SNAP="$(mktemp)"
+AFTER_SNAP="$(mktemp)"
+trap 'rm -f "$BEFORE_SNAP" "$AFTER_SNAP" /tmp/vendor-sync.probe' EXIT
+
+# snapshot <outfile> — `sha256sum  path` (sorted by path) for every *.rs
+# under every VENDOR_DIRS entry. Absolute paths, so it's cwd-independent
+# and directly `diff`-able between two runs.
+snapshot() {
+  local out="$1"
+  : > "$out"
+  for d in "${VENDOR_DIRS[@]}"; do
+    find "$ROOT/$d" -name '*.rs' -type f 2>/dev/null
+  done | sort | xargs -r sha256sum >> "$out" 2>/dev/null
+}
+
+snapshot "$BEFORE_SNAP"
+
+# sweep <vendor-subdir> <github-repo> <repo-prefix> — fetch + overwrite
+# where bytes differ from the raw upstream copy; discover new modules
+# one level (re-run the tool if a fetched module itself declares
+# children). No longer prints per-file "changed" — the final
+# snapshot-diff below is the single source of truth for what actually
+# changed.
+sweep() {
+  local vdir="$1" repo="$2" prefix="$3"
   cd "$ROOT/$vdir"
   while IFS= read -r f; do
     local code
@@ -29,36 +73,29 @@ sweep() { # sweep <vendor-subdir> <github-repo> <repo-prefix>
       "https://raw.githubusercontent.com/$repo/main/$prefix/$f" 2>/dev/null)
     if [ "$code" = "200" ] && ! diff -q "$f" /tmp/vendor-sync.probe >/dev/null 2>&1; then
       cp /tmp/vendor-sync.probe "$f"
-      changed="$changed $f"
-      CHANGED_TOTAL=$((CHANGED_TOTAL + 1))
     fi
   done < <(find src -name '*.rs' 2>/dev/null | sort)
-  # New-module discovery: a synced lib.rs (or mod.rs) may declare modules
-  # that don't exist locally yet — fetch them (one level; re-run the tool
-  # if a fetched module itself declares children).
   for root in src/lib.rs $(find src -name 'mod.rs' 2>/dev/null); do
     [ -f "$root" ] || continue
     local dir; dir=$(dirname "$root")
     for m in $(grep -hoE '^(pub )?mod [a-z_0-9]+;' "$root" | awk '{print $NF}' | tr -d ';'); do
       if [ ! -f "$dir/$m.rs" ] && [ ! -f "$dir/$m/mod.rs" ]; then
         local mcode
-        mcode=$(curl -sS -o "$dir/$m.rs" -w '%{http_code}'           "https://raw.githubusercontent.com/$repo/main/$prefix/$dir/$m.rs" 2>/dev/null)
-        if [ "$mcode" = "200" ]; then
-          changed="$changed $dir/$m.rs(new)"; CHANGED_TOTAL=$((CHANGED_TOTAL + 1))
-        else
+        mcode=$(curl -sS -o "$dir/$m.rs" -w '%{http_code}' \
+          "https://raw.githubusercontent.com/$repo/main/$prefix/$dir/$m.rs" 2>/dev/null)
+        if [ "$mcode" != "200" ]; then
           rm -f "$dir/$m.rs"
           mkdir -p "$dir/$m"
-          mcode=$(curl -sS -o "$dir/$m/mod.rs" -w '%{http_code}'             "https://raw.githubusercontent.com/$repo/main/$prefix/$dir/$m/mod.rs" 2>/dev/null)
-          if [ "$mcode" = "200" ]; then
-            changed="$changed $dir/$m/mod.rs(new)"; CHANGED_TOTAL=$((CHANGED_TOTAL + 1))
-          else
-            rm -rf "$dir/$m"; echo "!! new module $m declared in $root but not fetchable" >&2
+          mcode=$(curl -sS -o "$dir/$m/mod.rs" -w '%{http_code}' \
+            "https://raw.githubusercontent.com/$repo/main/$prefix/$dir/$m/mod.rs" 2>/dev/null)
+          if [ "$mcode" != "200" ]; then
+            rm -rf "$dir/$m"
+            echo "!! new module $m declared in $root but not fetchable" >&2
           fi
         fi
       fi
     done
   done
-  [ -n "$changed" ] && echo "SYNCED $vdir:$changed" || echo "clean  $vdir"
 }
 
 # ── lance-graph-contract ──
@@ -103,4 +140,42 @@ if [ ! -f crates/ruff_ruby_spo/src/schema.rs ] || ! grep -q column_not_null crat
   fi
 fi
 
-echo "── done: $CHANGED_TOTAL file(s) synced. Now: cargo test --workspace, review, commit."
+# ── final truth: snapshot-diff report (post fetch + deviation re-apply) ──
+cd "$ROOT"
+snapshot "$AFTER_SNAP"
+echo "── vendor-sync report (final committed-byte diff) ──"
+TOTAL_CHANGED=0
+LOG_SUMMARY=""
+for d in "${VENDOR_DIRS[@]}"; do
+  mirror_changed=""
+  for f in $(grep -oE "$ROOT/$d/[^ ]+\.rs" "$BEFORE_SNAP" "$AFTER_SNAP" | sort -u); do
+    before=$(grep -F "  $f" "$BEFORE_SNAP" | awk '{print $1}')
+    after=$(grep -F "  $f" "$AFTER_SNAP" | awk '{print $1}')
+    if [ "$before" != "$after" ]; then
+      rel="${f#$ROOT/$d/}"
+      [ -z "$before" ] && rel="$rel(new)"
+      mirror_changed="$mirror_changed $rel"
+      TOTAL_CHANGED=$((TOTAL_CHANGED + 1))
+    fi
+  done
+  if [ -n "$mirror_changed" ]; then
+    echo "CHANGED $d:$mirror_changed"
+    LOG_SUMMARY="$LOG_SUMMARY $d:$mirror_changed"
+  else
+    echo "clean   $d"
+  fi
+done
+echo "── done: $TOTAL_CHANGED file(s) actually changed (post-deviation-reapply truth). Now: cargo test --workspace, review, commit."
+
+# ── VENDOR-STATE.md telemetry (P0: deviation expiry tracking) ──
+STATE_LOG="$ROOT/.claude/VENDOR-STATE.md"
+if [ -f "$STATE_LOG" ]; then
+  {
+    echo ""
+    if [ "$TOTAL_CHANGED" -eq 0 ]; then
+      echo "- $(date -u +%Y-%m-%dT%H:%MZ) — sweep: clean, 0 files changed"
+    else
+      echo "- $(date -u +%Y-%m-%dT%H:%MZ) — sweep: $TOTAL_CHANGED file(s) changed —$LOG_SUMMARY"
+    fi
+  } >> "$STATE_LOG"
+fi

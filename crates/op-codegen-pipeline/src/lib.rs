@@ -122,9 +122,8 @@ pub fn render_typed_surreal(rails_root: &std::path::Path) -> String {
         .flat_map(|t| t.fields.iter())
         .map(|f| f.kind.to_sql())
         .collect();
-    let counts = lance_graph_contract::emission_scan::count_emission(
-        kind_tokens.iter().map(String::as_str),
-    );
+    let counts =
+        lance_graph_contract::emission_scan::count_emission(kind_tokens.iter().map(String::as_str));
     out.push_str(&format!(
         "-- emission: typed={} record={} any={} stub={} (contract::emission_scan)\n",
         counts.typed, counts.record_link, counts.any_typed, counts.stub,
@@ -140,7 +139,51 @@ pub fn render_typed_surreal(rails_root: &std::path::Path) -> String {
     for t in &report.unmatched_tables {
         out.push_str(&format!("-- unmatched table (no model): {t}\n"));
     }
+    // Stub-demand ranking (P0 instrument hygiene, 2026-07-02 epiphany
+    // #5): each stub table (a referenced-but-uncurated FK target,
+    // op-surreal-ast's `triples_to_schema_with_targets`) is counted by
+    // how many core fields link to it. This turns curation from
+    // editorial into demand-driven — the top-ranked stub is the next
+    // candidate for CORE_V3_RESOURCES (curated upstream, not here).
+    let stub_names: Vec<&str> = schema
+        .tables
+        .iter()
+        .filter(|t| t.comment.as_deref().is_some_and(|c| c.starts_with("stub:")))
+        .map(|t| t.name.as_str())
+        .collect();
+    if !stub_names.is_empty() {
+        let mut demand: std::collections::BTreeMap<&str, u32> =
+            stub_names.iter().map(|n| (*n, 0)).collect();
+        for f in schema.tables.iter().flat_map(|t| t.fields.iter()) {
+            for target in record_targets(&f.kind) {
+                if let Some(count) = demand.get_mut(target.as_str()) {
+                    *count += 1;
+                }
+            }
+        }
+        let mut ranked: Vec<(&str, u32)> = demand.into_iter().collect();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+        let line = ranked
+            .iter()
+            .map(|(name, count)| format!("{name}({count})"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        out.push_str(&format!("-- stub demand: {line}\n"));
+    }
     out
+}
+
+/// The table name(s) a (possibly `option<…>`-wrapped) `Kind::Record`
+/// links to. Empty for every other kind — the stub-demand ranking is
+/// the only consumer; kept free-standing rather than a method on
+/// `op_surreal_ast::Kind` so this crate doesn't grow a dependency-side
+/// API surface for a one-off count.
+fn record_targets(kind: &op_surreal_ast::Kind) -> Vec<String> {
+    match kind {
+        op_surreal_ast::Kind::Record(targets) => targets.clone(),
+        op_surreal_ast::Kind::Option(inner) => record_targets(inner),
+        _ => Vec::new(),
+    }
 }
 
 /// Drive ruff triples through the projection and emit SurrealQL DDL text in
@@ -366,5 +409,33 @@ DEFINE FIELD subject ON TABLE WorkPackage TYPE option<any>;
         // Contract still holds.
         roundtrip_eq::<OpSurrealProjection>(&bridge_triples(&triples))
             .expect("validation triples round-trip via the opaque trail");
+    }
+
+    // ----- P0 instrument hygiene: stub-demand ranking -----
+
+    #[test]
+    fn record_targets_unwraps_option_and_ignores_non_record_kinds() {
+        use op_surreal_ast::Kind;
+        assert_eq!(record_targets(&Kind::Any), Vec::<String>::new());
+        assert_eq!(record_targets(&Kind::Int), Vec::<String>::new());
+        assert_eq!(
+            record_targets(&Kind::Record(vec!["Principal".to_string()])),
+            vec!["Principal".to_string()]
+        );
+        assert_eq!(
+            record_targets(&Kind::Record(vec!["Principal".to_string()]).optional()),
+            vec!["Principal".to_string()],
+            "option<record<T>> unwraps to record<T>'s targets"
+        );
+        // Idempotent optional() collapses option<option<T>>, but the
+        // recursion must handle a doubly-nested Option regardless (the
+        // enum shape technically allows constructing one directly).
+        assert_eq!(
+            record_targets(&Kind::Option(Box::new(Kind::Option(Box::new(
+                Kind::Record(vec!["X".to_string()])
+            ))))),
+            vec!["X".to_string()],
+            "recursion unwraps nested Option regardless of how it was built"
+        );
     }
 }
