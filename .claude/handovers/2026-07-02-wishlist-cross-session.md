@@ -97,3 +97,76 @@
   environment facts (what's scoped, expected 403s, authenticity checks)
   — prevents a verified-real repo from being misread as fabricated (it
   happened) while keeping the flag-concerning-content behavior.
+
+---
+
+## Addendum (same day): cross-reading the three wishlists
+
+Three sessions reviewed #630 independently (this one + the two forwarded
+passes). The lists converge more than they collide — but the collisions
+are exactly where coordination is needed. Consumer-seat insights:
+
+### Collisions to resolve before work starts
+
+- **A1 — Predicate-count item collides with R1.** The other session's
+  "pin the predicate count (docs say 34, enum holds 62)" is half-done
+  upstream already: `predicate_count_locked_at_62` EXISTS (we hit it) —
+  the open half is doc comments citing the test. And **R1 (D-AR-3.5)
+  moves the lock 62→63** (`column_not_null`). Whoever lands first, the
+  other rebases; sequence R1 first or the count item lands twice.
+- **A2 — The high-half naming needs the operator ruling FIRST; consumer
+  evidence attached.** One session reads canon-hi as `domain:appid`
+  (lance-graph `le-contract.md`), the other as `domain:concept-slot`
+  (OGAR general canon). From the consumer seat the concept reading is
+  the one merged code practices: op-canon's flipped literals
+  (`0x0102_0001` = `project_work_item` under OP prefix `0x0001`) only
+  make sense with hi = domain-byte + concept-slot — `0x0102` is shared
+  across OP and Redmine (`0x0102_0007`), which an *appid* reading cannot
+  express. Suggested ruling: **hi-u16 = canonical concept (domain byte +
+  slot); lo-u16 = app/render prefix space (with `0x1000` reserved as the
+  V3 marker, never a port prefix)** — then fix both ledgers same-arc.
+  This blocks O3's test expectations and the OGAR prose sweep; rule it
+  before those land.
+- **A3 — X1 (COORDINATION.md) yields to their per-entry board files.**
+  Their measured data (4 of 5 rebases conflicting purely on
+  prepend-collision docs) beats my single-file design. Adopt
+  `board/<topic>/<entry>.md` + generated index; nexgen's
+  `vendor-sync.sh` stays the consuming end.
+
+### Convergences worth naming (so they don't diverge later)
+
+- **A4 — "Disposition ledger" ≡ the three-buckets manifest.** Their
+  "100% = zero *unrouted*: `minted | adapter | hand-port |
+  excluded(reason)`" is the same taxonomy as nexgen's
+  B0/B1/B2/B3 + zone registry (`adapter` = B2 landing zones,
+  `hand-port` = B3 mints, `excluded(reason)` = conservation ledger).
+  Unify the vocabulary NOW — two parallel routing enums for the same
+  concept is the label-zoo anti-pattern applied to ourselves. Proposal:
+  the disposition enum lives in the contract, and the bucket taxonomy
+  maps onto it 1:1 (documented in RESIDUAL-THREE-BUCKETS.md).
+- **A5 — One scan family, one shape.** #630's `classid_scan`, my
+  proposed `emission_scan` (L2), and their `PROBE-CLASSID-LEGACY-ALIAS`
+  corpus proof are the same design: zero-dep `classify_* → count_*`
+  contract modules. Name the convention once (DISCOVERY-MAP) so every
+  future governance metric arrives in this shape.
+- **A6 — L3 (Arrow triple interchange) must target the batch-writer/WAL
+  shape, not invent an envelope.** Their #630 reading (stacked casts =
+  WAL entries, zero-copy sink, `SoaEnvelope`/`NodeRowPacket` is
+  production) defines the landing zone; the columnar triple batch should
+  BE a WAL-compatible cast batch. Note added to L3.
+- **A7 — F17 from both ends, run once.** My R6 (ruff-side: order-
+  signature fidelity) + their item (ogar-from-ruff consumes
+  `writes`/`calls`; M25 graph-flow is the ActionDef runtime) are one
+  probe with two consumers. Coordinate a single run, both watching.
+- **A8 — Their hermetic-corpora item explains my R7 empirically.** The
+  branch-era locked-shape drift survived precisely because env-gated
+  suites skip silently in CI. Their fail-loud canary is the systemic
+  fix for the bug class I only caught by hand — strongest possible
+  endorsement from the consumer seat.
+
+### Net effect on this repo's list
+
+R1–R8, L1–L4, O1–O4 all stand; L3 gains the WAL-shape constraint (A6);
+X1 is superseded by A3's per-entry form; A4's vocabulary unification is
+accepted here as a nexgen work item (map buckets → disposition enum when
+the contract lands it).
