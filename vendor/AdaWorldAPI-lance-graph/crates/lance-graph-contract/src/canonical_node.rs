@@ -1583,6 +1583,59 @@ mod tests {
     }
 
     #[test]
+    fn edges_only_strided_read_via_descriptors_r2_residual() {
+        // R-2 closure residual (operator ruling 2026-07-02): "edges cheap
+        // without having to load the whole values" is served by the layout
+        // AS IT IS — an edge sweep is a strided 16-of-512 slice read over
+        // the existing backing store via the NODE_ROW_COLUMNS descriptor,
+        // never a storage change. This test IS the read-side proof: it
+        // recovers every row's EdgeBlock touching exactly
+        // `elems_per_row = 16` bytes per row, driven purely by the
+        // descriptor's (row_offset, elems_per_row) + NODE_ROW_STRIDE —
+        // no value-slab byte is ever indexed.
+        let rows = vec![
+            NodeRow {
+                key: NodeGuid::new(NodeGuid::CLASSID_OSINT, 1, 2, 3, 0xAB, 0xCD),
+                edges: EdgeBlock {
+                    in_family: [0xA1; 12],
+                    out_family: [0xB2; 4],
+                },
+                value: [7u8; 480],
+            },
+            NodeRow {
+                key: NodeGuid::new(NodeGuid::CLASSID_PROJECT, 4, 5, 6, 0x11, 0x22),
+                edges: EdgeBlock {
+                    in_family: [0xC3; 12],
+                    out_family: [0xD4; 4],
+                },
+                value: [9u8; 480],
+            },
+        ];
+        let packet = NodeRowPacket::new(&rows, 0);
+        let bytes = packet.as_le_bytes();
+
+        let edges_col = NODE_ROW_COLUMNS
+            .iter()
+            .find(|c| c.name_id == NodeRowColumn::Edges as u16)
+            .expect("Edges descriptor is canonical");
+        let elems = usize::from(edges_col.elems_per_row);
+        // row_offset is u32: no infallible From<u32> for usize in std, so
+        // try_from stays (unlike the u16 elems_per_row above).
+        let offset = usize::try_from(edges_col.row_offset).expect("fits usize");
+        assert_eq!(elems, 16);
+        assert_eq!(offset, 16);
+
+        for (i, row) in rows.iter().enumerate() {
+            let start = i * NODE_ROW_STRIDE + offset;
+            let slice = &bytes[start..start + elems];
+            // 16 bytes/row, straight out of the store: 12 in-family then
+            // 4 out-of-family (repr(C) field order within the block).
+            assert_eq!(&slice[..12], &row.edges.in_family);
+            assert_eq!(&slice[12..], &row.edges.out_family);
+        }
+    }
+
+    #[test]
     fn node_rows_from_le_bytes_rejects_bad_inputs() {
         let rows = vec![
             NodeRow {

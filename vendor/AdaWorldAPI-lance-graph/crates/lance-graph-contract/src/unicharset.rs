@@ -64,6 +64,21 @@
 //! folds to the id itself. [`UniCharSet::get_other_case`] mirrors the C++
 //! accessor (`unicharset.h:703`): out-of-range id → `INVALID_UNICHAR_ID` (-1).
 //! [`UniCharSet::dump_other_case`] is the byte-parity surface.
+//!
+//! # Direction / mirror leaf
+//!
+//! The two columns after `other_case` (present on the CSV-bearing tiers):
+//! `direction` (an ICU `UCharDirection` bidi code, `unicharset.h:175`) and
+//! `mirror` (the mirror unichar id, e.g. `'('` ↔ `')'`). Both are read by
+//! continuing the same per-line token walk one position past `other_case`; a tier
+//! without them leaves the walk exhausted and both take their defaults.
+//! [`UniCharSet::get_direction`] (`unicharset.h:712`) stores the parsed code
+//! as-is (load default `U_LEFT_TO_RIGHT` 0) and returns `U_OTHER_NEUTRAL` (10)
+//! for an out-of-range id — distinct from the load default.
+//! [`UniCharSet::get_mirror`] (`unicharset.h:721`) is clamped exactly like
+//! `other_case` and returns `INVALID_UNICHAR_ID` (-1) out of range.
+//! [`UniCharSet::dump_direction`] / [`UniCharSet::dump_mirror`] are the
+//! byte-parity surfaces.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -91,6 +106,14 @@ pub struct UniCharSet {
     /// Clamped at load: a parsed value `>= size` (incl. the default) becomes the
     /// id itself (tesseract `unicharset.cpp:901`).
     other_cases: Vec<i32>,
+    /// id → bidi direction code (ICU `UCharDirection`), parallel to `reverse`.
+    /// Load default `U_LEFT_TO_RIGHT` (0) when the column is absent (tesseract
+    /// `unicharset.cpp:812,900`); stored as-is (no clamp).
+    directions: Vec<i32>,
+    /// id → the mirror unichar id, parallel to `reverse`. Clamped at load like
+    /// `other_case`: a parsed value `>= size` (incl. the default) becomes the id
+    /// itself (tesseract `unicharset.cpp:902`).
+    mirrors: Vec<i32>,
 }
 
 /// `isalpha` property bit (tesseract `unicharset.cpp:41`).
@@ -116,6 +139,12 @@ const NULL_SID: i32 = 0;
 /// The C++ `INVALID_UNICHAR_ID` sentinel — what id-returning accessors yield for
 /// an out-of-range id (tesseract `unichar.h`; e.g. `get_other_case`).
 const INVALID_UNICHAR_ID: i32 = -1;
+/// `Direction::U_LEFT_TO_RIGHT` (0) — the load default for `direction` when the
+/// column is absent (tesseract `unicharset.cpp:812`, `unicharset.h:176`).
+const U_LEFT_TO_RIGHT: i32 = 0;
+/// `Direction::U_OTHER_NEUTRAL` (10) — what `get_direction` returns for an
+/// out-of-range id (tesseract `unicharset.h:714`). Distinct from the load default.
+const U_OTHER_NEUTRAL: i32 = 10;
 
 /// Intern `name` into `scripts` (insertion-order dedup), returning its index —
 /// the transcription of `UNICHARSET::add_script` (tesseract `unicharset.cpp:1063`).
@@ -152,6 +181,8 @@ impl UniCharSet {
         let mut script_ids = Vec::with_capacity(count);
         let mut scripts: Vec<String> = Vec::new();
         let mut other_cases = Vec::with_capacity(count);
+        let mut directions = Vec::with_capacity(count);
+        let mut mirrors = Vec::with_capacity(count);
         let count_i32 = i32::try_from(count).unwrap_or(i32::MAX);
         for line in lines.take(count) {
             // The unichar is the first whitespace-delimited token; the id is the
@@ -208,6 +239,21 @@ impl UniCharSet {
                 .and_then(|t| t.parse::<i32>().ok())
                 .unwrap_or(count_i32);
             other_cases.push(if oc < count_i32 { oc } else { id_i32 });
+            // direction + mirror follow other_case in the column tiers that carry
+            // them (the CSV-bearing lines); on a tier without them the iterator is
+            // exhausted and both take their defaults. direction is stored as-is
+            // (`unicharset.cpp:900`, default U_LEFT_TO_RIGHT). mirror is clamped
+            // like other_case (`unicharset.cpp:902`, absent default = size → id).
+            let dir = tokens
+                .next()
+                .and_then(|t| t.parse::<i32>().ok())
+                .unwrap_or(U_LEFT_TO_RIGHT);
+            directions.push(dir);
+            let mir = tokens
+                .next()
+                .and_then(|t| t.parse::<i32>().ok())
+                .unwrap_or(count_i32);
+            mirrors.push(if mir < count_i32 { mir } else { id_i32 });
         }
 
         if reverse.len() != count {
@@ -223,6 +269,8 @@ impl UniCharSet {
             script_ids,
             scripts,
             other_cases,
+            directions,
+            mirrors,
         })
     }
 
@@ -360,6 +408,30 @@ impl UniCharSet {
             .unwrap_or(INVALID_UNICHAR_ID)
     }
 
+    /// The bidi direction code (ICU `UCharDirection`) of `id`. Mirrors
+    /// `UNICHARSET::get_direction` (tesseract `unicharset.h:712`): an out-of-range
+    /// id returns `U_OTHER_NEUTRAL` (10) — note this differs from the load
+    /// default `U_LEFT_TO_RIGHT` (0) used for an absent column.
+    #[must_use]
+    pub fn get_direction(&self, id: u32) -> i32 {
+        self.directions
+            .get(id as usize)
+            .copied()
+            .unwrap_or(U_OTHER_NEUTRAL)
+    }
+
+    /// The mirror unichar id of `id` (e.g. `'('` → the id of `')'`), or the id
+    /// itself when there is no mirror. Mirrors `UNICHARSET::get_mirror` (tesseract
+    /// `unicharset.h:721`): an out-of-range id (the `INVALID_UNICHAR_ID` sentinel)
+    /// returns `INVALID_UNICHAR_ID` (-1).
+    #[must_use]
+    pub fn get_mirror(&self, id: u32) -> i32 {
+        self.mirrors
+            .get(id as usize)
+            .copied()
+            .unwrap_or(INVALID_UNICHAR_ID)
+    }
+
     /// Render the id→properties table as
     /// `"<id>\t<isalpha> <islower> <isupper> <isdigit> <ispunctuation>\n"` lines
     /// (each flag `0`/`1`) — the exact shape the C++ property oracle prints, so
@@ -409,6 +481,36 @@ impl UniCharSet {
             out.push_str(&id.to_string());
             out.push('\t');
             out.push_str(&self.get_other_case(id).to_string());
+            out.push('\n');
+        }
+        out
+    }
+
+    /// Render the id→direction table as `"<id>\t<direction>\n"` lines — the exact
+    /// shape the C++ `get_direction` oracle prints, so the byte-parity diff is
+    /// `diff oracle_direction.tsv rust_direction.tsv`.
+    #[must_use]
+    pub fn dump_direction(&self) -> String {
+        let mut out = String::new();
+        for id in 0..self.reverse.len() as u32 {
+            out.push_str(&id.to_string());
+            out.push('\t');
+            out.push_str(&self.get_direction(id).to_string());
+            out.push('\n');
+        }
+        out
+    }
+
+    /// Render the id→mirror table as `"<id>\t<mirror>\n"` lines — the exact shape
+    /// the C++ `get_mirror` oracle prints, so the byte-parity diff is
+    /// `diff oracle_mirror.tsv rust_mirror.tsv`.
+    #[must_use]
+    pub fn dump_mirror(&self) -> String {
+        let mut out = String::new();
+        for id in 0..self.reverse.len() as u32 {
+            out.push_str(&id.to_string());
+            out.push('\t');
+            out.push_str(&self.get_mirror(id).to_string());
             out.push('\n');
         }
         out
@@ -671,6 +773,44 @@ c 3 0,255,0,255,0,0,0,0,0,0 Latin 0 0 1 c
     fn dump_other_case_matches_oracle_shape() {
         let u = UniCharSet::load_from_str(OTHER_CASE_SAMPLE).expect("valid");
         assert_eq!(u.dump_other_case(), "0\t1\n1\t0\n2\t2\n");
+    }
+
+    /// id 0 `(` mirrors id 1 `)` (direction 10 = U_OTHER_NEUTRAL); id 2 `7` is a
+    /// European number (direction 2) with an out-of-range mirror (99 ≥ size 4 →
+    /// self); id 3 is a tier-5 line with no direction/mirror columns → defaults
+    /// (direction 0 = U_LEFT_TO_RIGHT, mirror = self).
+    const DIR_MIRROR_SAMPLE: &str = "\
+4
+( 10 0,255,0,255,0,0,0,0,0,0 Common 0 10 1 (
+) 10 0,255,0,255,0,0,0,0,0,0 Common 0 10 0 )
+7 8 0,255,0,255,0,0,0,0,0,0 Common 7 2 99 7
+NULL 0 Common 0
+";
+
+    #[test]
+    fn direction_decodes_with_default_and_neutral_out_of_range() {
+        let u = UniCharSet::load_from_str(DIR_MIRROR_SAMPLE).expect("valid");
+        assert_eq!(u.get_direction(0), 10); // U_OTHER_NEUTRAL, parsed
+        assert_eq!(u.get_direction(2), 2); // U_EUROPEAN_NUMBER, parsed
+        assert_eq!(u.get_direction(3), 0); // tier-5 absent -> load default LTR
+        assert_eq!(u.get_direction(99), 10); // out-of-range -> U_OTHER_NEUTRAL (not 0)
+    }
+
+    #[test]
+    fn mirror_decodes_and_clamps() {
+        let u = UniCharSet::load_from_str(DIR_MIRROR_SAMPLE).expect("valid");
+        assert_eq!(u.get_mirror(0), 1); // ( -> )
+        assert_eq!(u.get_mirror(1), 0); // ) -> (
+        assert_eq!(u.get_mirror(2), 2); // 99 >= size -> clamped to self
+        assert_eq!(u.get_mirror(3), 3); // tier-5 absent -> default self
+        assert_eq!(u.get_mirror(99), -1); // out-of-range -> INVALID_UNICHAR_ID
+    }
+
+    #[test]
+    fn dump_direction_and_mirror_match_oracle_shape() {
+        let u = UniCharSet::load_from_str(DIR_MIRROR_SAMPLE).expect("valid");
+        assert_eq!(u.dump_direction(), "0\t10\n1\t10\n2\t2\n3\t0\n");
+        assert_eq!(u.dump_mirror(), "0\t1\n1\t0\n2\t2\n3\t3\n");
     }
 
     #[test]
