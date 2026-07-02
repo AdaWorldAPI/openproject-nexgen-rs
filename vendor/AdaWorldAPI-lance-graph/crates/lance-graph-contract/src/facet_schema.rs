@@ -154,7 +154,10 @@ mod tests {
     #[test]
     fn schema_defaults_to_tier_cascade() {
         // High byte low-2-bits == 0 → TierCascade (every existing facet).
-        assert_eq!(FacetSchema::of_classid(0x0012_3456), FacetSchema::TierCascade);
+        assert_eq!(
+            FacetSchema::of_classid(0x0012_3456),
+            FacetSchema::TierCascade
+        );
         assert_eq!(FacetSchema::default(), FacetSchema::TierCascade);
     }
 

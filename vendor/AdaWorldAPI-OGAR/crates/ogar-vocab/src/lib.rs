@@ -1122,16 +1122,17 @@ const CODEBOOK: &[(&str, u16)] = &[
     ("pricelist", 0x0209),
     ("pricelist_rule", 0x020A),
     ("unit_of_measure", 0x020B),
-    // ── 0x07XX — OSINT domain (AIRO/AIwar dual-use intelligence) ──
-    // Minted from the q2 cockpit V3 SoA bake (`data/osint-v3/`, harvested from
-    // `AdaWorldAPI/aiwar-neo4j-harvest`). The low u16 is the FROZEN canonical
-    // concept (07xx is operator-ratified canonical; the slot is the owner's);
-    // the render-skin APP_PREFIX (`0x1000`, the V3 format signal) is the
-    // consumer's half (`classid = (APP_PREFIX << 16) | concept`). Two concepts:
-    // the AI-system card (GUID1, 12 AIRO dims) and the person card (GUID2, 5
-    // McClelland/Rubicon dims — the Epstein-archetype implicit-motive lens).
-    ("osint_system", 0x0700),
-    ("osint_person", 0x0701),
+    // ── 0x07XX — OSINT domain: ZERO vocabulary rows BY DESIGN (operator
+    // ruling 2026-07-02, corrects PR #145's two hallucinated concept mints
+    // `osint_system@0x0700` / `osint_person@0x0701`). Within the OSINT domain
+    // the low byte is NOT a concept slot — it is allocated domain-wise as an
+    // APPID: `0x0700` = the OSINT domain itself (low byte 00 = domain-wide),
+    // `0x0701` = OSINT-for-q2 (q2 is appid 0x01, the consumer); V3 stored form
+    // `0x0701_1000` (canon HIGH since the same-day half-order flip —
+    // human-readable `0x07:01::1000`). Class content (AIRO/VAIR system card,
+    // McClelland/Rubicon
+    // person lens) lives consumer-side in q2's `osint_classview.rs` — OGAR
+    // vocabulary carries no OSINT concept names. Do NOT re-mint rows here.
     // ── 0x09XX — Health domain (clinical / patient / care) ──
     // medcare-rs Healthcare-namespace promotion (Northstar T9). The 7
     // entities the OGIT `NTO/Healthcare/entities/` TTL ships, projected
@@ -1652,14 +1653,9 @@ pub mod class_ids {
     /// (`ogit.Automation:Trigger`).
     pub const AUTOMATION_TRIGGER: u16 = 0x0C09;
 
-    // ── 0x07XX — OSINT domain (AIRO/AIwar dual-use intelligence) ──
-
-    /// `osint_system` (`0x0700`) — AI system profiled on the 12 AIRO/VAIR
-    /// dual-use dims (V3 SoA GUID1 `6×(8:8)` tier cascade).
-    pub const OSINT_SYSTEM: u16 = 0x0700;
-    /// `osint_person` (`0x0701`) — person profiled on McClelland motive +
-    /// Rubicon stage (V3 SoA GUID2; the Epstein-archetype implicit-motive lens).
-    pub const OSINT_PERSON: u16 = 0x0701;
+    // ── 0x07XX — OSINT domain: no concept constants (low byte = APPID,
+    // domain-wise; q2 = 0x01 → `0x0701` is OSINT-for-q2, not a concept —
+    // operator ruling 2026-07-02; see the CODEBOOK section note). ──
 
     /// Every `(canonical_concept_name, id)` pair the constants vouch for.
     /// Drift-guarded against [`super::CODEBOOK`] by tests in this module.
@@ -1704,8 +1700,6 @@ pub mod class_ids {
         ("pricelist_rule", PRICELIST_RULE),
         ("unit_of_measure", UNIT_OF_MEASURE),
         // 0x07XX — OSINT (AIRO/AIwar dual-use intelligence)
-        ("osint_system", OSINT_SYSTEM),
-        ("osint_person", OSINT_PERSON),
         // 0x09XX — health
         ("patient", PATIENT),
         ("diagnosis", DIAGNOSIS),
@@ -2465,18 +2459,6 @@ pub fn canonical_concept(name: &str) -> String {
     ) {
         return "priority".to_string();
     }
-    // OSINT domain (0x07XX) — the canonical class-name spellings must
-    // round-trip so ordinary PascalCase model-name inputs (`OsintSystem` /
-    // `OsintPerson`, the builders' `Class::new(...)` names) recover their
-    // codebook ids; without this arm they lexically land on `osintsystem` /
-    // `osintperson`, which are NOT in the codebook (`osint_system` /
-    // `osint_person` are). Codex P2 on PR #145, mirrors the PR #60 pattern.
-    if matches!(lower.as_str(), "osintsystem" | "osint_system") {
-        return "osint_system".to_string();
-    }
-    if matches!(lower.as_str(), "osintperson" | "osint_person") {
-        return "osint_person".to_string();
-    }
     // ── Layer 2: lexical fallback ──
     lexical_concept(name)
 }
@@ -2611,8 +2593,6 @@ pub fn all_promoted_classes() -> Vec<Class> {
         unit_of_measure(),
         // 0x07XX — OSINT arm (AIRO/AIwar dual-use: system + person cards),
         // in class_ids::ALL order.
-        osint_system(),
-        osint_person(),
         // 0x09XX — health arm (7 OGIT Healthcare concepts), in
         // class_ids::ALL order.
         patient(),
@@ -3722,88 +3702,6 @@ pub fn treatment() -> Class {
     c
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// 0x07XX — OSINT domain (AIRO/AIwar dual-use intelligence)
-//
-// Minted from the q2 cockpit V3 SoA bake (`data/osint-v3/`, harvested from
-// `AdaWorldAPI/aiwar-neo4j-harvest`). Two concepts mirror the two GUIDs of a
-// baked node: GUID1 (the AI system, 12 AIRO/VAIR dims) and GUID2 (the person,
-// 5 McClelland/Rubicon dims). Field order IS the SoA tier order — the FieldMask
-// bit basis. The low u16 is the frozen canonical concept; the render-skin
-// APP_PREFIX (`0x1000`, a V3 format signal) is the consumer's half.
-// ─────────────────────────────────────────────────────────────────────
-
-/// OSINT **AI system** — the AIRO/AIwar dual-use system card (`osint_system`,
-/// `0x0700`). The 12 dims the V3 SoA bake packs into GUID1's `6×(8:8)` tier
-/// cascade: HEEL `current_status:type`, HIP `military_use:civic_use`,
-/// TWIG `ml_task:ml_type`, LEAF `purpose:capacity`, family `output:impact`,
-/// identity `stakeholder:airo_role`. Attribute declaration order IS the tier
-/// order, so the lifted `ObjectView` FieldMask bit `i` == tier byte `i`. The
-/// reasoning roles (Demand `offer⟷need`, Causality `intent⟷impact`) are a
-/// consumer-side overlay on these names (see q2 `osint_classview.rs`).
-#[must_use]
-pub fn osint_system() -> Class {
-    let mut c = Class::new("OsintSystem");
-    c.language = Language::Unknown;
-    c.canonical_concept = Some("osint_system".to_string());
-    c.description =
-        Some("An AI system profiled on the AIRO/AIwar dual-use dimensions".to_string());
-    c.source_domain = Some("osint".to_string());
-    c.source_curator = Some("aiwar".to_string());
-    let mut attrs = Vec::with_capacity(12);
-    for name in [
-        "current_status", // HEEL.hi — state
-        "type",           // HEEL.lo — identity
-        "military_use",   // HIP.hi  — dual-use need
-        "civic_use",      // HIP.lo  — dual-use need
-        "ml_task",        // TWIG.hi — the task (need)
-        "ml_type",        // TWIG.lo — the technique (offer)
-        "purpose",        // LEAF.hi — intent (explicit)
-        "capacity",       // LEAF.lo — offer
-        "output",         // family.hi — offer
-        "impact",         // family.lo — causality (implicit)
-        "stakeholder",    // identity.hi — relation
-        "airo_role",      // identity.lo — actor role (person)
-    ] {
-        let mut a = Attribute::new(name);
-        a.type_name = Some("string".to_string());
-        attrs.push(a);
-    }
-    c.attributes = attrs;
-    c
-}
-
-/// OSINT **person** — the McClelland / Rubicon actor card (`osint_person`,
-/// `0x0701`). The 5 dims the V3 SoA bake packs into GUID2: HEEL `stage:need`,
-/// HIP `receptor:rubicon`, TWIG `motive`. This is the Epstein-archetype lens —
-/// implicit motive (`nPow`/`nAch`/`nAff`) × Rubicon crossing × power receptor —
-/// the Person side of the Person×Situation split (the system card carries the
-/// Situation). Attribute order IS the GUID2 tier order (the FieldMask bit basis).
-#[must_use]
-pub fn osint_person() -> Class {
-    let mut c = Class::new("OsintPerson");
-    c.language = Language::Unknown;
-    c.canonical_concept = Some("osint_person".to_string());
-    c.description =
-        Some("A person profiled on McClelland motives and the Rubicon action stage".to_string());
-    c.source_domain = Some("osint".to_string());
-    c.source_curator = Some("aiwar".to_string());
-    let mut attrs = Vec::with_capacity(5);
-    for name in [
-        "stage",    // HEEL.hi — Rubicon stage I..IV
-        "need",     // HEEL.lo — McClelland nPow/nAch/nAff
-        "receptor", // HIP.hi  — power receptor
-        "rubicon",  // HIP.lo  — Rubicon crossing
-        "motive",   // TWIG.hi — dominant motive
-    ] {
-        let mut a = Attribute::new(name);
-        a.type_name = Some("string".to_string());
-        attrs.push(a);
-    }
-    c.attributes = attrs;
-    c
-}
-
 /// Visit — a clinical encounter (OGIT `Visit`, `0x0906`). The temporal
 /// container diagnoses / labs / treatments / vitals are recorded within.
 #[must_use]
@@ -4256,24 +4154,6 @@ mod tests {
         // an undomained class is ignored entirely
         let c = Class::new("res.users");
         assert!(wire_synergies(&[a, b, c]).is_empty());
-    }
-
-    #[test]
-    fn canonical_concept_promotes_osint_classes_deterministically() {
-        // OSINT domain (0x07XX): the builders' PascalCase class names must
-        // round-trip to their codebook ids, like every other promoted class
-        // (codex P2 on PR #145). Without the resolver arm, `OsintSystem`
-        // lexically lands on `osintsystem`, which is NOT in the codebook.
-        assert_eq!(canonical_concept("OsintSystem"), "osint_system");
-        assert_eq!(canonical_concept("OsintPerson"), "osint_person");
-        assert_eq!(canonical_concept("osint_system"), "osint_system");
-        assert_eq!(canonical_concept("osint_person"), "osint_person");
-        // Full round-trip through the codebook resolver.
-        assert_eq!(ogar_codebook("OsintSystem"), Some(0x0700));
-        assert_eq!(ogar_codebook("OsintPerson"), Some(0x0701));
-        // The class builder's own `.name` resolves to its codebook id.
-        assert_eq!(ogar_codebook(&osint_system().name), Some(0x0700));
-        assert_eq!(ogar_codebook(&osint_person().name), Some(0x0701));
     }
 
     #[test]
@@ -4967,8 +4847,10 @@ mod tests {
             ],
             "Automation domain set drift — re-sync the consumer coverage gate",
         );
-        // The OSINT domain carries the two AIRO/AIwar cards (system + person).
-        assert_eq!(concepts_in_domain(ConceptDomain::Osint).count(), 2);
+        // The OSINT domain carries ZERO vocabulary rows BY DESIGN (operator
+        // ruling 2026-07-02): its low byte is appid space (q2 = 0x01), not a
+        // concept slot — see the CODEBOOK 0x07XX section note.
+        assert_eq!(concepts_in_domain(ConceptDomain::Osint).count(), 0);
     }
 
     #[test]

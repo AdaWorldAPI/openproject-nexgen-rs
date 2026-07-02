@@ -96,7 +96,8 @@ impl ScopeSpec {
 }
 
 /// The codebook class identity an authorization targets — the
-/// [`NodeGuid`](crate::NodeGuid) `classid` (or its low-`u16` codebook id widened).
+/// [`NodeGuid`](crate::NodeGuid) `classid` (its canon half is the codebook id;
+/// compose via [`render_classid`](crate::ogar_codebook::render_classid)).
 /// Opaque to the kernel: it is compared and looked up, never decoded (the kernel
 /// "never touches a token" — only resolved keys go inward).
 pub type ClassId = u32;
@@ -244,12 +245,13 @@ impl OpMask {
 /// text` blob (keystone §6 / I-K0 registry axiom: "decisions key on `classid`,
 /// not on text"). A role's `granted` value-tenant is a `&[ClassGrant]`.
 ///
-/// `target_classid` is the **low `u16` codebook id** (the shared-concept half of
-/// a [`NodeGuid`](crate::NodeGuid)'s `classid`) — the RBAC + ontology identity,
-/// app-render-skin-independent (the hi `u16` chooses render, never grants).
+/// `target_classid` is the **CANON `u16` codebook id** (the shared-concept half
+/// of a [`NodeGuid`](crate::NodeGuid)'s `classid` — the HIGH u16 since the
+/// 2026-07-02 half-order flip) — the RBAC + ontology identity,
+/// app-render-skin-independent (the custom half chooses render, never grants).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, PartialOrd, Ord, Hash)]
 pub struct ClassGrant {
-    /// The class this grant targets (low-`u16` codebook id).
+    /// The class this grant targets (canon-`u16` codebook id).
     pub target_classid: u16,
     /// The verbs this grant permits on that class.
     pub op_mask: OpMask,
@@ -266,14 +268,19 @@ impl ClassGrant {
         }
     }
 
-    /// Whether this grant permits `op` on `class`. Matches on the **low `u16`**
-    /// of `class` (the codebook id), so a grant authored against the shared
-    /// concept applies regardless of which app's render-skin (hi `u16`) the
-    /// `ClassId` carries.
+    /// Whether this grant permits `op` on `class`. Matches on the **CANON
+    /// half** of `class` (the codebook id) via the mint-forward compat reader
+    /// [`classid_canon_compat`](crate::ogar_codebook::classid_canon_compat) —
+    /// a grant authored against the shared concept applies regardless of
+    /// which app's render-skin (custom half) the `ClassId` carries, AND
+    /// regardless of whether the id is a post-flip (canon HIGH) or persisted
+    /// pre-flip (canon LOW) stored form. Never `class as u16` — post-flip
+    /// that reads the custom half and collapses every class (codex P2 #627).
     #[inline]
     #[must_use]
     pub fn permits(&self, class: ClassId, op: &Operation<'_>) -> bool {
-        self.target_classid == (class as u16) && self.op_mask.permits(op)
+        self.target_classid == crate::ogar_codebook::classid_canon_compat(class)
+            && self.op_mask.permits(op)
     }
 }
 
@@ -344,21 +351,27 @@ mod tests {
     }
 
     #[test]
-    fn class_grant_matches_on_low_u16_codebook_id() {
+    fn class_grant_matches_on_canon_codebook_id() {
         let grant = ClassGrant::new(0x0901, OpMask::READ.union(OpMask::ACT));
-        // Same concept, different app render-skin (hi u16) → still permitted:
-        // the grant keys on the shared-concept low u16, never the render half.
-        let app_a: ClassId = 0x0000_0901;
-        let app_b: ClassId = 0xAB12_0901;
         let read = Operation::Read {
             depth: PrefetchDepth::Identity,
         };
-        assert!(grant.permits(app_a, &read));
-        assert!(grant.permits(app_b, &read));
-        // Wrong concept → denied even with the verb.
+        // Same concept, different app render-skin (custom half) → still
+        // permitted: the grant keys on the shared-concept CANON half, never
+        // the render half. Post-flip forms: concept HIGH, any prefix LOW.
+        assert!(grant.permits(0x0901_0000, &read)); // core lens
+        assert!(grant.permits(0x0901_0005, &read)); // Healthcare lens
+        assert!(grant.permits(0x0901_AB12, &read)); // arbitrary custom half
+                                                    // Mint-forward: persisted PRE-flip forms (canon LOW, §2-allocated
+                                                    // prefixes < 0x0100 or the 0x1000 V3 marker) still match through the
+                                                    // compat reader — a re-bake is never required for authorization.
+        assert!(grant.permits(0x0000_0901, &read)); // legacy core
+        assert!(grant.permits(0x0005_0901, &read)); // legacy Healthcare render
+                                                    // Wrong concept → denied even with the verb (both forms).
+        assert!(!grant.permits(0x0902_0000, &read));
         assert!(!grant.permits(0x0000_0902, &read));
         // Right concept, ungranted verb → denied.
-        assert!(!grant.permits(app_a, &Operation::Write { predicate: "due" }));
+        assert!(!grant.permits(0x0901_0000, &Operation::Write { predicate: "due" }));
     }
 
     /// A typed [`ClassRbac`] impl whose `grant_permits` body IS [`grants_permit`]

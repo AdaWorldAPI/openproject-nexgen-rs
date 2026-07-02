@@ -56,19 +56,21 @@ pub trait PortSpec: 'static + Send + Sync {
     /// Lowercase bridge_id for `NamespaceBridge::bridge_id()`.
     const BRIDGE_ID: &'static str;
 
-    /// Reserved APP / render prefix — the high u16 of a full 32-bit
-    /// classid (`APP-CLASS-CODEBOOK-LAYOUT.md` §2).
+    /// Reserved APP / render prefix — the CUSTOM half (low u16 since the
+    /// 2026-07-02 canon:custom flip) of a full 32-bit classid
+    /// (`APP-CLASS-CODEBOOK-LAYOUT.md` §2; the prefix VALUES are
+    /// order-invariant).
     ///
     /// Composing the full render classid:
     /// ```text
-    /// render_classid = (APP_PREFIX as u32) << 16 | concept_low_u16
+    /// render_classid = (concept as u32) << 16 | APP_PREFIX
     /// ```
     ///
     /// `0x0000` is the **shared canonical core** — the cross-app ontology
     /// every consumer reuses. Each app port overrides with its reserved
     /// prefix from the §2 allocation table, waking its own per-app
     /// ClassView / Askama template set for rendering while keeping the
-    /// low-u16 concept (RBAC + ontology) shared.
+    /// CANON (high-u16) concept (RBAC + ontology) shared.
     ///
     /// Reserving this prefix costs nothing (§2: "Reserving a prefix costs
     /// nothing — no codebook is materialised until the app mints its first

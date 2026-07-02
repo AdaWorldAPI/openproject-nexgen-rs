@@ -152,7 +152,7 @@ pub enum StyleSelector {
 // Rung level — semantic depth elevation (0..9)
 // ═══════════════════════════════════════════════════════════════════════════
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum RungLevel {
     #[default]
@@ -166,6 +166,185 @@ pub enum RungLevel {
     Meta = 7,
     Recursive = 8,
     Transcendent = 9,
+}
+
+impl RungLevel {
+    /// Decode a wire ordinal, saturating: `0..=9` map to their rung, anything
+    /// above clamps to [`Transcendent`](RungLevel::Transcendent). This is the
+    /// ONE u8→rung mapping — the driver's wire/grpc decoders route through it
+    /// instead of hand-rolling the same 10-arm match twice.
+    #[inline]
+    pub const fn from_u8(v: u8) -> Self {
+        match v {
+            0 => RungLevel::Surface,
+            1 => RungLevel::Shallow,
+            2 => RungLevel::Contextual,
+            3 => RungLevel::Analogical,
+            4 => RungLevel::Abstract,
+            5 => RungLevel::Structural,
+            6 => RungLevel::Counterfactual,
+            7 => RungLevel::Meta,
+            8 => RungLevel::Recursive,
+            _ => RungLevel::Transcendent,
+        }
+    }
+
+    /// One rung up, saturating at [`Transcendent`](RungLevel::Transcendent).
+    #[inline]
+    pub const fn elevate(self) -> Self {
+        Self::from_u8((self as u8).saturating_add(1))
+    }
+
+    /// One rung down, saturating at [`Surface`](RungLevel::Surface).
+    #[inline]
+    pub const fn de_elevate(self) -> Self {
+        Self::from_u8((self as u8).saturating_sub(1))
+    }
+
+    /// The Pearl-ladder level this rung consults: `1` = Association
+    /// (observation), `2` = Intervention, `3` = Counterfactual. The rung
+    /// ladder exists to make higher reasoning depend on observations, with
+    /// hypothesis-testing-with-counterfactual on top — and the enum names the
+    /// boundary itself: [`Counterfactual`](RungLevel::Counterfactual)` = 6` is
+    /// where Level 3 starts. Rungs 0–2 observe, 3–5 intervene, 6–9 run
+    /// counterfactuals (Meta/Recursive/Transcendent are counterfactuals *about*
+    /// counterfactuals — still Level 3 machinery, deeper self-reference).
+    #[inline]
+    pub const fn pearl_level(self) -> u8 {
+        match self as u8 {
+            0..=2 => 1,
+            3..=5 => 2,
+            _ => 3,
+        }
+    }
+
+    /// The 3-bit SPO causal-projection mask (S=0b100, P=0b010, O=0b001 — the
+    /// bit convention the P3 probe certified is shared between
+    /// `causal_edge::CausalMask` and the planner's `SpoDistances::causal_distance`)
+    /// this rung's Pearl level consults:
+    ///
+    /// - Level 2 → `PO = 0b011` — **probe-certified** (P3: Intervention projects
+    ///   out the Subject confounder; strictly less distance than SPO when the
+    ///   Subject term is non-zero).
+    /// - Level 3 → `SPO = 0b111` — **probe-certified** (P3: the full Level-3
+    ///   Counterfactual distance).
+    /// - Level 1 → `O = 0b001` — the observational plane (Association reads the
+    ///   outcome/object plane alone). CONVENTION, hand-chosen pending its own
+    ///   probe — recorded per the label-everything rule; the L2/L3 rows above
+    ///   are the grounded anchor.
+    #[inline]
+    pub const fn causal_mask_bits(self) -> u8 {
+        match self.pearl_level() {
+            1 => 0b001,
+            2 => 0b011,
+            _ => 0b111,
+        }
+    }
+}
+
+/// The rung **elevation policy** — "elevates on sustained BLOCK" (the intent
+/// [`ShaderDispatch::rung`] has documented since the field landed), as a pure,
+/// zero-dep state machine over the existing [`GateDecision`] ordinals. No new
+/// math: rung → Pearl level → SPO projection mask is the P2/P3-certified mask
+/// algebra; this struct only decides *which rung is current*.
+///
+/// Policy (homeostatic — the shader must be able to come back down):
+/// - **BLOCK** streak of `threshold` consecutive cycles → [`RungLevel::elevate`]
+///   one rung (streak resets). The system is stuck; look deeper.
+/// - **FLOW** streak of `threshold` consecutive cycles → [`RungLevel::de_elevate`]
+///   one rung, **never below `base`** (the dispatched rung). The system is
+///   converging; relax toward the requested depth instead of staying meta forever.
+/// - **HOLD** resets both streaks and keeps the level: superposition is neither
+///   stuck nor converged, so it must not creep the ladder in either direction.
+///
+/// `DEFAULT_THRESHOLD = 2` is hand-tuned ("sustained" = the second consecutive
+/// gate agreeing), not Jirak-derived — recorded per `I-NOISE-FLOOR-JIRAK`'s
+/// hand-tuned-values-must-say-so rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RungElevator {
+    /// The dispatched base rung — the floor `de_elevate` relaxes back to.
+    pub base: RungLevel,
+    /// The current rung (starts at `base`).
+    pub level: RungLevel,
+    /// Consecutive BLOCK count toward the next elevation.
+    pub block_streak: u8,
+    /// Consecutive FLOW count toward the next relaxation.
+    pub flow_streak: u8,
+    /// Streak length that counts as "sustained".
+    pub threshold: u8,
+}
+
+impl RungElevator {
+    /// Hand-tuned "sustained" streak length (see type docs).
+    pub const DEFAULT_THRESHOLD: u8 = 2;
+
+    /// Elevator anchored at the dispatch's rung with the default threshold.
+    #[inline]
+    pub const fn new(base: RungLevel) -> Self {
+        Self {
+            base,
+            level: base,
+            block_streak: 0,
+            flow_streak: 0,
+            threshold: Self::DEFAULT_THRESHOLD,
+        }
+    }
+
+    /// Feed one cycle's gate decision; returns the (possibly changed) current
+    /// rung. Pure state transition — no storage, no side effects.
+    #[inline]
+    pub fn on_gate(&mut self, gate: crate::collapse_gate::GateDecision) -> RungLevel {
+        if gate.is_block() {
+            self.flow_streak = 0;
+            self.block_streak = self.block_streak.saturating_add(1);
+            if self.block_streak >= self.threshold {
+                self.level = self.level.elevate();
+                self.block_streak = 0;
+            }
+        } else if gate.is_flow() {
+            self.block_streak = 0;
+            self.flow_streak = self.flow_streak.saturating_add(1);
+            if self.flow_streak >= self.threshold {
+                if (self.level as u8) > (self.base as u8) {
+                    self.level = self.level.de_elevate();
+                }
+                self.flow_streak = 0;
+            }
+        } else {
+            // HOLD: neither stuck nor converged — no ladder creep either way.
+            self.block_streak = 0;
+            self.flow_streak = 0;
+        }
+        self.level
+    }
+
+    /// The SPO projection mask the CURRENT rung consults
+    /// ([`RungLevel::causal_mask_bits`]) — the value a dispatch loop feeds to
+    /// `causal_distance(&a, &b, mask)`.
+    #[inline]
+    pub const fn causal_mask_bits(&self) -> u8 {
+        self.level.causal_mask_bits()
+    }
+
+    /// Apply a signed rung-shift hint to the SAME accumulator the gate streaks
+    /// drive — one rung state, two signal sources. The canonical producer is
+    /// [`crate::escalation::rung_delta`] (the felt-parse System-1 hint:
+    /// `emergence`/`coherence` → ±1, voted as
+    /// [`CollapseHint::RungElevate`](crate::escalation::CollapseHint::RungElevate));
+    /// the gate streaks in [`on_gate`](RungElevator::on_gate) are the System-2
+    /// stuck/converged evidence. Both move the one ladder; neither owns it.
+    /// Clamps at the dispatched `base` floor and the
+    /// [`Transcendent`](RungLevel::Transcendent) ceiling. Streaks are left
+    /// untouched — a felt hint is not gate evidence.
+    #[inline]
+    pub fn apply_delta(&mut self, delta: i8) -> RungLevel {
+        if delta > 0 {
+            self.level = self.level.elevate();
+        } else if delta < 0 && (self.level as u8) > (self.base as u8) {
+            self.level = self.level.de_elevate();
+        }
+        self.level
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -551,5 +730,123 @@ mod tests {
         let b = ShaderBus::empty();
         assert!(b.gate.is_hold());
         assert_eq!(b.emitted_edge_count, 0);
+    }
+
+    // ── RungLevel arithmetic + RungElevator policy ─────────────────────────
+
+    #[test]
+    fn rung_from_u8_saturates_and_round_trips() {
+        for v in 0..=9u8 {
+            assert_eq!(RungLevel::from_u8(v) as u8, v, "ordinal {v} round-trips");
+        }
+        assert_eq!(RungLevel::from_u8(10), RungLevel::Transcendent);
+        assert_eq!(RungLevel::from_u8(u8::MAX), RungLevel::Transcendent);
+        // elevate/de_elevate saturate at the ladder ends.
+        assert_eq!(RungLevel::Transcendent.elevate(), RungLevel::Transcendent);
+        assert_eq!(RungLevel::Surface.de_elevate(), RungLevel::Surface);
+        assert_eq!(RungLevel::Surface.elevate(), RungLevel::Shallow);
+        assert_eq!(
+            RungLevel::Counterfactual.de_elevate(),
+            RungLevel::Structural
+        );
+    }
+
+    #[test]
+    fn rung_pearl_levels_and_masks_follow_the_certified_convention() {
+        // Rungs 0-2 observe (L1), 3-5 intervene (L2), 6-9 counterfactual (L3) —
+        // the enum itself names the L3 boundary (Counterfactual = 6).
+        assert_eq!(RungLevel::Surface.pearl_level(), 1);
+        assert_eq!(RungLevel::Contextual.pearl_level(), 1);
+        assert_eq!(RungLevel::Analogical.pearl_level(), 2);
+        assert_eq!(RungLevel::Structural.pearl_level(), 2);
+        assert_eq!(RungLevel::Counterfactual.pearl_level(), 3);
+        assert_eq!(RungLevel::Transcendent.pearl_level(), 3);
+        // Masks: L2 = PO (P3-certified Intervention projection), L3 = SPO
+        // (P3-certified full distance), L1 = O (observational convention).
+        assert_eq!(RungLevel::Surface.causal_mask_bits(), 0b001);
+        assert_eq!(RungLevel::Abstract.causal_mask_bits(), 0b011);
+        assert_eq!(RungLevel::Counterfactual.causal_mask_bits(), 0b111);
+        // Monotone: deeper rung never consults FEWER planes.
+        let mut prev = 0u32;
+        for v in 0..=9u8 {
+            let planes = RungLevel::from_u8(v).causal_mask_bits().count_ones();
+            assert!(planes >= prev, "plane count must not shrink as rung rises");
+            prev = planes;
+        }
+    }
+
+    #[test]
+    fn elevator_elevates_on_sustained_block_and_relaxes_on_sustained_flow() {
+        use crate::collapse_gate::GateDecision;
+        let mut e = RungElevator::new(RungLevel::Shallow);
+        assert_eq!(e.level, RungLevel::Shallow);
+
+        // One BLOCK is not "sustained" — level holds.
+        assert_eq!(e.on_gate(GateDecision::BLOCK), RungLevel::Shallow);
+        // Second consecutive BLOCK = sustained → elevate one rung.
+        assert_eq!(e.on_gate(GateDecision::BLOCK), RungLevel::Contextual);
+        // Two more → Analogical (streak reset after each elevation).
+        e.on_gate(GateDecision::BLOCK);
+        assert_eq!(e.on_gate(GateDecision::BLOCK), RungLevel::Analogical);
+        // The elevated rung crosses into Pearl L2 → the consulted mask widens.
+        assert_eq!(e.causal_mask_bits(), 0b011);
+
+        // Sustained FLOW relaxes one rung per streak…
+        e.on_gate(GateDecision::FLOW_XOR);
+        assert_eq!(e.on_gate(GateDecision::FLOW_BUNDLE), RungLevel::Contextual);
+        e.on_gate(GateDecision::FLOW_XOR);
+        assert_eq!(e.on_gate(GateDecision::FLOW_XOR), RungLevel::Shallow);
+        // …but never below the dispatched base.
+        e.on_gate(GateDecision::FLOW_XOR);
+        assert_eq!(e.on_gate(GateDecision::FLOW_XOR), RungLevel::Shallow);
+        assert_eq!(e.base, RungLevel::Shallow);
+    }
+
+    #[test]
+    fn elevator_hold_resets_streaks_without_ladder_creep() {
+        use crate::collapse_gate::GateDecision;
+        let mut e = RungElevator::new(RungLevel::Surface);
+        // BLOCK, then HOLD breaks the streak: the next BLOCK starts over,
+        // so no elevation happens until two CONSECUTIVE blocks.
+        e.on_gate(GateDecision::BLOCK);
+        assert_eq!(e.on_gate(GateDecision::HOLD), RungLevel::Surface);
+        assert_eq!(e.on_gate(GateDecision::BLOCK), RungLevel::Surface);
+        assert_eq!(e.on_gate(GateDecision::BLOCK), RungLevel::Shallow);
+        // HOLD also breaks a FLOW streak (no relaxation creep).
+        e.on_gate(GateDecision::FLOW_XOR);
+        e.on_gate(GateDecision::HOLD);
+        assert_eq!(e.on_gate(GateDecision::FLOW_XOR), RungLevel::Shallow);
+        assert_eq!(e.block_streak, 0);
+    }
+
+    #[test]
+    fn elevator_saturates_at_transcendent_under_endless_block() {
+        use crate::collapse_gate::GateDecision;
+        let mut e = RungElevator::new(RungLevel::Surface);
+        for _ in 0..64 {
+            e.on_gate(GateDecision::BLOCK);
+        }
+        assert_eq!(e.level, RungLevel::Transcendent);
+        assert_eq!(e.causal_mask_bits(), 0b111);
+    }
+
+    #[test]
+    fn elevator_accepts_felt_parse_rung_delta_on_the_same_ladder() {
+        // One rung state, two signal sources: the felt-parse System-1 hint
+        // (escalation::rung_delta) drives the SAME accumulator the gate
+        // streaks drive — convergence, not a parallel ladder.
+        use crate::escalation::rung_delta;
+        let mut e = RungElevator::new(RungLevel::Shallow);
+        // emergent + incoherent → +1 (the detector.rs-grounded rule).
+        assert_eq!(rung_delta(0.6, 0.3), 1);
+        assert_eq!(e.apply_delta(rung_delta(0.6, 0.3)), RungLevel::Contextual);
+        // coherent + settled → -1, relaxing back…
+        assert_eq!(e.apply_delta(rung_delta(0.05, 0.9)), RungLevel::Shallow);
+        // …but never below the dispatched base (same floor as sustained FLOW).
+        assert_eq!(e.apply_delta(-1), RungLevel::Shallow);
+        // Neutral hint (0) holds.
+        assert_eq!(e.apply_delta(rung_delta(0.5, 0.5)), RungLevel::Shallow);
+        // A hint does NOT touch gate streaks (a feeling is not gate evidence).
+        assert_eq!((e.block_streak, e.flow_streak), (0, 0));
     }
 }

@@ -42,70 +42,99 @@ impl NodeGuid {
 
     // ── classids follow OGAR `ogar-vocab`'s domain-encoded `0xDDCC` codebook ──
     // (DD = domain high byte, CC = concept slot; CC=0x00 = domain root, reserved).
-    // `canonical_concept_domain(classid_lo)` (see `crate::ogar_codebook`) routes on
-    // `classid >> 8`. Realigned 2026-06-20 (ISS-CLASSID-OGAR-DRIFT): OSINT was
-    // 0x0007 (OGAR Reserved domain) → 0x0700; FMA was 0x0008 (OGAR OCR block) →
-    // 0x0901. Re-realigned 2026-06-24 (ISS-CLASSID-OGAR-DRIFT cont.): FMA 0x0901
-    // **collided with OGAR `patient` (0x0901)** — both Health. FMA now routes to
-    // the new **Anatomy** domain root 0x0A01 (`anatomical_structure`); anatomy is
-    // public reference, not Health PHI. Surfaced by OGAR `docs/NODEGUID-CANON-AUDIT.md`
-    // F-1. Migration: `.claude/plans/ogar-vocab-contract-codebook-migration-v1.md`.
+    // The `0xDDCC` codebook id is the classid's CANON half — the HIGH u16 since
+    // the 2026-07-02 half-order flip (`classid-canon-custom-flip-v1` P1;
+    // `crate::ogar_codebook::classid_canon`). Realigned 2026-06-20
+    // (ISS-CLASSID-OGAR-DRIFT): OSINT was 0x0007 (OGAR Reserved domain) → 0x0700;
+    // FMA was 0x0008 (OGAR OCR block) → 0x0901. Re-realigned 2026-06-24
+    // (ISS-CLASSID-OGAR-DRIFT cont.): FMA 0x0901 **collided with OGAR `patient`
+    // (0x0901)** — both Health. FMA now routes to the new **Anatomy** domain root
+    // 0x0A01 (`anatomical_structure`); anatomy is public reference, not Health
+    // PHI. Surfaced by OGAR `docs/NODEGUID-CANON-AUDIT.md` F-1. Migration:
+    // `.claude/plans/ogar-vocab-contract-codebook-migration-v1.md`.
+    //
+    // MINT-FORWARD BOUNDARY (flip P1/P3): the named constants below are the
+    // MINT surface — they carry the new canon-HIGH form. The pre-flip stored
+    // forms (`0x0000_DDCC` v1 / `0x1000_DDCC` V3) stay behind as
+    // `CLASSID_*_LEGACY` read-only aliases so persisted rows keep resolving
+    // through `BUILTIN_READ_MODES`; they retire only on corpus proof that zero
+    // old-form rows remain (codex P2 #627 — RESERVE, DON'T RECLAIM).
 
     /// **OSINT / Palantir-Gotham** domain root (`0x07` = OSINT domain, `0x00` =
-    /// root). The neo4j-emulation entity graph (people / orgs / systems / events,
-    /// family-grouped). Resolves to [`ReadMode::OSINT`] (hot `Cognitive` value +
-    /// `CoarseOnly` adjacency).
-    pub const CLASSID_OSINT: u32 = 0x0000_0700;
+    /// root — "applied domain-wise" per the 2026-07-02 ruling). The
+    /// neo4j-emulation entity graph (people / orgs / systems / events,
+    /// family-grouped). Canon `0x0700` HIGH, custom `0x0000`. Resolves to
+    /// [`ReadMode::OSINT`] (hot `Cognitive` value + `CoarseOnly` adjacency).
+    pub const CLASSID_OSINT: u32 = 0x0700_0000;
+    /// Pre-flip stored form of [`CLASSID_OSINT`] (canon in the LOW half) —
+    /// read-only legacy alias for persisted rows; do NOT mint with this.
+    pub const CLASSID_OSINT_LEGACY: u32 = 0x0000_0700;
     /// **FMA anatomy** — `anatomical_structure` (`0x01`) in the **Anatomy** domain
     /// (`0x0A`); `0x0A00` is the Anatomy root. The Foundational Model of Anatomy
     /// (~70k structural entities, family = body region, bones = stability anchors).
     /// Anatomy is **public reference, not Health PHI** — moved off `0x0901` to
-    /// clear the collision with OGAR `patient`. Resolves to [`ReadMode::FMA`]
-    /// (cold `Compressed` reference + `CoarseOnly`).
-    pub const CLASSID_FMA: u32 = 0x0000_0A01;
+    /// clear the collision with OGAR `patient`. Canon `0x0A01` HIGH. Resolves to
+    /// [`ReadMode::FMA`] (cold `Compressed` reference + `CoarseOnly`).
+    pub const CLASSID_FMA: u32 = 0x0A01_0000;
+    /// Pre-flip stored form of [`CLASSID_FMA`] — read-only legacy alias.
+    pub const CLASSID_FMA_LEGACY: u32 = 0x0000_0A01;
     /// **Project-management** domain root (`0x01`) — OpenProject ↔ Redmine
-    /// (work items, members, versions, …). OGAR codebook `0x01XX`. Resolves to
-    /// [`ReadMode::PROJECT`].
-    pub const CLASSID_PROJECT: u32 = 0x0000_0100;
+    /// (work items, members, versions, …). OGAR codebook `0x01XX`. Canon
+    /// `0x0100` HIGH. Resolves to [`ReadMode::PROJECT`].
+    pub const CLASSID_PROJECT: u32 = 0x0100_0000;
+    /// Pre-flip stored form of [`CLASSID_PROJECT`] — read-only legacy alias.
+    pub const CLASSID_PROJECT_LEGACY: u32 = 0x0000_0100;
     /// **Commerce / ERP** domain root (`0x02`) — Odoo ↔ OSB (invoices, taxes,
-    /// partners, payments, …). OGAR codebook `0x02XX`. Resolves to [`ReadMode::ERP`].
-    pub const CLASSID_ERP: u32 = 0x0000_0200;
+    /// partners, payments, …). OGAR codebook `0x02XX`. Canon `0x0200` HIGH.
+    /// Resolves to [`ReadMode::ERP`].
+    pub const CLASSID_ERP: u32 = 0x0200_0000;
+    /// Pre-flip stored form of [`CLASSID_ERP`] — read-only legacy alias.
+    pub const CLASSID_ERP_LEGACY: u32 = 0x0000_0200;
 
     // ── V3 cascade-key classids (feature `guid-v3-tail`) ───────────────────────
-    // The V3 generation marker lives in the HIGH (custom) u16, leaving the canon
-    // LOW u16 untouched, because the live contract routes domain on `classid as
-    // u16` (`0xDDCC`; CLASSID_OSINT = 0x0700, CLASSID_FMA = 0x0A01). So
-    // `classid_concept_domain` masks the marker off and still routes the legacy
-    // domain — the Codex-P1 fix vs the rejected low-half `0x1007` (which read
-    // domain 0x10 = Unassigned). OSINT-V3 (`0x1000_0700`), FMA-V3 (`0x1000_0A01`),
-    // and CPIC-V3 (`0x1000_0E00`, Genetics domain `0x0E`, operator-allocated
-    // 2026-06-26 — `0x0D` was already HR) are the three wired V3 classes that
-    // complete Phase 1 (identity → V3); the atomic Canon:Custom half-order flip
-    // follows once the V3 set is complete (plan §2.3).
+    // Since the 2026-07-02 half-order flip (P1): the CANON (`domain:appid`,
+    // e.g. `0x0701` = OSINT domain `0x07`, appid `0x01` = q2) sits in the HIGH
+    // u16 and the V3 generation marker `0x1000` in the LOW/custom u16 — stored
+    // `0x0701_1000`, human-readable `0x07:01::1000` (the operator's mnemonic).
+    // The marker is temporary by declaration (a "hard reminder" of the V3
+    // migration); its retirement is the plan's P4 operator checkpoint. The
+    // appid byte normalizes to `:01` (q2, the consumer app) for OSINT and
+    // CPIC per the ruling ("0701 is q2 as the OSINT appid, our consumer";
+    // "same for cpic also under q2"); FMA was already `:01`. Pre-flip stored
+    // forms (`0x1000_DDCC`) remain as `_LEGACY` read-only alias keys.
 
-    /// **OSINT-V3** — OSINT on a [`TailVariant::V3`] cascade tail. The generation
-    /// marker `0x1000` sits in the HIGH/custom u16; the canon `0x0700` is preserved
-    /// in the LOW u16, so [`classid_concept_domain`](crate::ogar_codebook::classid_concept_domain)
-    /// still routes [`Osint`](crate::ogar_codebook::ConceptDomain::Osint) (it masks
-    /// `classid as u16` → low half) — unlike the rejected low-half `0x0000_1007`,
-    /// which read domain `0x10` = `Unassigned`. Resolves to [`ReadMode::OSINT_V3`].
-    #[cfg(feature = "guid-v3-tail")]
-    pub const CLASSID_OSINT_V3: u32 = 0x1000_0700;
-
-    /// **FMA-V3** — FMA anatomy on a [`TailVariant::V3`] cascade tail. The marker
-    /// `0x1000` sits in the HIGH/custom u16; the canon `0x0A01` (Anatomy domain
-    /// `0x0A`, `anatomical_structure`) is preserved in the LOW u16, so
+    /// **OSINT-V3** — OSINT on a [`TailVariant::V3`] cascade tail, minted for
+    /// q2 (appid `0x01`). Canon `0x0701` HIGH; the V3 marker `0x1000` in the
+    /// LOW/custom u16 — `0x07:01::1000`.
     /// [`classid_concept_domain`](crate::ogar_codebook::classid_concept_domain)
-    /// still routes [`Anatomy`](crate::ogar_codebook::ConceptDomain::Anatomy).
+    /// routes [`Osint`](crate::ogar_codebook::ConceptDomain::Osint) off the
+    /// canon half. Resolves to [`ReadMode::OSINT_V3`].
+    #[cfg(feature = "guid-v3-tail")]
+    pub const CLASSID_OSINT_V3: u32 = 0x0701_1000;
+    /// Pre-flip stored form of [`CLASSID_OSINT_V3`] (marker HIGH, canon
+    /// `0x0700` LOW — note the pre-normalization appid `:00`) — read-only
+    /// legacy alias for persisted rows; do NOT mint with this.
+    #[cfg(feature = "guid-v3-tail")]
+    pub const CLASSID_OSINT_V3_LEGACY: u32 = 0x1000_0700;
+
+    /// **FMA-V3** — FMA anatomy on a [`TailVariant::V3`] cascade tail, minted
+    /// for q2. Canon `0x0A01` HIGH (Anatomy domain `0x0A`, appid `0x01`); the
+    /// V3 marker `0x1000` in the LOW/custom u16 — `0x0A:01::1000`.
+    /// [`classid_concept_domain`](crate::ogar_codebook::classid_concept_domain)
+    /// routes [`Anatomy`](crate::ogar_codebook::ConceptDomain::Anatomy).
     /// Resolves to [`ReadMode::FMA_V3`] (same cold `Compressed` model as legacy FMA).
     #[cfg(feature = "guid-v3-tail")]
-    pub const CLASSID_FMA_V3: u32 = 0x1000_0A01;
+    pub const CLASSID_FMA_V3: u32 = 0x0A01_1000;
+    /// Pre-flip stored form of [`CLASSID_FMA_V3`] — read-only legacy alias.
+    #[cfg(feature = "guid-v3-tail")]
+    pub const CLASSID_FMA_V3_LEGACY: u32 = 0x1000_0A01;
 
     /// **CPIC-V3** — CPIC pharmacogenomics (gene–drug guidelines) on a
-    /// [`TailVariant::V3`] cascade tail, in the new **Genetics** domain (`0x0E`,
-    /// operator-allocated 2026-06-26 — `0x0D` was already HR). The marker `0x1000`
-    /// sits in the HIGH/custom u16; the canon `0x0E00` (Genetics domain root) is
-    /// preserved in the LOW u16, so
+    /// [`TailVariant::V3`] cascade tail, in the **Genetics** domain (`0x0E`,
+    /// operator-allocated 2026-06-26 — `0x0D` was already HR), minted for q2
+    /// (appid `0x01`, normalized from the pre-flip domain-root `:00` per the
+    /// ruling "same for cpic also under q2"). Canon `0x0E01` HIGH; the V3
+    /// marker `0x1000` in the LOW/custom u16 — `0x0E:01::1000`.
     /// [`classid_concept_domain`](crate::ogar_codebook::classid_concept_domain)
     /// routes [`Genetics`](crate::ogar_codebook::ConceptDomain::Genetics). Resolves
     /// to [`ReadMode::CPIC_V3`].
@@ -121,7 +150,11 @@ impl NodeGuid {
     /// not a hot lifecycle); Phase 2 shapes the V3 tenants — gene expression as the
     /// coordinate *value* — on top.
     #[cfg(feature = "guid-v3-tail")]
-    pub const CLASSID_CPIC_V3: u32 = 0x1000_0E00;
+    pub const CLASSID_CPIC_V3: u32 = 0x0E01_1000;
+    /// Pre-flip stored form of [`CLASSID_CPIC_V3`] (marker HIGH, canon
+    /// `0x0E00` LOW — pre-normalization appid `:00`) — read-only legacy alias.
+    #[cfg(feature = "guid-v3-tail")]
+    pub const CLASSID_CPIC_V3_LEGACY: u32 = 0x1000_0E00;
 
     /// Construct from the six canonical groups. `family`/`identity` use their low 3 bytes.
     ///
@@ -1159,16 +1192,28 @@ static BUILTIN_READ_MODES: LazyLock<HashMap<u32, ReadMode>> = LazyLock::new(|| {
     // the OGAR `0x01XX` / `0x02XX` domains; both hot business graphs (Cognitive).
     m.insert(NodeGuid::CLASSID_PROJECT, ReadMode::PROJECT);
     m.insert(NodeGuid::CLASSID_ERP, ReadMode::ERP);
+    // LEGACY ALIASES (flip P1/P3, codex P2 #627): the pre-flip stored forms
+    // (canon in the LOW half) resolve to the SAME read modes so persisted
+    // pre-flip rows keep reading correctly — mint-forward, never blanket
+    // reinterpretation. Read-only: do NOT mint with these keys. Retirement is
+    // a later step gated on a corpus proof that zero old-form rows remain.
+    m.insert(NodeGuid::CLASSID_OSINT_LEGACY, ReadMode::OSINT);
+    m.insert(NodeGuid::CLASSID_FMA_LEGACY, ReadMode::FMA);
+    m.insert(NodeGuid::CLASSID_PROJECT_LEGACY, ReadMode::PROJECT);
+    m.insert(NodeGuid::CLASSID_ERP_LEGACY, ReadMode::ERP);
     // V3 cascade-key classes (feature `guid-v3-tail`): same value model as their
-    // legacy domain, on a TailVariant::V3 tail. The high-u16 gen-marker is masked
-    // off by the domain router, so `classid_concept_domain` still resolves the
-    // legacy domain (Osint / Anatomy / Genetics). The three together complete the
-    // Phase-1 V3 set; the atomic Canon:Custom flip follows (plan §2.3).
+    // legacy domain, on a TailVariant::V3 tail. Since the P1 flip the canon
+    // (`domain:appid`) is the HIGH u16 (`0x0701_1000`-form), so
+    // `classid_concept_domain` routes Osint / Anatomy / Genetics directly off
+    // the canon half; the pre-flip `0x1000_DDCC` forms stay as aliases.
     #[cfg(feature = "guid-v3-tail")]
     {
         m.insert(NodeGuid::CLASSID_OSINT_V3, ReadMode::OSINT_V3);
         m.insert(NodeGuid::CLASSID_FMA_V3, ReadMode::FMA_V3);
         m.insert(NodeGuid::CLASSID_CPIC_V3, ReadMode::CPIC_V3);
+        m.insert(NodeGuid::CLASSID_OSINT_V3_LEGACY, ReadMode::OSINT_V3);
+        m.insert(NodeGuid::CLASSID_FMA_V3_LEGACY, ReadMode::FMA_V3);
+        m.insert(NodeGuid::CLASSID_CPIC_V3_LEGACY, ReadMode::CPIC_V3);
     }
     m
 });
@@ -2052,24 +2097,37 @@ mod tests {
         assert_eq!(fma.value_schema, ValueSchema::Compressed);
         assert_eq!(fma.edge_codec, EdgeCodecFlavor::CoarseOnly);
 
-        // The classids follow OGAR `0xDDCC` (ISS-CLASSID-OGAR-DRIFT realign):
-        // OSINT domain root `0x0700` (`>>8 == 0x07`); FMA = `anatomical_structure`
-        // `0x0A01` in the **Anatomy** domain (`>>8 == 0x0A`) — re-realigned off
-        // `0x0901` to clear the OGAR `patient` collision. Never the pre-realign
-        // 0x0007 / 0x0008, nor the colliding 0x0901.
-        assert_eq!(NodeGuid::CLASSID_OSINT, 0x0000_0700);
-        assert_eq!(NodeGuid::CLASSID_FMA, 0x0000_0A01);
+        // The classids follow OGAR `0xDDCC` in the CANON (high-since-P1) half
+        // (ISS-CLASSID-OGAR-DRIFT realign): OSINT domain root `0x0700`; FMA =
+        // `anatomical_structure` `0x0A01` in the **Anatomy** domain — re-realigned
+        // off `0x0901` to clear the OGAR `patient` collision. Never the
+        // pre-realign 0x0007 / 0x0008, nor the colliding 0x0901.
+        use crate::ogar_codebook::classid_canon;
+        assert_eq!(NodeGuid::CLASSID_OSINT, 0x0700_0000);
+        assert_eq!(NodeGuid::CLASSID_FMA, 0x0A01_0000);
         assert_ne!(
-            NodeGuid::CLASSID_FMA,
-            0x0000_0901,
+            classid_canon(NodeGuid::CLASSID_FMA),
+            0x0901,
             "must not alias `patient`"
         );
-        assert_eq!(NodeGuid::CLASSID_OSINT >> 8, 0x07, "OSINT domain high byte");
-        assert_eq!(NodeGuid::CLASSID_FMA >> 8, 0x0A, "Anatomy domain high byte");
+        assert_eq!(
+            classid_canon(NodeGuid::CLASSID_OSINT) >> 8,
+            0x07,
+            "OSINT domain byte"
+        );
+        assert_eq!(
+            classid_canon(NodeGuid::CLASSID_FMA) >> 8,
+            0x0A,
+            "Anatomy domain byte"
+        );
         assert_eq!(
             NodeGuid::new(NodeGuid::CLASSID_OSINT, 1, 2, 3, 0xAB, 0xCD).read_mode(),
             ReadMode::OSINT
         );
+        // Mint-forward: the persisted pre-flip forms resolve to the SAME read
+        // modes through their legacy alias keys (read-only, never minted).
+        assert_eq!(classid_read_mode(NodeGuid::CLASSID_OSINT_LEGACY), osint);
+        assert_eq!(classid_read_mode(NodeGuid::CLASSID_FMA_LEGACY), fma);
         assert!(osint.is_layout_preserving() && fma.is_layout_preserving());
     }
 
@@ -2087,12 +2145,16 @@ mod tests {
         assert_eq!(erp.value_schema, ValueSchema::Cognitive);
         assert_eq!(erp.edge_codec, EdgeCodecFlavor::CoarseOnly);
 
-        // Domain roots: project `0x0100` (`>>8 == 0x01`), ERP `0x0200`
-        // (`>>8 == 0x02`); low byte `0x00` = the domain root (reserved concept).
-        assert_eq!(NodeGuid::CLASSID_PROJECT, 0x0000_0100);
-        assert_eq!(NodeGuid::CLASSID_ERP, 0x0000_0200);
-        assert_eq!(NodeGuid::CLASSID_PROJECT >> 8, 0x01);
-        assert_eq!(NodeGuid::CLASSID_ERP >> 8, 0x02);
+        // Domain roots in the CANON (high-since-P1) half: project `0x0100`,
+        // ERP `0x0200`; concept byte `0x00` = the domain root (reserved).
+        use crate::ogar_codebook::classid_canon;
+        assert_eq!(NodeGuid::CLASSID_PROJECT, 0x0100_0000);
+        assert_eq!(NodeGuid::CLASSID_ERP, 0x0200_0000);
+        assert_eq!(classid_canon(NodeGuid::CLASSID_PROJECT) >> 8, 0x01);
+        assert_eq!(classid_canon(NodeGuid::CLASSID_ERP) >> 8, 0x02);
+        // Mint-forward: pre-flip forms keep resolving via the legacy aliases.
+        assert_eq!(classid_read_mode(NodeGuid::CLASSID_PROJECT_LEGACY), project);
+        assert_eq!(classid_read_mode(NodeGuid::CLASSID_ERP_LEGACY), erp);
         assert!(project.is_layout_preserving() && erp.is_layout_preserving());
     }
 
@@ -2123,13 +2185,12 @@ mod tests {
     #[cfg(feature = "guid-v3-tail")]
     #[test]
     fn read_mode_osint_v3_routes_v3_tail_and_osint_domain() {
-        // The wired V3 exemplar proves BOTH facts at once — the whole point of the
-        // high-u16 gen-marker scheme:
+        // The wired V3 exemplar proves BOTH facts at once — the canon/custom
+        // split scheme (canon HIGH since the P1 flip):
         //   (1) the third axis IS the registry field — classid_read_mode resolves
         //       CLASSID_OSINT_V3 to TailVariant::V3 (never a public new_v3 dispatch);
-        //   (2) the Codex-P1 fix — the gen-marker 0x1000 sits in the HIGH u16, so the
-        //       domain router (which masks `classid as u16`) still resolves Osint,
-        //       unlike the rejected low-half 0x1007 (which read domain 0x10).
+        //   (2) the domain router reads the CANON half (0x0701 = OSINT:q2), so the
+        //       gen-marker 0x1000 in the custom half never perturbs domain routing.
         assert_eq!(
             classid_read_mode(NodeGuid::CLASSID_OSINT_V3).tail_variant,
             TailVariant::V3
@@ -2146,27 +2207,39 @@ mod tests {
         );
         assert_eq!(ReadMode::OSINT_V3.value_schema, ValueSchema::Cognitive);
         assert!(ReadMode::OSINT_V3.is_layout_preserving());
-        // Concretely: marker in the HIGH half, canon domain in the LOW half.
-        assert_eq!(NodeGuid::CLASSID_OSINT_V3, 0x1000_0700);
+        // Concretely: canon (domain:appid) in the HIGH half, marker in the LOW —
+        // stored `0x0701_1000`, human-readable `0x07:01::1000`. The appid
+        // normalizes to `:01` (q2) per the 2026-07-02 ruling, so the V3 canon is
+        // 0x0701, not the v1 domain root 0x0700.
+        use crate::ogar_codebook::{classid_canon, classid_custom};
+        assert_eq!(NodeGuid::CLASSID_OSINT_V3, 0x0701_1000);
         assert_eq!(
-            NodeGuid::CLASSID_OSINT_V3 >> 16,
+            classid_custom(NodeGuid::CLASSID_OSINT_V3),
             0x1000,
-            "gen-marker in high u16"
+            "gen-marker in the custom (low) half"
         );
         assert_eq!(
-            NodeGuid::CLASSID_OSINT_V3 as u16,
-            NodeGuid::CLASSID_OSINT as u16,
-            "low u16 == canon OSINT concept (0x0700)"
+            classid_canon(NodeGuid::CLASSID_OSINT_V3),
+            0x0701,
+            "canon == OSINT domain 0x07, appid 0x01 (q2)"
         );
+        // Mint-forward: the persisted pre-flip form resolves the same read mode.
+        assert_eq!(
+            classid_read_mode(NodeGuid::CLASSID_OSINT_V3_LEGACY),
+            ReadMode::OSINT_V3
+        );
+        assert_eq!(NodeGuid::CLASSID_OSINT_V3_LEGACY, 0x1000_0700);
     }
 
     #[cfg(feature = "guid-v3-tail")]
     #[test]
     fn read_mode_fma_v3_and_cpic_v3_route_their_domains() {
-        use crate::ogar_codebook::{classid_concept_domain, ConceptDomain};
+        use crate::ogar_codebook::{
+            classid_canon, classid_concept_domain, classid_custom, ConceptDomain,
+        };
         // Phase-1 V3 set completion: FMA-V3 + CPIC-V3 resolve to the V3 tail AND
-        // their domain still routes through the high-u16 gen-marker (masked off by
-        // the domain router) — the same scheme proven for OSINT-V3.
+        // their domain routes off the CANON (high) half, unperturbed by the
+        // gen-marker in the custom half — the same scheme proven for OSINT-V3.
 
         // FMA-V3: Anatomy domain (0x0A) intact; cold Compressed model (mirrors FMA).
         assert_eq!(
@@ -2182,16 +2255,21 @@ mod tests {
             ReadMode::FMA_V3
         );
         assert_eq!(ReadMode::FMA_V3.value_schema, ValueSchema::Compressed);
-        assert_eq!(NodeGuid::CLASSID_FMA_V3, 0x1000_0A01);
+        assert_eq!(NodeGuid::CLASSID_FMA_V3, 0x0A01_1000);
         assert_eq!(
-            NodeGuid::CLASSID_FMA_V3 >> 16,
+            classid_custom(NodeGuid::CLASSID_FMA_V3),
             0x1000,
-            "gen-marker high u16"
+            "gen-marker in the custom (low) half"
         );
         assert_eq!(
-            NodeGuid::CLASSID_FMA_V3 as u16,
-            NodeGuid::CLASSID_FMA as u16,
-            "low u16 == canon FMA concept (0x0A01)"
+            classid_canon(NodeGuid::CLASSID_FMA_V3),
+            classid_canon(NodeGuid::CLASSID_FMA),
+            "canon == FMA concept (0x0A01), shared with v1 FMA"
+        );
+        assert_eq!(
+            classid_read_mode(NodeGuid::CLASSID_FMA_V3_LEGACY),
+            ReadMode::FMA_V3,
+            "pre-flip form resolves via the legacy alias"
         );
 
         // CPIC-V3: the operator-allocated Genetics domain (0x0E); Compressed = the
@@ -2209,16 +2287,22 @@ mod tests {
             ReadMode::CPIC_V3
         );
         assert_eq!(ReadMode::CPIC_V3.value_schema, ValueSchema::Compressed);
-        assert_eq!(NodeGuid::CLASSID_CPIC_V3, 0x1000_0E00);
+        assert_eq!(NodeGuid::CLASSID_CPIC_V3, 0x0E01_1000);
         assert_eq!(
-            NodeGuid::CLASSID_CPIC_V3 >> 16,
+            classid_custom(NodeGuid::CLASSID_CPIC_V3),
             0x1000,
-            "gen-marker high u16"
+            "gen-marker in the custom (low) half"
         );
         assert_eq!(
-            NodeGuid::CLASSID_CPIC_V3 as u16,
-            0x0E00,
-            "low u16 == Genetics domain root (0x0E00)"
+            classid_canon(NodeGuid::CLASSID_CPIC_V3),
+            0x0E01,
+            "canon == Genetics domain 0x0E, appid 0x01 (q2 — normalized from \
+             the pre-flip domain-root :00 per the ruling)"
+        );
+        assert_eq!(
+            classid_read_mode(NodeGuid::CLASSID_CPIC_V3_LEGACY),
+            ReadMode::CPIC_V3,
+            "pre-flip form (canon 0x0E00) resolves via the legacy alias"
         );
 
         // The three V3 classes are mutually distinct, all V3 + layout-preserving.
@@ -2259,10 +2343,11 @@ mod tests {
             0xF012, // identity (instance)
         );
 
-        // (3) The high-u16 generation marker round-trips in the stored classid…
+        // (3) The generation marker (custom/low half since P1) round-trips in
+        //     the stored classid…
         assert_eq!(node.classid(), NodeGuid::CLASSID_OSINT_V3);
         assert_eq!(
-            node.classid() >> 16,
+            crate::ogar_codebook::classid_custom(node.classid()),
             0x1000,
             "gen-marker preserved in the key"
         );
@@ -2270,12 +2355,13 @@ mod tests {
         assert_eq!(node.read_mode().tail_variant, TailVariant::V3);
 
         // (4) THE FIX, both directions:
-        //   - the v1 fold REFUSES this address (classid >> 16 != 0) → the latent
-        //     EMPTY fold Codex flagged on #613;
+        //   - the v1 fold REFUSES this address (both classid halves nonzero —
+        //     a marked classid under every order) → the latent EMPTY fold
+        //     Codex flagged on #613;
         assert_eq!(
             NiblePath::from_guid_prefix(&node),
             None,
-            "v1 fold still refuses the high-u16 marker"
+            "v1 fold still refuses the marked classid"
         );
         //   - the v3 fold ROUTES it: HEEL·HIP·TWIG·LEAF in full (both bytes per
         //     8:8 tile), depth 16, classid NOT folded → never EMPTY.
@@ -2294,6 +2380,214 @@ mod tests {
         assert_eq!(
             (d.heel, d.hip, d.twig, d.leaf, d.family, d.identity),
             (0xAB12, 0xCD34, 0xEF56, 0x789A, 0xBCDE, 0xF012)
+        );
+    }
+
+    #[cfg(feature = "guid-v3-tail")]
+    #[test]
+    fn osint_v3_cognitive_tenant_carve_field_isolation_matrix() {
+        // Phase-2 seam (the CPIC doc's "Phase 2 shapes the V3 tenants … on top"):
+        // a V3 node's VALUE side is the tenant carve its registry read-mode names.
+        // The V3 exemplar OSINT-V3 resolves to ValueSchema::Cognitive — the
+        // AriGraph-hot set the mailbox SoA view reads (Meta/Energy/EntityType are
+        // the `meta_raw`/`energy`/`entity_type` columns of
+        // `crate::soa_view::MailboxSoaView`; EntityType IS the `class_id` alias).
+        // The I-LEGACY mandatory field-isolation matrix existed only for the
+        // Kanban tenant (kanban_tenant_round_trip_and_field_isolation); this
+        // extends it to EVERY tenant of the Cognitive carve: writing one tenant's
+        // byte lane changes NO byte outside it, and never touches key or edges.
+        // Nothing invented — key minted by registry dispatch (`mint_for`), lanes
+        // read from the compile-asserted `ValueTenant` carve.
+
+        // (1) Registry says: OSINT-V3 = {V3 tail, Cognitive value, CoarseOnly edges}.
+        let rm = classid_read_mode(NodeGuid::CLASSID_OSINT_V3);
+        assert_eq!(rm.value_schema, ValueSchema::Cognitive);
+
+        // (2) Pin the carve: exactly the 7 hot tenants, none of the codec residues.
+        let hot = [
+            ValueTenant::Meta,
+            ValueTenant::Qualia,
+            ValueTenant::Fingerprint,
+            ValueTenant::Energy,
+            ValueTenant::Plasticity,
+            ValueTenant::EntityType,
+            ValueTenant::Kanban,
+        ];
+        for t in hot {
+            assert!(rm.value_schema.has(t), "Cognitive materialises {t:?}");
+        }
+        for t in [
+            ValueTenant::MaterializedEdges,
+            ValueTenant::HelixResidue,
+            ValueTenant::TurbovecResidue,
+        ] {
+            assert!(!rm.value_schema.has(t), "Cognitive must NOT carry {t:?}");
+        }
+        assert_eq!(rm.value_schema.field_mask().count() as usize, hot.len());
+
+        // (3) Mint the key by registry dispatch (consumers never hardcode a
+        //     constructor) and build the canonical row.
+        let key = NodeGuid::mint_for(
+            rm.tail_variant,
+            NodeGuid::CLASSID_OSINT_V3,
+            0x0101,
+            0x0202,
+            0x0303,
+            0x0404,
+            0x0505,
+            0x0606,
+        );
+        let mut row = NodeRow {
+            key,
+            edges: EdgeBlock::default(),
+            value: [0u8; 480],
+        };
+
+        // (4) THE MATRIX: flip every byte of one tenant's lane; assert the lane
+        //     changed and every byte OUTSIDE it did not — per tenant, in carve order.
+        assert_value_lane_isolation(&mut row, &hot);
+        // Value-slab writes never move the key or the edge block.
+        assert_eq!(row.key, key, "key untouched by value-tenant writes");
+        assert_eq!(
+            row.edges,
+            EdgeBlock::default(),
+            "edge block untouched by value-tenant writes"
+        );
+
+        // (5) EntityType tenant ↔ SoA class column: the u16 the slab carries is the
+        //     same discriminator `MailboxSoaView::class_id()` (alias of
+        //     `entity_type()`) exposes per row. Stamp the CANON half and read it
+        //     back — on the V3 class it is the OSINT:q2 canon 0x0701 (appid
+        //     normalized per the ruling; the gen-marker in the custom half
+        //     never leaks into the entity discriminator).
+        let o = ValueTenant::EntityType.value_offset();
+        row.value[o..o + 2].copy_from_slice(
+            &crate::ogar_codebook::classid_canon(NodeGuid::CLASSID_OSINT_V3).to_le_bytes(),
+        );
+        let et = u16::from_le_bytes([row.value[o], row.value[o + 1]]);
+        assert_eq!(
+            et, 0x0701,
+            "EntityType tenant carries the canon Osint concept"
+        );
+
+        // (6) Typed accessors stay live on the V3 row: the kanban round-trip and
+        //     the qualia read decode the SAME slab this matrix certified.
+        row.set_kanban(KanbanTenant {
+            phase: KanbanColumn::CognitiveWork,
+            exec: ExecTarget::Native,
+            cycle: 0x0701_1000,
+        });
+        assert_eq!(row.kanban().cycle, 0x0701_1000);
+        assert_eq!(row.qualia().0, {
+            let qo = ValueTenant::Qualia.value_offset();
+            let mut b = [0u8; 8];
+            b.copy_from_slice(&row.value[qo..qo + 8]);
+            u64::from_le_bytes(b)
+        });
+    }
+
+    /// Shared body of the tenant-carve matrix: flip every byte of one tenant's
+    /// lane; assert the lane changed and every byte OUTSIDE it did not — per
+    /// tenant, in carve order (the I-LEGACY mandatory field-isolation test).
+    #[cfg(feature = "guid-v3-tail")]
+    fn assert_value_lane_isolation(row: &mut NodeRow, lanes: &[ValueTenant]) {
+        for &t in lanes {
+            let before = row.value;
+            let (o, n) = (t.value_offset(), t.byte_len());
+            for b in &mut row.value[o..o + n] {
+                *b ^= 0xFF;
+            }
+            for (i, (&now, &was)) in row.value.iter().zip(before.iter()).enumerate() {
+                if (o..o + n).contains(&i) {
+                    assert_ne!(now, was, "{t:?} lane byte {i} must have flipped");
+                } else {
+                    assert_eq!(now, was, "byte {i} outside {t:?} lane must not change");
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "guid-v3-tail")]
+    #[test]
+    fn fma_cpic_v3_compressed_tenant_carve_field_isolation_matrix() {
+        // The cold half of the Phase-1 V3 set: FMA-V3 and CPIC-V3 both resolve to
+        // ValueSchema::Compressed — the codec-stack carve (no hot lifecycle
+        // columns). Same certification as the OSINT-V3/Cognitive matrix above:
+        // registry-dispatched mint, per-tenant lane isolation, key+edges untouched.
+        // With this, EVERY carve a Phase-1 V3 class materialises is matrix-covered.
+        let rm = classid_read_mode(NodeGuid::CLASSID_FMA_V3);
+        assert_eq!(rm.value_schema, ValueSchema::Compressed);
+        // CPIC-V3 shares the SAME cold carve — one matrix certifies both.
+        assert_eq!(
+            classid_read_mode(NodeGuid::CLASSID_CPIC_V3).value_schema,
+            ValueSchema::Compressed
+        );
+
+        // Pin the carve: exactly the 4 codec tenants, none of the hot lifecycle set.
+        let cold = [
+            ValueTenant::Fingerprint,
+            ValueTenant::HelixResidue,
+            ValueTenant::TurbovecResidue,
+            ValueTenant::EntityType,
+        ];
+        for t in cold {
+            assert!(rm.value_schema.has(t), "Compressed materialises {t:?}");
+        }
+        for t in [
+            ValueTenant::Meta,
+            ValueTenant::Qualia,
+            ValueTenant::MaterializedEdges,
+            ValueTenant::Energy,
+            ValueTenant::Plasticity,
+            ValueTenant::Kanban,
+        ] {
+            assert!(!rm.value_schema.has(t), "Compressed must NOT carry {t:?}");
+        }
+        assert_eq!(rm.value_schema.field_mask().count() as usize, cold.len());
+
+        // Registry-dispatched mint + the matrix over the cold lanes.
+        let key = NodeGuid::mint_for(
+            rm.tail_variant,
+            NodeGuid::CLASSID_FMA_V3,
+            0x1111,
+            0x2222,
+            0x3333,
+            0x4444,
+            0x5555,
+            0x6666,
+        );
+        let mut row = NodeRow {
+            key,
+            edges: EdgeBlock::default(),
+            value: [0u8; 480],
+        };
+        assert_value_lane_isolation(&mut row, &cold);
+        assert_eq!(row.key, key, "key untouched by value-tenant writes");
+        assert_eq!(
+            row.edges,
+            EdgeBlock::default(),
+            "edge block untouched by value-tenant writes"
+        );
+
+        // The EntityType discriminator carries the CANON half on the cold
+        // classes too — Anatomy 0x0A01 / Genetics:q2 0x0E01 (appid normalized
+        // per the ruling), never the 0x1000 gen-marker.
+        let o = ValueTenant::EntityType.value_offset();
+        row.value[o..o + 2].copy_from_slice(
+            &crate::ogar_codebook::classid_canon(NodeGuid::CLASSID_FMA_V3).to_le_bytes(),
+        );
+        assert_eq!(
+            u16::from_le_bytes([row.value[o], row.value[o + 1]]),
+            0x0A01,
+            "EntityType tenant carries the canon Anatomy concept"
+        );
+        row.value[o..o + 2].copy_from_slice(
+            &crate::ogar_codebook::classid_canon(NodeGuid::CLASSID_CPIC_V3).to_le_bytes(),
+        );
+        assert_eq!(
+            u16::from_le_bytes([row.value[o], row.value[o + 1]]),
+            0x0E01,
+            "EntityType tenant carries the canon Genetics root"
         );
     }
 

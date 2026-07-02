@@ -272,42 +272,63 @@ impl NiblePath {
     /// `classid · HEEL · HIP · TWIG` cascade (identity-architecture v1 §3).
     ///
     /// The 20-nibble prefix `classid(8) | HEEL(4) | HIP(4) | TWIG(4)` overflows
-    /// `MAX_DEPTH = 16`. The deterministic fold drops the **HIGH 4 classid
+    /// `MAX_DEPTH = 16`. The deterministic fold drops the **CUSTOM 4 classid
     /// nibbles** and packs the remaining 16 nibbles root-first as
-    /// `classid_lo(4) | HEEL(4) | HIP(4) | TWIG(4)`. Returns `None` when the HIGH
-    /// 4 classid nibbles are nonzero — **this v1 fold** uses `classid_lo` as the
-    /// coarse tier, so it needs the high `u16` clear; a nonzero high `u16` is
-    /// reported, not silently re-routed. This is a **v1-fold constraint, NOT a
-    /// global classid law**: the v3 fold [`from_guid_prefix_v3`] reads the
+    /// `canon(4) | HEEL(4) | HIP(4) | TWIG(4)`. Returns `None` when the CUSTOM
+    /// half is nonzero — **this v1 fold** uses the canon half as the coarse
+    /// tier, so it needs the custom half clear; a marked classid is reported,
+    /// not silently re-routed. This is a **v1-fold constraint, NOT a global
+    /// classid law**: the v3 fold [`from_guid_prefix_v3`] reads the
     /// `(part_of:is_a)` `HEEL·HIP·TWIG·LEAF` tiers and does NOT fold `classid`, so
-    /// a V3 classid carries its high-`u16` generation marker freely (the schema's
-    /// `tail_variant` selects the fold — there is no global reserved-zero after V3).
+    /// a V3 classid carries its generation marker freely (the schema's
+    /// `tail_variant` selects the fold — there is no global custom-zero law after V3).
     ///
-    /// **Bijection invariant.** For any GUID whose `classid >> 16 == 0`,
+    /// **Mint-forward boundary (flip P1):** a pure-canon classid is accepted in
+    /// EITHER stored form — the active canon-HIGH form (`0xDDCC_0000`) or the
+    /// persisted pre-flip canon-LOW form (`0x0000_DDCC`) — and both fold to the
+    /// SAME path (same canon ⇒ same basin/coarse tier), so persisted v1 rows
+    /// keep routing across the flip. Only genuinely marked classids (both
+    /// halves nonzero under every order, e.g. the V3 `0x0701_1000` /
+    /// `0x1000_0700` forms) refuse the fold.
+    ///
+    /// **Bijection invariant.** For any accepted GUID,
     /// `from_guid_prefix(guid).prefix(d).is_ancestor_of(from_guid_prefix(guid))`
     /// holds for every `d in 1..=16` (`prefix(0)` is [`EMPTY`](NiblePath::EMPTY),
     /// which by definition is an ancestor of nothing — the "no basin routed"
-    /// sentinel). The routing-cache view (typically `prefix(4)` over
-    /// `classid_lo`) is therefore a valid HHTL ancestor of the full class path —
+    /// sentinel). The routing-cache view (typically `prefix(4)` over the canon
+    /// half) is therefore a valid HHTL ancestor of the full class path —
     /// the LE contract the `classid → ReadMode` keystone meets at the classid.
     #[must_use]
     pub const fn from_guid_prefix(guid: &crate::canonical_node::NodeGuid) -> Option<Self> {
         let parts = guid.decode();
-        // In THIS v1 fold the high 4 classid nibbles must be zero — it folds
-        // classid_lo as the coarse tier, so a nonzero high u16 would make the
-        // 20→16 nibble fold lossy. It is reported, not silently re-routed. (The
-        // v3 fold does NOT fold classid — see from_guid_prefix_v3 — so this is a
-        // v1-fold constraint, not a global reserved-zero law.)
-        if (parts.classid >> 16) != 0 {
-            return None;
-        }
+        // In THIS v1 fold the CUSTOM half must be zero — it folds the CANON
+        // half as the coarse tier, so a nonzero custom half would make the
+        // 20→16 nibble fold lossy. Halves come from the one flippable split
+        // (D-CCF-0). Mint-forward boundary: if the ACTIVE order reports a
+        // nonzero custom, try the OTHER order — a persisted pre-flip id
+        // (canon LOW) reads clean there and folds to the identical path. A
+        // new-form id never needs the fallback (its custom half IS zero), so
+        // the two reads cannot disagree about an accepted id's canon.
+        let (canon, custom) = crate::ogar_codebook::split_classid(parts.classid);
+        let canon = if custom == 0 {
+            canon
+        } else {
+            let (legacy_canon, legacy_custom) = crate::ogar_codebook::split_classid_with(
+                crate::ogar_codebook::ClassidOrder::CanonLow,
+                parts.classid,
+            );
+            if legacy_custom != 0 {
+                return None;
+            }
+            legacy_canon
+        };
         // Pack root-first into 16 nibbles = 64 bits = the full u64 path:
-        //   nibbles 0..4  (high) = classid_lo  (basin = top nibble of classid_lo)
+        //   nibbles 0..4  (high) = canon half  (basin = top nibble of canon)
         //   nibbles 4..8         = HEEL
         //   nibbles 8..12        = HIP
         //   nibbles 12..16 (low) = TWIG        (leaf = low nibble of TWIG)
-        let classid_lo = (parts.classid & 0xFFFF) as u64;
-        let path = (classid_lo << 48)
+        let classid_canon = canon as u64;
+        let path = (classid_canon << 48)
             | ((parts.heel as u64) << 32)
             | ((parts.hip as u64) << 16)
             | (parts.twig as u64);
@@ -353,11 +374,13 @@ impl NiblePath {
     /// not dropped, exactly as v1/v2 keep their tail out of the `u64` path (which
     /// holds only 8 bytes; the full 12-byte cascade does not fit one `NiblePath`).
     ///
-    /// **`classid` is NOT folded in** (unlike v1's `classid_lo·HEEL·HIP·TWIG`), so
-    /// a V3 classid's high-`u16` generation marker (e.g. OSINT-V3 `0x1000_0700`)
-    /// is irrelevant to routing and never collapses to [`EMPTY`](NiblePath::EMPTY).
-    /// This is why "high `u16` is reserved-zero" is a **v1-fold** statement, NOT a
-    /// global classid law — the schema's `tail_variant` selects the fold.
+    /// **`classid` is NOT folded in** (unlike v1's `canon·HEEL·HIP·TWIG`), so
+    /// a V3 classid's generation marker (e.g. OSINT-V3 `0x0701_1000`, custom
+    /// `0x1000` in the LOW half since the P1 flip; pre-flip stored form
+    /// `0x1000_0700`) is irrelevant to routing and never collapses to
+    /// [`EMPTY`](NiblePath::EMPTY). This is why "custom half is reserved-zero"
+    /// is a **v1-fold** statement, NOT a global classid law — the schema's
+    /// `tail_variant` selects the fold.
     #[cfg(feature = "guid-v3-tail")]
     #[must_use]
     pub const fn from_guid_prefix_v3(guid: &crate::canonical_node::NodeGuid) -> Self {
@@ -839,42 +862,49 @@ mod tests {
     #[test]
     fn from_guid_prefix_returns_full_max_depth_path() {
         use crate::canonical_node::NodeGuid;
-        // A canonical GUID with classid in the low u16 round-trips to a
-        // 16-nibble path with the documented root-first layout.
-        let g = NodeGuid::new(0x0000_ABCD, 0x1234, 0x5678, 0x9ABC, 0x00_0001, 0x00_0002);
-        let path = NiblePath::from_guid_prefix(&g).expect("classid_lo only ⇒ Some");
+        // A pure-canon GUID folds to a 16-nibble path with the documented
+        // root-first layout — in BOTH stored forms (mint-forward boundary):
+        // the new canon-HIGH form and the persisted pre-flip canon-LOW form
+        // fold to the IDENTICAL path.
+        let legacy = NodeGuid::new(0x0000_ABCD, 0x1234, 0x5678, 0x9ABC, 0x00_0001, 0x00_0002);
+        let new_form = NodeGuid::new(0xABCD_0000, 0x1234, 0x5678, 0x9ABC, 0x00_0001, 0x00_0002);
+        let path = NiblePath::from_guid_prefix(&legacy).expect("pure canon (legacy form) ⇒ Some");
+        assert_eq!(
+            NiblePath::from_guid_prefix(&new_form),
+            Some(path),
+            "both stored forms of the same canon fold to the same path"
+        );
         assert_eq!(path.depth(), MAX_DEPTH, "fold occupies the full u64");
 
-        // Root-first: top nibble of classid_lo is the basin (0xA from 0xABCD).
+        // Root-first: top nibble of the canon half is the basin (0xA from 0xABCD).
         assert_eq!(path.basin(), Some(0xA));
         // Leaf: low nibble of TWIG (0xC from 0x9ABC).
         assert_eq!(path.leaf(), Some(0xC));
 
-        // Packed value mirrors classid_lo|HEEL|HIP|TWIG, root-first.
+        // Packed value mirrors canon|HEEL|HIP|TWIG, root-first.
         let expected: u64 = (0xABCDu64 << 48) | (0x1234u64 << 32) | (0x5678u64 << 16) | 0x9ABCu64;
         assert_eq!(path.packed(), (expected, MAX_DEPTH));
     }
 
     #[test]
-    fn from_guid_prefix_returns_none_when_high_classid_nibbles_in_use() {
+    fn from_guid_prefix_returns_none_when_classid_is_marked() {
         use crate::canonical_node::NodeGuid;
-        // The 20→16 fold drops the HIGH 4 classid nibbles. When the high u16
-        // is nonzero, the fold is lossy — None signals it, callers don't get
-        // a silent collision.
+        // The 20→16 fold drops the CUSTOM 4 classid nibbles. When BOTH halves
+        // are nonzero (a genuinely marked classid — no order reads it as pure
+        // canon), the fold is lossy — None signals it, callers don't get a
+        // silent collision.
         let g = NodeGuid::new(0xDEAD_BEEF, 0, 0, 0, 0, 0);
         assert_eq!(
             NiblePath::from_guid_prefix(&g),
             None,
-            "high classid u16 != 0 ⇒ refuse the lossy fold"
+            "both classid halves nonzero ⇒ refuse the lossy fold"
         );
-        let g = NodeGuid::new(0x0001_0000, 0, 0, 0, 0, 0);
-        assert_eq!(
-            NiblePath::from_guid_prefix(&g),
-            None,
-            "boundary: bit 16 set"
-        );
-        // At exactly the boundary (high u16 == 0) the fold is lossless.
-        let g = NodeGuid::new(0x0000_FFFF, 0, 0, 0, 0, 0);
+        let g = NodeGuid::new(0x0001_0002, 0, 0, 0, 0, 0);
+        assert_eq!(NiblePath::from_guid_prefix(&g), None, "minimal marked id");
+        // Pure canon in either half is lossless — accepted in both forms.
+        let g = NodeGuid::new(0x0001_0000, 0, 0, 0, 0, 0); // new-form canon 0x0001
+        assert!(NiblePath::from_guid_prefix(&g).is_some());
+        let g = NodeGuid::new(0x0000_FFFF, 0, 0, 0, 0, 0); // legacy-form canon 0xFFFF
         assert!(NiblePath::from_guid_prefix(&g).is_some());
     }
 
@@ -882,8 +912,9 @@ mod tests {
     #[test]
     fn from_guid_prefix_v3_routes_both_bytes_of_part_of_is_a_and_ignores_classid() {
         use crate::canonical_node::NodeGuid;
-        // OSINT-V3: classid high u16 = 0x1000 (the generation marker), so the v1
-        // fold REFUSES this GUID — the latent EMPTY-fold Codex flagged.
+        // OSINT-V3 (`0x0701_1000`): both classid halves nonzero (canon 0x0701
+        // HIGH, marker 0x1000 LOW since the P1 flip), so the v1 fold REFUSES
+        // this GUID — the latent EMPTY-fold Codex flagged.
         let g = NodeGuid::new(
             NodeGuid::CLASSID_OSINT_V3,
             0xAB12,
