@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use op_codegen_pipeline::{extract_core_triples, render_surreal_from_ruff};
+use op_codegen_pipeline::render_typed_surreal;
 
 /// Errors that the CLI surface can return. Currently only one shape
 /// (missing / non-existent rails app path); future subcommands or
@@ -32,7 +32,9 @@ impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Usage(m) => write!(f, "{m}"),
-            Self::PathNotFound(p) => write!(f, "error: path does not exist or is not a directory: {p}"),
+            Self::PathNotFound(p) => {
+                write!(f, "error: path does not exist or is not a directory: {p}")
+            }
         }
     }
 }
@@ -60,9 +62,7 @@ pub fn run_codegen(rails_root: &Path) -> Result<String, CliError> {
     if !rails_root.is_dir() {
         return Err(CliError::PathNotFound(rails_root.display().to_string()));
     }
-    let triples = extract_core_triples(rails_root);
-    let (_c, text) = render_surreal_from_ruff(&triples);
-    Ok(text)
+    Ok(render_typed_surreal(rails_root))
 }
 
 /// Dispatch an `argv`-shaped slice (NOT including the program name) to
@@ -77,9 +77,7 @@ pub fn run_codegen(rails_root: &Path) -> Result<String, CliError> {
 pub fn dispatch_codegen(args: &[String]) -> Result<String, CliError> {
     match args {
         [] => Err(CliError::Usage(USAGE.to_string())),
-        [first] if first == "-h" || first == "--help" => {
-            Err(CliError::Usage(USAGE.to_string()))
-        }
+        [first] if first == "-h" || first == "--help" => Err(CliError::Usage(USAGE.to_string())),
         [rails_root] => run_codegen(Path::new(rails_root)),
         _ => Err(CliError::Usage(format!(
             "{USAGE}\nerror: too many arguments ({} given)",

@@ -1,0 +1,2 @@
+{# Text input — single-line string. #}
+<input type="text" name="{{ name }}" id="field-{{ name }}" value="{{ value }}"{% if required %} required{% endif %}{% if !placeholder.is_empty() %} placeholder="{{ placeholder }}"{% endif %}>

@@ -1206,11 +1206,6 @@ dependencies = [
 [[package]]
 name = "lance-graph-contract"
 version = "0.1.0"
-
-[[package]]
-name = "lance-graph-contract"
-version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/lance-graph?branch=main#d8a59a44ccafdff107b1ca370f38da0b1252938c"
 dependencies = [
  "glob",
  "serde",
@@ -1504,16 +1499,14 @@ dependencies = [
 [[package]]
 name = "ogar-class-view"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#991450a0dead2a2066239f31ee668927d8e63364"
 dependencies = [
- "lance-graph-contract 0.1.0 (git+https://github.com/AdaWorldAPI/lance-graph?branch=main)",
+ "lance-graph-contract",
  "ogar-vocab",
 ]
 
 [[package]]
 name = "ogar-render-askama"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#991450a0dead2a2066239f31ee668927d8e63364"
 dependencies = [
  "askama",
  "ogar-vocab",
@@ -1522,7 +1515,6 @@ dependencies = [
 [[package]]
 name = "ogar-vocab"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#991450a0dead2a2066239f31ee668927d8e63364"
 
 [[package]]
 name = "once_cell"
@@ -1599,7 +1591,7 @@ dependencies = [
 name = "op-canon"
 version = "0.1.0"
 dependencies = [
- "lance-graph-contract 0.1.0 (git+https://github.com/AdaWorldAPI/lance-graph?branch=main)",
+ "lance-graph-contract",
  "ogar-class-view",
  "ogar-vocab",
  "serde",
@@ -1618,16 +1610,18 @@ dependencies = [
 name = "op-codegen-bucket"
 version = "0.1.0"
 dependencies = [
- "lance-graph-contract 0.1.0",
+ "lance-graph-contract",
 ]
 
 [[package]]
 name = "op-codegen-pipeline"
 version = "0.1.0"
 dependencies = [
- "lance-graph-contract 0.1.0",
+ "lance-graph-contract",
  "op-codegen-projection",
+ "op-surreal-ast",
  "ruff_openproject",
+ "ruff_ruby_spo",
  "ruff_spo_triplet",
 ]
 
@@ -1636,11 +1630,15 @@ name = "op-codegen-projection"
 version = "0.1.0"
 dependencies = [
  "askama",
- "lance-graph-contract 0.1.0",
+ "lance-graph-contract",
  "ogar-render-askama",
  "ogar-vocab",
  "op-surreal-ast",
 ]
+
+[[package]]
+name = "op-codegen-residual"
+version = "0.1.0"
 
 [[package]]
 name = "op-contracts"
@@ -1790,7 +1788,7 @@ dependencies = [
 name = "op-surreal-ast"
 version = "0.1.0"
 dependencies = [
- "lance-graph-contract 0.1.0",
+ "lance-graph-contract",
  "ogar-vocab",
  "serde",
  "serde_json",
@@ -2274,7 +2272,7 @@ dependencies = [
 
 [[package]]
 name = "ruff_ruby_spo"
-version = "0.2.0"
+version = "0.1.0"
 dependencies = [
  "lib-ruby-parser",
  "ruff_spo_triplet",

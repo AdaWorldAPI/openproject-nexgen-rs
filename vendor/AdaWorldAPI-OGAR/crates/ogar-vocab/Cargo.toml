@@ -1,0 +1,16 @@
+[package]
+name = "ogar-vocab"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+description = "Open Graph of Active Record — canonical IR types for the AR-shape vocabulary"
+
+[features]
+default = []
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { workspace = true, optional = true }

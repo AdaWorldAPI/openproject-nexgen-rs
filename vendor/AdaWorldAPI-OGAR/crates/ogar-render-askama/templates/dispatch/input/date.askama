@@ -1,0 +1,2 @@
+{# Date picker (ISO-8601 YYYY-MM-DD). #}
+<input type="date" name="{{ name }}" id="field-{{ name }}" value="{{ value }}"{% if required %} required{% endif %}>

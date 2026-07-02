@@ -4,7 +4,7 @@
 
 use std::process::ExitCode;
 
-use op_cli::{CliError, EXIT_IO, EXIT_USAGE, dispatch_codegen};
+use op_cli::{dispatch_codegen, CliError, EXIT_IO, EXIT_USAGE};
 
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();

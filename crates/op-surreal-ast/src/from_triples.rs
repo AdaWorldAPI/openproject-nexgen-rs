@@ -18,6 +18,10 @@
 //!   the owning table, `Kind::Any` (the OpenProject AR-shape vocab
 //!   does not carry static types yet; D-AR-5.1 will fold in
 //!   `attribute :x, :type` option-level type info).
+//! - `has_field` + `field_type` + `column_not_null` (ruff D-AR-3.5,
+//!   the schema stratum) → one typed [`crate::FieldDefinition`] per
+//!   physical column; `column_not_null` renders the kind bare instead
+//!   of `option<…>`.
 //! - `declares_association` → one [`crate::FieldDefinition`] per
 //!   association, `Kind::Record([<TargetClass>]).optional()`. Target
 //!   class name follows Rails convention (camelcase singular of the
@@ -66,9 +70,9 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
             let Some((table_iri, _)) = split_subject(&t.s) else {
                 continue;
             };
-            tables.entry(table_iri.clone()).or_insert_with(|| {
-                TableBuilder::new(strip_namespace(&table_iri).to_string())
-            });
+            tables
+                .entry(table_iri.clone())
+                .or_insert_with(|| TableBuilder::new(strip_namespace(&table_iri).to_string()));
         }
     }
 
@@ -78,10 +82,8 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
     // polymorphic: true`) name a non-existent class; this set lets us
     // fall back to `option<any>` instead of inventing a phantom
     // `record<Ownable>`.
-    let known_targets: std::collections::HashSet<String> = tables
-        .values()
-        .map(|tb| tb.name.clone())
-        .collect();
+    let known_targets: std::collections::HashSet<String> =
+        tables.values().map(|tb| tb.name.clone()).collect();
 
     // Pre-collect `association_kind` triples (ruff#15) into a map from
     // relation IRI → Rails macro name. The `declares_association` arm
@@ -133,6 +135,19 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
         .iter()
         .filter(|t| t.p == "field_type")
         .map(|t| (t.s.clone(), t.o.clone()))
+        .collect();
+
+    // Pre-collect `column_not_null` triples (ruff D-AR-3.5 — the schema
+    // stratum's physical NOT NULL constraint from the migration DSL).
+    // A field IRI in this set renders as a BARE kind instead of
+    // `option<…>`: the DSL guarantees the column can't hold NULL, so
+    // the option wrapper would misdeclare it. This is the "ORM shape
+    // as bridge" axis — physical nullability types the field; the AR
+    // shape (associations) still owns the field's identity/kind.
+    let not_null: std::collections::HashSet<String> = triples
+        .iter()
+        .filter(|t| t.p == "column_not_null" && t.o == "true")
+        .map(|t| t.s.clone())
         .collect();
 
     // Pre-collect `validation_kind` triples (ruff#21 — sibling to
@@ -204,7 +219,11 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
             }
             "has_attribute" => {
                 let attr_name = member.unwrap_or_else(|| {
-                    strip_namespace(&t.o).rsplit('.').next().unwrap_or("").to_string()
+                    strip_namespace(&t.o)
+                        .rsplit('.')
+                        .next()
+                        .unwrap_or("")
+                        .to_string()
                 });
                 // Look up the Rails `attribute :name, :type` annotation
                 // for this field (ruff#15+ emits the companion
@@ -220,6 +239,47 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                     .and_then(|rails_type| Kind::from_rails_type(rails_type))
                     .map_or(Kind::Any, Kind::optional);
                 builder.add_field(attr_name, kind);
+            }
+            "has_field" => {
+                // Schema-stratum column (ruff D-AR-3.5): subject is the
+                // model, object the field IRI
+                // (`openproject:WorkPackage.subject`). Same typed-kind
+                // lookup as `has_attribute`, plus the physical
+                // nullability axis: `column_not_null` renders the kind
+                // bare instead of `option<…>`.
+                //
+                // Stream order note: `expand()` sorts triples by
+                // (s, p, o), so a model's `declares_association`
+                // triples land BEFORE its `has_field` triples —
+                // `belongs_to`-derived `record<Target>` FK fields win
+                // the name, and the physical column no-ops here (the
+                // AR shape owns the kind; see the two-shapes doctrine).
+                let field_iri = t.o.clone();
+                let name = strip_namespace(&t.o)
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                if name.is_empty() {
+                    continue;
+                }
+                let base = field_types
+                    .get(&field_iri)
+                    .and_then(|ty| Kind::from_rails_type(ty));
+                let required = not_null.contains(&field_iri);
+                let kind = match (&base, required) {
+                    (Some(k), true) => k.clone(),
+                    (Some(k), false) => k.clone().optional(),
+                    // Unknown DSL type: `any` (which already admits
+                    // NONE, so no option wrapper either way).
+                    (None, _) => Kind::Any,
+                };
+                if builder.add_field(name.clone(), kind) && base.is_none() && required {
+                    // Physically NOT NULL but no mappable type: `any`
+                    // can't carry the constraint in TYPE, so gate it
+                    // with the same assert the validations use.
+                    pending_asserts.push((table_iri.clone(), name, "$value != NONE".to_string()));
+                }
             }
             "declares_association" => {
                 // Object is `openproject:WorkPackage.project` —
@@ -274,17 +334,31 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                     // discovered table (the polymorphic-association
                     // guard from the previous PR — `Remindable` is a
                     // runtime type discriminator, not a real table).
-                    let kind = if known_targets.contains(&target) {
-                        Kind::Record(vec![target]).optional()
-                    } else {
-                        Kind::Any.optional()
-                    };
                     let field_name = format!("{relation}_id");
-                    if builder.add_field(field_name.clone(), kind) {
-                        // Only emit the companion index when the field
-                        // was newly added — guards against duplicate
-                        // `declares_association` triples emitting
-                        // duplicate `DEFINE INDEX` statements (codex P2-2).
+                    // Nullability comes from the schema stratum when
+                    // present (`t.references :type, null: false` →
+                    // bare `record<Type>`); absent constraint keeps
+                    // the Rails-default nullable `option<…>`.
+                    let fk_iri = format!("{table_iri}.{field_name}");
+                    let base = if known_targets.contains(&target) {
+                        Kind::Record(vec![target])
+                    } else {
+                        Kind::Any
+                    };
+                    let kind = if not_null.contains(&fk_iri) {
+                        base
+                    } else {
+                        base.optional()
+                    };
+                    let newly = builder.add_field(field_name.clone(), kind.clone());
+                    // AR shape owns the kind: if the schema-stratum
+                    // column landed first (unsorted stream), upgrade
+                    // its `option<int>` to the typed record link.
+                    let upgraded = !newly && builder.upgrade_field_kind(&field_name, &kind);
+                    if newly || upgraded {
+                        // Companion index once per field — duplicate
+                        // `declares_association` triples are already
+                        // deduped by the expander (codex P2-2).
                         let idx_name = format!("idx_{}_{field_name}", builder.name);
                         builder.add_index(idx_name, vec![field_name]);
                     }
@@ -312,18 +386,12 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
                 // common load-bearing Rails validation effect.
                 let attr_iri = format!("{table_iri}.{}", t.o);
                 let empty_params = std::collections::BTreeSet::new();
-                let params = validation_params
-                    .get(&attr_iri)
-                    .unwrap_or(&empty_params);
+                let params = validation_params.get(&attr_iri).unwrap_or(&empty_params);
                 let expr = validation_kinds
                     .get(&attr_iri)
                     .map(|kinds| compose_validation_assert(kinds, params))
                     .unwrap_or_else(|| "$value != NONE".to_string());
-                pending_asserts.push((
-                    table_iri.clone(),
-                    t.o.clone(),
-                    expr,
-                ));
+                pending_asserts.push((table_iri.clone(), t.o.clone(), expr));
             }
             "normalizes_attribute" => {
                 // `normalizes :attr, with: ->(v) { … }` — the
@@ -519,7 +587,7 @@ pub fn triples_to_schema(triples: &[Triple]) -> Schema {
             }
             let scope_cols = validation_params
                 .get(attr_iri)
-                .map(|params| extract_uniqueness_scope(params))
+                .map(extract_uniqueness_scope)
                 .unwrap_or_default();
             let mut cols = vec![attr_name.clone()];
             cols.extend(scope_cols.iter().cloned());
@@ -553,7 +621,10 @@ fn split_subject(s: &str) -> Option<(String, Option<String>)> {
         return None;
     }
     if let Some(dot) = trimmed.find('.') {
-        Some((trimmed[..dot].to_string(), Some(trimmed[dot + 1..].to_string())))
+        Some((
+            trimmed[..dot].to_string(),
+            Some(trimmed[dot + 1..].to_string()),
+        ))
     } else {
         Some((trimmed.to_string(), None))
     }
@@ -633,13 +704,12 @@ fn compose_validation_assert(
             "absence" => clauses.push("$value == NONE".to_string()),
             // Presence-equivalent kinds (the parameter-less ones in
             // the catch-all fall here too).
-            "presence" | "uniqueness" | "length" | "format" | "inclusion"
-            | "exclusion" | "confirmation" | "comparison" => {
-                if !has_non_none {
+            "presence" | "uniqueness" | "length" | "format" | "inclusion" | "exclusion"
+            | "confirmation" | "comparison"
+                if !has_non_none => {
                     clauses.push("$value != NONE".to_string());
                     has_non_none = true;
                 }
-            }
             _ => {} // forward-compat: unknown kind, skip
         }
     }
@@ -742,9 +812,7 @@ fn param_clause(param: &str) -> Option<String> {
 /// - Anything else (constants like `SCOPE_COLS`, `<expr>` etc.)
 ///   → empty Vec (safer than splicing a Ruby identifier into the
 ///   `DEFINE INDEX FIELDS` list).
-fn extract_uniqueness_scope(
-    params: &std::collections::BTreeSet<String>,
-) -> Vec<String> {
+fn extract_uniqueness_scope(params: &std::collections::BTreeSet<String>) -> Vec<String> {
     for param in params {
         let Some(rest) = param.strip_prefix("uniqueness:scope=") else {
             continue;
@@ -762,7 +830,9 @@ fn extract_uniqueness_scope(
                     // reference shouldn't splice into the FIELDS
                     // list).
                     if stripped.is_empty()
-                        || !stripped.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                        || !stripped
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_')
                     {
                         return None;
                     }
@@ -771,13 +841,10 @@ fn extract_uniqueness_scope(
                 .collect();
         }
         // Single symbol form `:project_id`.
-        if let Some(sym) = rest.strip_prefix(':') {
-            if !sym.is_empty()
-                && sym.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-            {
+        if let Some(sym) = rest.strip_prefix(':')
+            && !sym.is_empty() && sym.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
                 return vec![sym.to_string()];
             }
-        }
         // Anything else (bare constant, <expr>) — skip silently.
         return Vec::new();
     }
@@ -838,8 +905,18 @@ fn singularize(s: &str) -> String {
     // their singular and plural form match. Falls back to the
     // length-aware rules below if a name isn't on the list.
     const UNCOUNTABLE: &[&str] = &[
-        "news", "series", "species", "equipment", "information",
-        "money", "fish", "sheep", "deer", "rice", "staff", "data",
+        "news",
+        "series",
+        "species",
+        "equipment",
+        "information",
+        "money",
+        "fish",
+        "sheep",
+        "deer",
+        "rice",
+        "staff",
+        "data",
     ];
     if UNCOUNTABLE.contains(&trailing) {
         return s.to_string();
@@ -851,10 +928,9 @@ fn singularize(s: &str) -> String {
     // is a real Rails plural that the heuristic would falsely keep
     // as `Menus`).
     const SINGULAR_US: &[&str] = &[
-        "status", "bus", "virus", "bonus", "focus", "radius",
-        "chorus", "genus", "cactus", "octopus", "fungus",
-        "locus", "nucleus", "syllabus", "alumnus", "stimulus",
-        "surplus", "campus", "census", "circus", "corpus",
+        "status", "bus", "virus", "bonus", "focus", "radius", "chorus", "genus", "cactus",
+        "octopus", "fungus", "locus", "nucleus", "syllabus", "alumnus", "stimulus", "surplus",
+        "campus", "census", "circus", "corpus",
     ];
     if SINGULAR_US.contains(&trailing) {
         return s.to_string();
@@ -868,16 +944,15 @@ fn singularize(s: &str) -> String {
     // (`phases → phase`, `responses → response`) — fall through to
     // the bare `-s` strip below. The old `-ses → -s` rule fired on
     // those too eagerly.
-    if let Some(stem) = s.strip_suffix("es") {
-        if stem.ends_with("ch")
+    if let Some(stem) = s.strip_suffix("es")
+        && (stem.ends_with("ch")
             || stem.ends_with("sh")
             || stem.ends_with("ss")
             || stem.ends_with('x')
-            || stem.ends_with('z')
+            || stem.ends_with('z'))
         {
             return stem.to_string();
         }
-    }
     if let Some(stem) = s.strip_suffix('s') {
         if stem.ends_with('s') {
             // `-ss` like `class` keeps the trailing s (`mass`, `glass`).
@@ -928,6 +1003,20 @@ impl TableBuilder {
         }
     }
 
+    /// Replace an existing field's kind — the AR-shape upgrade path:
+    /// `belongs_to` promotes a schema-stratum `option<int>` FK column
+    /// to `record<Target>` when the column triple happened to land
+    /// first. Returns `true` when the kind actually changed; `false`
+    /// when the field is absent or already carries the kind.
+    fn upgrade_field_kind(&mut self, name: &str, kind: &Kind) -> bool {
+        if let Some(f) = self.fields.iter_mut().find(|f| f.name == name)
+            && &f.kind != kind {
+                f.kind = kind.clone();
+                return true;
+            }
+        false
+    }
+
     /// `true` if this builder has a field with the given name. Used
     /// by the UNIQUE-index post-pass to guard against
     /// validation-on-phantom-field cases — mirrors the phantom-field
@@ -947,9 +1036,8 @@ impl TableBuilder {
         if self.indices.iter().any(|i| i.name == name) {
             return false;
         }
-        self.indices.push(
-            IndexDefinition::new(name, self.name.clone(), fields).unique(),
-        );
+        self.indices
+            .push(IndexDefinition::new(name, self.name.clone(), fields).unique());
         true
     }
 
@@ -1017,11 +1105,7 @@ mod tests {
 
     #[test]
     fn rdf_type_object_creates_table() {
-        let triples = vec![t(
-            "openproject:WorkPackage",
-            "rdf:type",
-            "ogit:ObjectType",
-        )];
+        let triples = vec![t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType")];
         let schema = triples_to_schema(&triples);
         assert_eq!(schema.tables.len(), 1);
         assert_eq!(schema.tables[0].name, "WorkPackage");
@@ -1068,7 +1152,9 @@ mod tests {
         );
         // Companion IndexDefinition on project_id.
         assert!(
-            wp.indices.iter().any(|i| i.name == "idx_WorkPackage_project_id"),
+            wp.indices
+                .iter()
+                .any(|i| i.name == "idx_WorkPackage_project_id"),
             "expected an index on project_id"
         );
     }
@@ -1137,13 +1223,13 @@ mod tests {
             ),
         ];
         let schema = triples_to_schema(&triples);
-        let member = schema
-            .tables
-            .iter()
-            .find(|t| t.name == "Member")
-            .unwrap();
+        let member = schema.tables.iter().find(|t| t.name == "Member").unwrap();
         let user_fk = member.fields.iter().find(|f| f.name == "user_id").unwrap();
-        let entity_fk = member.fields.iter().find(|f| f.name == "entity_id").unwrap();
+        let entity_fk = member
+            .fields
+            .iter()
+            .find(|f| f.name == "entity_id")
+            .unwrap();
         assert_eq!(
             user_fk.kind,
             Kind::Record(vec!["User".to_string()]).optional()
@@ -1566,11 +1652,7 @@ mod tests {
         let triples = vec![
             // No `rdf:type ObjectType` for `Ghost`.
             t("openproject:Ghost", "acts_as", "list"),
-            t(
-                "openproject:Ghost",
-                "has_callback",
-                "before_save:hook",
-            ),
+            t("openproject:Ghost", "has_callback", "before_save:hook"),
             t("openproject:Ghost", "validates_constraint", "field"),
             // Real table to confirm the filter is precise.
             t("openproject:Real", "rdf:type", "ogit:ObjectType"),
@@ -1657,17 +1739,10 @@ mod tests {
             ),
         ];
         let schema = triples_to_schema(&triples);
-        let project = schema
-            .tables
-            .iter()
-            .find(|t| t.name == "Project")
-            .unwrap();
+        let project = schema.tables.iter().find(|t| t.name == "Project").unwrap();
         // No phantom `work_packages_id` column.
         assert!(
-            !project
-                .fields
-                .iter()
-                .any(|f| f.name == "work_packages_id"),
+            !project.fields.iter().any(|f| f.name == "work_packages_id"),
             "has_many must NOT emit a `<rel>_id` column on the declaring class; \
              fields = {:?}",
             project.fields.iter().map(|f| &f.name).collect::<Vec<_>>(),
@@ -1747,11 +1822,7 @@ mod tests {
                 "declares_association",
                 "openproject:Project.page",
             ),
-            t(
-                "openproject:Project.page",
-                "association_kind",
-                "has_one",
-            ),
+            t("openproject:Project.page", "association_kind", "has_one"),
             // has_and_belongs_to_many
             t(
                 "openproject:Project",
@@ -1776,11 +1847,7 @@ mod tests {
             ),
         ];
         let schema = triples_to_schema(&triples);
-        let project = schema
-            .tables
-            .iter()
-            .find(|t| t.name == "Project")
-            .unwrap();
+        let project = schema.tables.iter().find(|t| t.name == "Project").unwrap();
         for phantom in ["page_id", "tags_id", "slots_id"] {
             assert!(
                 !project.fields.iter().any(|f| f.name == phantom),
@@ -1813,17 +1880,9 @@ mod tests {
             t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
             t("openproject:WorkPackage", "has_attribute", "subject"),
             // Companion `field_type` triple keyed by the field IRI.
-            t(
-                "openproject:WorkPackage.subject",
-                "field_type",
-                "string",
-            ),
+            t("openproject:WorkPackage.subject", "field_type", "string"),
             t("openproject:WorkPackage", "has_attribute", "version"),
-            t(
-                "openproject:WorkPackage.version",
-                "field_type",
-                "integer",
-            ),
+            t("openproject:WorkPackage.version", "field_type", "integer"),
         ];
         let schema = triples_to_schema(&triples);
         let wp = &schema.tables[0];
@@ -1870,11 +1929,7 @@ mod tests {
         let triples = vec![
             t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
             t("openproject:WorkPackage", "has_attribute", "weird"),
-            t(
-                "openproject:WorkPackage.weird",
-                "field_type",
-                "tachyon",
-            ),
+            t("openproject:WorkPackage.weird", "field_type", "tachyon"),
         ];
         let schema = triples_to_schema(&triples);
         let wp = &schema.tables[0];
@@ -1891,11 +1946,7 @@ mod tests {
         let triples = vec![
             t("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"),
             t("openproject:WorkPackage", "has_attribute", "subject"),
-            t(
-                "openproject:WorkPackage.subject",
-                "field_type",
-                "string",
-            ),
+            t("openproject:WorkPackage.subject", "field_type", "string"),
             t("openproject:WorkPackage", "validates_constraint", "subject"),
         ];
         let schema = triples_to_schema(&triples);
@@ -1927,10 +1978,7 @@ mod tests {
         // Routed to Decimal (arbitrary-precision in SurrealDB) so
         // values outside the i64 range that Rails accepts aren't
         // rejected by the generated schema (codex P2 on #37).
-        assert_eq!(
-            Kind::from_rails_type("big_integer"),
-            Some(Kind::Decimal),
-        );
+        assert_eq!(Kind::from_rails_type("big_integer"), Some(Kind::Decimal),);
         assert_eq!(Kind::from_rails_type("string"), Some(Kind::String));
         assert_eq!(Kind::from_rails_type("text"), Some(Kind::String));
         // Rails `Type::ImmutableString` — verbatim symbol.
@@ -1959,10 +2007,7 @@ mod tests {
     #[test]
     fn strip_class_namespace_returns_leaf_class() {
         assert_eq!(strip_class_namespace("Storages::FileLink"), "FileLink");
-        assert_eq!(
-            strip_class_namespace("My::Deeply::Nested::Class"),
-            "Class",
-        );
+        assert_eq!(strip_class_namespace("My::Deeply::Nested::Class"), "Class",);
         // Bare name: pass through unchanged.
         assert_eq!(strip_class_namespace("User"), "User");
         // Empty string: pass through.
@@ -1990,11 +2035,7 @@ mod tests {
                 "belongs_to",
             ),
             // `belongs_to :owner, class_name: 'User'`.
-            t(
-                "openproject:WorkPackage.owner",
-                "class_name",
-                "User",
-            ),
+            t("openproject:WorkPackage.owner", "class_name", "User"),
         ];
         let schema = triples_to_schema(&triples);
         let wp = schema
@@ -2031,11 +2072,7 @@ mod tests {
             .iter()
             .find(|t| t.name == "WorkPackage")
             .unwrap();
-        let project_id = wp
-            .fields
-            .iter()
-            .find(|f| f.name == "project_id")
-            .unwrap();
+        let project_id = wp.fields.iter().find(|f| f.name == "project_id").unwrap();
         assert_eq!(
             project_id.kind,
             Kind::Record(vec!["Project".to_string()]).optional(),
@@ -2109,11 +2146,7 @@ mod tests {
                 "association_kind",
                 "belongs_to",
             ),
-            t(
-                "openproject:WorkPackage.owner",
-                "class_name",
-                "Principal",
-            ),
+            t("openproject:WorkPackage.owner", "class_name", "Principal"),
         ];
         let schema = triples_to_schema(&triples);
         let wp = &schema.tables[0];
@@ -2134,17 +2167,41 @@ mod tests {
             t("openproject:WorkPackage", "has_default_scope", "visible"),
             t("openproject:WorkPackage", "aliases_method", "old=new"),
             t("openproject:WorkPackage", "aliases_attribute", "label=name"),
-            t("openproject:WorkPackage", "delegates_to", "name=>via:project"),
+            t(
+                "openproject:WorkPackage",
+                "delegates_to",
+                "name=>via:project",
+            ),
             t("openproject:WorkPackage", "extends_module", "Reportable"),
-            t("openproject:WorkPackage", "prepends_module", "ModerationGuard"),
-            t("openproject:WorkPackage", "uses_refinement", "Refinements::Money"),
+            t(
+                "openproject:WorkPackage",
+                "prepends_module",
+                "ModerationGuard",
+            ),
+            t(
+                "openproject:WorkPackage",
+                "uses_refinement",
+                "Refinements::Money",
+            ),
             t("openproject:WorkPackage", "mounts_uploader", "attachment"),
             t("openproject:WorkPackage", "has_paper_trail", "default"),
             t("openproject:WorkPackage", "has_closure_tree", "true"),
-            t("openproject:WorkPackage", "counter_cultures", "project=>count_of:work_packages"),
+            t(
+                "openproject:WorkPackage",
+                "counter_cultures",
+                "project=>count_of:work_packages",
+            ),
             t("openproject:WorkPackage", "auto_strips", "subject"),
-            t("openproject:WorkPackage", "registers_journal_formatter", "diff:description"),
-            t("openproject:WorkPackage", "registers_journal_formatted_fields", "description"),
+            t(
+                "openproject:WorkPackage",
+                "registers_journal_formatter",
+                "diff:description",
+            ),
+            t(
+                "openproject:WorkPackage",
+                "registers_journal_formatted_fields",
+                "description",
+            ),
         ];
         let schema = triples_to_schema(&triples);
         let wp = &schema.tables[0];
@@ -2275,11 +2332,7 @@ mod tests {
     fn inherits_from_respects_phantom_table_guard() {
         let triples = vec![
             // No `rdf:type ObjectType` for `Ghost`.
-            t(
-                "openproject:Ghost",
-                "inherits_from",
-                "openproject:Parent",
-            ),
+            t("openproject:Ghost", "inherits_from", "openproject:Parent"),
             t("openproject:Real", "rdf:type", "ogit:ObjectType"),
         ];
         let schema = triples_to_schema(&triples);
@@ -2375,9 +2428,8 @@ mod tests {
     #[test]
     fn compose_validation_assert_composes_each_kind() {
         use std::collections::BTreeSet;
-        let mk = |kinds: &[&str]| -> BTreeSet<String> {
-            kinds.iter().map(|s| s.to_string()).collect()
-        };
+        let mk =
+            |kinds: &[&str]| -> BTreeSet<String> { kinds.iter().map(|s| s.to_string()).collect() };
         let no_params = BTreeSet::new();
         // Single kinds.
         assert_eq!(
@@ -2432,9 +2484,8 @@ mod tests {
     #[test]
     fn compose_validation_assert_lifts_parametric_kinds() {
         use std::collections::BTreeSet;
-        let mk_set = |items: &[&str]| -> BTreeSet<String> {
-            items.iter().map(|s| s.to_string()).collect()
-        };
+        let mk_set =
+            |items: &[&str]| -> BTreeSet<String> { items.iter().map(|s| s.to_string()).collect() };
         // length:maximum=255 → string::len($value) <= 255
         let kinds = mk_set(&["length"]);
         let params = mk_set(&["length:maximum=255"]);
@@ -2467,10 +2518,7 @@ mod tests {
             "greater_than param clause missing: {composed:?}",
         );
         // Range constraint (greater_than + less_than).
-        let params = mk_set(&[
-            "numericality:greater_than=0",
-            "numericality:less_than=150",
-        ]);
+        let params = mk_set(&["numericality:greater_than=0", "numericality:less_than=150"]);
         let composed = compose_validation_assert(&kinds, &params);
         assert!(composed.contains("$value > 0"));
         assert!(composed.contains("$value < 150"));
@@ -2483,9 +2531,8 @@ mod tests {
     #[test]
     fn compose_validation_assert_skips_unknown_params() {
         use std::collections::BTreeSet;
-        let mk_set = |items: &[&str]| -> BTreeSet<String> {
-            items.iter().map(|s| s.to_string()).collect()
-        };
+        let mk_set =
+            |items: &[&str]| -> BTreeSet<String> { items.iter().map(|s| s.to_string()).collect() };
         let kinds = mk_set(&["length"]);
         let params = mk_set(&[
             "length:maximum=255",
@@ -2578,7 +2625,11 @@ mod tests {
             t("openproject:User", "has_attribute", "name"),
             t("openproject:User", "validates_constraint", "name"),
             t("openproject:User.name", "validation_kind", "length"),
-            t("openproject:User.name", "validation_param", "length:maximum=255"),
+            t(
+                "openproject:User.name",
+                "validation_param",
+                "length:maximum=255",
+            ),
         ];
         let schema = triples_to_schema(&triples);
         let name = schema.tables[0]
@@ -2791,11 +2842,7 @@ mod tests {
             t("openproject:Category", "rdf:type", "ogit:ObjectType"),
             t("openproject:Category", "has_attribute", "name"),
             t("openproject:Category", "validates_constraint", "name"),
-            t(
-                "openproject:Category.name",
-                "validation_kind",
-                "uniqueness",
-            ),
+            t("openproject:Category.name", "validation_kind", "uniqueness"),
             t(
                 "openproject:Category.name",
                 "validation_param",
@@ -2809,7 +2856,10 @@ mod tests {
             .iter()
             .find(|i| i.unique)
             .expect("composite UNIQUE index must be emitted");
-        assert_eq!(unique.fields, vec!["name".to_string(), "project_id".to_string()]);
+        assert_eq!(
+            unique.fields,
+            vec!["name".to_string(), "project_id".to_string()]
+        );
         assert_eq!(unique.name, "idx_Category_name_project_id_unique");
     }
 
@@ -2859,8 +2909,16 @@ mod tests {
     #[test]
     fn uniqueness_scope_with_non_symbol_value_falls_back_to_single_column() {
         let triples = vec![
-            t("openproject:CalculatedValueError", "rdf:type", "ogit:ObjectType"),
-            t("openproject:CalculatedValueError", "has_attribute", "error_code"),
+            t(
+                "openproject:CalculatedValueError",
+                "rdf:type",
+                "ogit:ObjectType",
+            ),
+            t(
+                "openproject:CalculatedValueError",
+                "has_attribute",
+                "error_code",
+            ),
             t(
                 "openproject:CalculatedValueError",
                 "validates_constraint",
@@ -2879,11 +2937,7 @@ mod tests {
             ),
         ];
         let schema = triples_to_schema(&triples);
-        let unique = schema.tables[0]
-            .indices
-            .iter()
-            .find(|i| i.unique)
-            .unwrap();
+        let unique = schema.tables[0].indices.iter().find(|i| i.unique).unwrap();
         // No scope columns added — single-column UNIQUE.
         assert_eq!(unique.fields, vec!["error_code".to_string()]);
         assert_eq!(unique.name, "idx_CalculatedValueError_error_code_unique");
@@ -2894,9 +2948,7 @@ mod tests {
     #[test]
     fn extract_uniqueness_scope_handles_value_shapes() {
         use std::collections::BTreeSet;
-        let mk = |s: &str| -> BTreeSet<String> {
-            std::iter::once(s.to_string()).collect()
-        };
+        let mk = |s: &str| -> BTreeSet<String> { std::iter::once(s.to_string()).collect() };
         // Single symbol.
         assert_eq!(
             extract_uniqueness_scope(&mk("uniqueness:scope=:project_id")),

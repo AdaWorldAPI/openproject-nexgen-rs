@@ -1,0 +1,18 @@
+{# SurrealQL table definition for one canonical concept. Codegen      #}
+{# flavour — emits DDL the SurrealDB engine consumes. No HTML escape; #}
+{# the only variables are identifiers + types we generate ourselves.  #}
+-- {{ name }} — canonical class generated from `ogar_vocab::{{ concept_fn }}()`.
+-- DO NOT EDIT BY HAND. Re-render via `ogar-render-askama`.
+
+DEFINE TABLE {{ table_name }} SCHEMAFULL
+    {%- if class_id_hex.len() > 0 %} COMMENT "OGAR codebook id {{ class_id_hex }} ({{ canonical_concept }})"{%- endif %};
+
+{% for field in fields -%}
+DEFINE FIELD {{ field.name }} ON {{ table_name }} TYPE {{ field.surql_type }}{%- if !field.assertion.is_empty() %} ASSERT {{ field.assertion }}{%- endif %};
+{% endfor %}
+{%- for edge in edges %}
+DEFINE FIELD {{ edge.name }} ON {{ table_name }} TYPE {{ edge.surql_type }} COMMENT "{{ edge.kind_label }} -> {{ edge.target_table }}";
+{%- endfor %}
+{%- for idx in indexes %}
+DEFINE INDEX {{ idx.name }} ON {{ table_name }} FIELDS {{ idx.fields }}{%- if idx.unique %} UNIQUE{%- endif %};
+{%- endfor %}

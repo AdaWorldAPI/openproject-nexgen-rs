@@ -1,0 +1,2 @@
+{# Number input. #}
+<input type="number" name="{{ name }}" id="field-{{ name }}" value="{{ value }}"{% if required %} required{% endif %}{% if !step.is_empty() %} step="{{ step }}"{% endif %}>

@@ -1,0 +1,34 @@
+{# Detail view for a single canonical record. Same `RenderColumn` shape #}
+{# as the list view, just laid out as a definition list (dt/dd) for     #}
+{# inline fields + full-width sections for block fields and family-edge #}
+{# collections. Substrate-agnostic — driven by the binding-struct, no   #}
+{# class name hardcoded.                                                 #}
+<article class="ogar-detail" data-class-id="{{ class_id_hex }}" data-concept="{{ canonical_concept }}" data-record-id="{{ record_id }}">
+  <header class="detail-header">
+    <h2 class="detail-headline">
+      <span class="detail-id">#{{ record_id }}</span>
+      <span class="detail-primary">{{ headline_html|safe }}</span>
+    </h2>
+    {%- if !subtitle.is_empty() %}
+    <p class="detail-subtitle">{{ subtitle }}</p>
+    {%- endif %}
+  </header>
+
+  <dl class="detail-fields">
+  {%- for cell in inline_cells %}
+    <div class="detail-field detail-field-{{ cell.name }}{% if !cell.css_classes.is_empty() %} {{ cell.css_classes }}{% endif %}">
+      <dt class="detail-label">{{ cell.label }}</dt>
+      <dd class="detail-value">{{ cell.body_html|safe }}</dd>
+    </div>
+  {%- endfor %}
+  </dl>
+
+  {%- for section in block_sections %}
+  <section class="detail-section detail-section-{{ section.name }}">
+    <h3 class="detail-section-title">{{ section.label }}</h3>
+    <div class="detail-section-body{% if !section.css_classes.is_empty() %} {{ section.css_classes }}{% endif %}">
+      {{ section.body_html|safe }}
+    </div>
+  </section>
+  {%- endfor %}
+</article>

@@ -1,0 +1,2 @@
+{# Long-form text. Rows defaults to 6 unless overridden. #}
+<textarea name="{{ name }}" id="field-{{ name }}" rows="{{ rows }}"{% if required %} required{% endif %}{% if !placeholder.is_empty() %} placeholder="{{ placeholder }}"{% endif %}>{{ value }}</textarea>

@@ -48,7 +48,7 @@
 //!   / `label` attribute get a default non-unique
 //!   `DEFINE INDEX idx_<table>_<col>` on it.
 
-use ogar_vocab::{canonical_concept_id, AssociationKind, Class};
+use ogar_vocab::{AssociationKind, Class, canonical_concept_id};
 
 use crate::{FieldDefinition, IndexDefinition, Kind, TableDefinition};
 
@@ -64,13 +64,10 @@ pub fn class_to_table(class: &Class) -> TableDefinition {
 
     // Provenance comment — codebook id only when the concept is
     // promoted. Unpromoted classes get the bare DEFINE TABLE line.
-    if let Some(concept) = class.canonical_concept.as_deref() {
-        if let Some(id) = canonical_concept_id(concept) {
-            t = t.with_comment(Some(format!(
-                "OGAR codebook id 0x{id:04X} ({concept})"
-            )));
+    if let Some(concept) = class.canonical_concept.as_deref()
+        && let Some(id) = canonical_concept_id(concept) {
+            t = t.with_comment(Some(format!("OGAR codebook id 0x{id:04X} ({concept})")));
         }
-    }
 
     // Typed attributes — Rails type → SurrealQL kind via `from_rails_type`.
     // Unknown types fall back to `Any` so the long-tail (custom-field
@@ -181,9 +178,7 @@ fn snake_case(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::ToSql;
-    use ogar_vocab::{
-        billable_work_entry, project, project_role, project_work_item,
-    };
+    use ogar_vocab::{billable_work_entry, project, project_role, project_work_item};
 
     #[test]
     fn project_work_item_lifts_to_table_with_codebook_comment() {
@@ -303,10 +298,7 @@ mod tests {
         let class = project();
         let t = class_to_table(&class);
         let sql = t.to_sql();
-        assert!(
-            sql.starts_with("DEFINE TABLE project SCHEMAFULL"),
-            "{sql}"
-        );
+        assert!(sql.starts_with("DEFINE TABLE project SCHEMAFULL"), "{sql}");
     }
 
     #[test]

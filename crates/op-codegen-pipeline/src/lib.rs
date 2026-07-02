@@ -38,7 +38,7 @@
 //! by the ruff crate's own tests; here we pin the projection wiring.
 
 use lance_graph_contract::codegen_spine::Triple as SpineTriple;
-use op_codegen_projection::{OpSurrealConst, OpSurrealProjection, surreal_text};
+use op_codegen_projection::{surreal_text, OpSurrealConst, OpSurrealProjection};
 use ruff_spo_triplet::Triple as RuffTriple;
 
 // `lance_graph_contract::codegen_spine::TripletProjection` is implemented
@@ -49,8 +49,8 @@ use lance_graph_contract::codegen_spine::TripletProjection;
 // Re-exports so consumers depend on this one crate, not five.
 pub use op_codegen_projection::{DefineField, DefineTable};
 pub use ruff_openproject::{
-    CORE_V3_RESOURCES, NAMESPACE, extract_core_triples, extract_graph, extract_triples,
-    filter_to_core,
+    extract_core_triples, extract_graph, extract_triples, filter_to_core, CORE_V3_RESOURCES,
+    NAMESPACE,
 };
 
 /// Bridge `ruff_spo_triplet::Triple` → `lance_graph_contract::Triple`
@@ -69,6 +69,48 @@ pub fn bridge_triples(triples: &[RuffTriple]) -> Vec<SpineTriple> {
         .collect()
 }
 
+/// D-AR-3.5 typed path: extract WITH the schema stratum (baseline
+/// migration-DSL columns merged into the model graph), filter to the
+/// curated core, and expand to triples. Returns the triples plus the
+/// conservation-ledger [`ruff_ruby_spo::SchemaReport`].
+#[must_use]
+pub fn extract_core_triples_with_schema(
+    rails_root: &std::path::Path,
+) -> (Vec<RuffTriple>, ruff_ruby_spo::SchemaReport) {
+    let (mut graph, report) = ruff_ruby_spo::extract_app_with_schema(rails_root, NAMESPACE);
+    filter_to_core(&mut graph);
+    (ruff_spo_triplet::expand(&graph), report)
+}
+
+/// The typed render path ("compiled, not parsed" direction): triples →
+/// [`op_surreal_ast::from_triples::triples_to_schema`] → typed AST →
+/// SurrealQL text, with the conservation ledger appended as a trailer
+/// comment block (nothing drops silently). This supersedes
+/// [`render_surreal_from_ruff`] for CLI use; the old projection path
+/// stays for its round-trip contract until the compile surface
+/// migrates OGAR-side.
+#[must_use]
+pub fn render_typed_surreal(rails_root: &std::path::Path) -> String {
+    use op_surreal_ast::ToSql;
+    let (triples, report) = extract_core_triples_with_schema(rails_root);
+    let spine = bridge_triples(&triples);
+    let schema = op_surreal_ast::from_triples::triples_to_schema(&spine);
+    let mut out = schema.to_sql();
+    // Conservation trailer: the artifact accounts for what it covers.
+    out.push_str(&format!(
+        "-- columns-from: {} | tables seen: {} matched: {} unmatched: {} skipped: {}\n",
+        report.columns_from,
+        report.tables_seen,
+        report.tables_matched,
+        report.unmatched_tables.len(),
+        report.files_skipped.len(),
+    ));
+    for t in &report.unmatched_tables {
+        out.push_str(&format!("-- unmatched table (no model): {t}\n"));
+    }
+    out
+}
+
 /// Drive ruff triples through the projection and emit SurrealQL DDL text in
 /// one call. The intermediate [`OpSurrealConst`] is also returned so callers
 /// that want the structured IR (or the opaque triple trail for round-trip
@@ -85,7 +127,7 @@ pub fn render_surreal_from_ruff(triples: &[RuffTriple]) -> (OpSurrealConst, Stri
 mod tests {
     use super::*;
     use lance_graph_contract::codegen_spine::roundtrip_eq;
-    use ruff_spo_triplet::{Field, Model, ModelGraph, expand};
+    use ruff_spo_triplet::{expand, Field, Model, ModelGraph};
 
     /// A minimal but realistic OpenProject-shaped graph: two models with
     /// columns, no functions (no compute graph noise). Mirrors the curated
@@ -97,11 +139,13 @@ mod tests {
             name: "subject".to_string(),
             depends_on: Vec::new(),
             emitted_by: None,
+            ..Field::default()
         });
         wp.fields.push(Field {
             name: "status".to_string(),
             depends_on: Vec::new(),
             emitted_by: None,
+            ..Field::default()
         });
         g.models.push(wp);
 
@@ -110,6 +154,7 @@ mod tests {
             name: "hours".to_string(),
             depends_on: Vec::new(),
             emitted_by: None,
+            ..Field::default()
         });
         g.models.push(te);
 
@@ -207,6 +252,7 @@ DEFINE FIELD subject ON TABLE WorkPackage TYPE option<any>;
             reads: vec!["status".to_string()],
             raises: vec!["ActiveRecord::RecordInvalid".to_string()],
             traverses: vec!["time_entries".to_string()],
+            ..Function::default()
         });
 
         let triples = expand(&g);
@@ -269,6 +315,7 @@ DEFINE FIELD subject ON TABLE WorkPackage TYPE option<any>;
             reads: vec!["subject".to_string()],
             raises: vec!["ActiveRecord::RecordInvalid".to_string()],
             traverses: Vec::new(),
+            ..Function::default()
         });
 
         let triples = expand(&g);

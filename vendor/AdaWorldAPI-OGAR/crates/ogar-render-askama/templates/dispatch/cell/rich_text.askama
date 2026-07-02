@@ -1,0 +1,4 @@
+{# Rich-text cell — Redmine `:description` / `:last_notes`. The body is #}
+{# pre-rendered by a textile/markdown filter upstream; this template just #}
+{# wraps it in a `.wiki` container. Block-column candidate.              #}
+<div class="wiki">{{ body|safe }}</div>

@@ -10,12 +10,12 @@ serde_json.workspace = true
 # Canonical home of the class-id constants (OGAR codebook). Re-exported by
 # `class_ids` so this port shares the single source of truth with
 # `redmine-canon` — the constants cannot drift across ports.
-ogar-vocab = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+ogar-vocab = { path = "../../vendor/AdaWorldAPI-OGAR/crates/ogar-vocab" }
 # ClassView impl over the canonical concepts — re-exported as
 # `op_canon::class_view::OgarClassView`. Same one-source-of-truth
 # pattern as `class_ids`: the projection bridge lives in OGAR; this port
 # re-exports it. Northstar plan §3 C2 (sibling of redmine-rs#6).
-ogar-class-view = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+ogar-class-view = { path = "../../vendor/AdaWorldAPI-OGAR/crates/ogar-class-view" }
 # Run-time ClassView trait + FieldMask + RenderRow. Re-exported so
 # downstream `op-*` crates have one import for the projection contract.
-lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+lance-graph-contract = { path = "../../vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" }

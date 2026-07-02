@@ -15,15 +15,16 @@
 //!     drops it
 //!   - declarative `validates :col, presence: true` on both core models
 //!     — exercises C10's required-field detection ALL THE WAY from disk
-//!   - `db/schema.rb` columns including helpers (`t.timestamps` isn't
-//!     used, but `force: :cascade` is — both correctly handled by ruff)
+//!   - `db/migrate/tables/*.rb` baseline DSL columns (the D-AR-3.5
+//!     schema stratum) — typed fields with nullability, merged via
+//!     `extract_app_with_schema`
 
 use std::path::PathBuf;
 
 use lance_graph_contract::codegen_spine::roundtrip_eq;
 use op_codegen_pipeline::{
-    CORE_V3_RESOURCES, bridge_triples, extract_core_triples, extract_graph, extract_triples,
-    filter_to_core, render_surreal_from_ruff,
+    bridge_triples, extract_core_triples, extract_core_triples_with_schema, extract_graph,
+    extract_triples, filter_to_core, render_typed_surreal, CORE_V3_RESOURCES,
 };
 use op_codegen_projection::OpSurrealProjection;
 
@@ -43,15 +44,58 @@ fn fixture_extracts_all_three_models_from_filesystem() {
 
 #[test]
 fn fixture_extracts_schema_columns_per_model() {
-    let graph = extract_graph(&fixture_root());
-    let wp = graph.models.iter().find(|m| m.name == "WorkPackage").unwrap();
-    let wp_cols: Vec<&str> = wp.fields.iter().map(|f| f.name.as_str()).collect();
-    // Columns come from db/schema.rb in declaration order.
-    assert_eq!(wp_cols, ["subject", "status_id"]);
+    // Columns come from the db/migrate/tables/*.rb baseline DSL (the
+    // D-AR-3.5 schema stratum), in declaration order, implicit `id`
+    // first. `extract_graph` alone carries NO columns — upstream main
+    // stubbed the class-body field scanner; the stratum arrives only
+    // via `extract_app_with_schema` (two-shapes doctrine: the AR shape
+    // is extracted from class bodies, the physical columns are a
+    // separate, subordinate stratum).
+    let (triples, report) = extract_core_triples_with_schema(&fixture_root());
+    assert_eq!(report.tables_seen, 2);
+    assert_eq!(report.tables_matched, 2);
+    assert!(report.unmatched_tables.is_empty());
 
-    let te = graph.models.iter().find(|m| m.name == "TimeEntry").unwrap();
-    let te_cols: Vec<&str> = te.fields.iter().map(|f| f.name.as_str()).collect();
-    assert_eq!(te_cols, ["hours", "work_package_id"]);
+    let wp_cols: Vec<String> = triples
+        .iter()
+        .filter(|t| t.p == "has_field" && t.s == "openproject:WorkPackage")
+        .map(|t| {
+            t.o.trim_start_matches("openproject:WorkPackage.")
+                .to_string()
+        })
+        .collect();
+    for expected in [
+        "id",
+        "subject",
+        "description",
+        "done_ratio",
+        "project_id",
+        "created_at",
+        "updated_at",
+    ] {
+        assert!(
+            wp_cols.iter().any(|c| c == expected),
+            "missing {expected} in {wp_cols:?}"
+        );
+    }
+
+    // Typed + nullability facts ride field_type / column_not_null.
+    assert!(triples
+        .iter()
+        .any(|t| t.s == "openproject:WorkPackage.subject"
+            && t.p == "field_type"
+            && t.o == "string"));
+    assert!(triples
+        .iter()
+        .any(|t| t.s == "openproject:WorkPackage.subject"
+            && t.p == "column_not_null"
+            && t.o == "true"));
+    assert!(
+        !triples
+            .iter()
+            .any(|t| t.s == "openproject:WorkPackage.done_ratio" && t.p == "column_not_null"),
+        "done_ratio is nullable — unset is not 0%"
+    );
 }
 
 #[test]
@@ -67,67 +111,57 @@ fn core_filter_drops_non_core_adhoc_model() {
 
 #[test]
 fn full_pipeline_emits_expected_surql_from_filesystem() {
-    // The end-to-end demo: filesystem walk → triples → bridge → project →
-    // SurrealQL text. Asserts each load-bearing line is present rather
-    // than a single big string match — keeps the test robust to a future
-    // emitter widening (e.g. added PERMISSIONS clauses) that would
-    // otherwise force every test to update in lockstep.
-    let triples = extract_core_triples(&fixture_root());
-    let (c, text) = render_surreal_from_ruff(&triples);
+    // The end-to-end demo on the TYPED path (D-AR-3.5, "compiled, not
+    // parsed" direction): filesystem walk + schema stratum → triples →
+    // op_surreal_ast::from_triples → typed SurrealQL + conservation
+    // trailer. Line-presence asserts, same robustness rationale as
+    // before.
+    let text = render_typed_surreal(&fixture_root());
 
-    // Both core tables present, alphabetical.
-    let table_names: Vec<&str> = c.tables.iter().map(|t| t.name.as_str()).collect();
-    assert_eq!(table_names, ["TimeEntry", "WorkPackage"]);
-
-    // C10 required-field detection from filesystem `validates` declarations.
-    let wp = c.tables.iter().find(|t| t.name == "WorkPackage").unwrap();
-    let subject = wp.fields.iter().find(|f| f.name == "subject").unwrap();
-    let status_id = wp.fields.iter().find(|f| f.name == "status_id").unwrap();
-    assert!(subject.required, "validates :subject -> required");
-    assert!(!status_id.required, "no validates on status_id -> optional");
-
-    let te = c.tables.iter().find(|t| t.name == "TimeEntry").unwrap();
-    let hours = te.fields.iter().find(|f| f.name == "hours").unwrap();
-    let wp_id = te
-        .fields
-        .iter()
-        .find(|f| f.name == "work_package_id")
-        .unwrap();
-    assert!(hours.required, "validates :hours -> required");
-    assert!(!wp_id.required, "no validates on work_package_id -> optional");
-
-    // Emission asserts. Combines:
-    //   - C10 required (validates :col -> TYPE any) — hours / subject
-    //   - C12 kind inference (*_id -> int) — status_id (target table
-    //     `Status` is NOT a known model in the fixture, so it stays Int)
-    //   - C13 FK record link inference — work_package_id resolves
-    //     `work_package` -> WorkPackage which IS a known model, so the
-    //     field is promoted from option<int> to option<record<WorkPackage>>
     assert!(text.contains("DEFINE TABLE TimeEntry SCHEMAFULL;"));
-    assert!(text.contains("DEFINE TABLE WorkPackage SCHEMAFULL;"));
-    assert!(text.contains("DEFINE FIELD hours ON TABLE TimeEntry TYPE any;"));
-    assert!(text.contains("DEFINE FIELD subject ON TABLE WorkPackage TYPE any;"));
-    assert!(text.contains("DEFINE FIELD status_id ON TABLE WorkPackage TYPE option<int>;"));
     assert!(text.contains(
-        "DEFINE FIELD work_package_id ON TABLE TimeEntry TYPE option<record<WorkPackage>>;"
+        "DEFINE TABLE WorkPackage SCHEMAFULL COMMENT 'has_many:time_entries\u{2192}TimeEntry';"
     ));
-
-    // C14: every FK-shaped field (kind = Int or Record(_)) gets a
-    // non-unique DEFINE INDEX immediately after its DEFINE FIELD.
-    // Both Int-kind status_id AND Record-kind work_package_id qualify.
+    // Schema-stratum typed fields; column_not_null → bare kind.
+    assert!(text
+        .contains("DEFINE FIELD subject ON TABLE WorkPackage TYPE string ASSERT $value != NONE;"));
+    assert!(text.contains("DEFINE FIELD done_ratio ON TABLE WorkPackage TYPE option<int>;"));
     assert!(text.contains(
-        "DEFINE INDEX idx_WorkPackage_status_id ON TABLE WorkPackage FIELDS status_id;"
+        "DEFINE FIELD hours ON TABLE TimeEntry TYPE option<float> ASSERT $value != NONE;"
     ));
+    // belongs_to + null: false → bare record link + companion index.
+    assert!(
+        text.contains("DEFINE FIELD work_package_id ON TABLE TimeEntry TYPE record<WorkPackage>;")
+    );
     assert!(text.contains(
         "DEFINE INDEX idx_TimeEntry_work_package_id ON TABLE TimeEntry FIELDS work_package_id;"
     ));
-    // Non-FK fields (subject / hours) must NOT have indexes.
+    // belongs_to :project — Project isn't a model in the fixture, so the
+    // polymorphic/unknown-target guard degrades to `any` (bare: null: false).
+    assert!(text.contains("DEFINE FIELD project_id ON TABLE WorkPackage TYPE any;"));
+    // Non-FK fields must not get indexes.
     assert!(!text.contains("idx_WorkPackage_subject"));
     assert!(!text.contains("idx_TimeEntry_hours"));
-
+    // Conservation trailer: the artifact accounts for itself.
+    assert!(text.contains(
+        "-- columns-from: baseline-only | tables seen: 2 matched: 2 unmatched: 0 skipped: 0"
+    ));
     // Non-core model must not appear anywhere.
     assert!(!text.contains("AdhocThing"));
     assert!(!text.contains("adhoc_things"));
+}
+
+#[test]
+fn old_projection_path_still_roundtrips() {
+    // The legacy OpSurrealProjection path (transitional per the
+    // two-shapes doctrine — migrates OGAR-side) no longer receives
+    // field-bearing triples from main's extraction, but its round-trip
+    // contract must keep holding for whatever it is fed.
+    let triples = extract_core_triples(&fixture_root());
+    let (c, text) = op_codegen_pipeline::render_surreal_from_ruff(&triples);
+    let table_names: Vec<&str> = c.tables.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(table_names, ["TimeEntry", "WorkPackage"]);
+    assert!(text.contains("DEFINE TABLE WorkPackage SCHEMAFULL;"));
 }
 
 #[test]

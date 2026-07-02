@@ -1,0 +1,6 @@
+{# Relation-list cell — Redmine `:relations`. #}
+<ul class="relation-list">
+{%- for r in relations %}
+  <li class="rel-{{ r.kind }}"><a href="{{ r.href }}">#{{ r.id }}</a></li>
+{%- endfor %}
+</ul>

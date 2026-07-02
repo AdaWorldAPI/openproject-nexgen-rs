@@ -1,0 +1,2 @@
+{# Primary link cell — Redmine `:subject` arm. Headline column for the row. #}
+<a href="{{ href }}" class="primary-link">{{ label }}</a>
