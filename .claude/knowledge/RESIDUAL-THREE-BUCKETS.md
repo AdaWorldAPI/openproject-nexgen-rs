@@ -109,21 +109,41 @@ not random. The true B3 tail for OpenProject core is two interface mints.
 > `cd crates/op-codegen-residual && cargo test`. Promote it to a workspace
 > member once OGAR is vendored.
 
-## 3. What each bucket costs (build order)
+## 3. What each bucket costs (build order — revised 2026-07-02 after §4a–§4c)
 
-1. **B1 normalizer** (cheapest, unblocks the most): one deterministic
-   canonicalize pass in the projection layer — stable sort + canonical
-   arrangement before emission. Turns ~9 `option<any>` fields into determined
-   emissions. Arbiter: round-trip-order-free parity (`F17` shape).
-2. **B2 adapters** (once each, amortize forever): ACL/permission-set,
-   locale/timezone, audit-chain (Journal pred/succ), document-link. Each is a
-   `LabelDto` mapping onto an ogar-vocab concept id (mint per
-   RESERVE-DON'T-RECLAIM if absent) + a DTO struct the swiss-knife verbs
-   already know how to open/filter/reorder/mask.
-3. **B3 rewrites** (bounded, feed the ontology): `ProgressDerivation` iface
-   (WorkPackage.derived_progress_hints + Version.issues_progress), version
-   rollup iface (estimated/spent hours). Each mints its interface as a
-   *candidate* B2 zone for the Redmine pass.
+Upstream (ruff session; handover `2026-07-02-ruff-upstream-extraction-contract.md`):
+
+1. **Column-stratum extraction** (§4c — measured 90% yield; handover §6):
+   parse the `db/migrate/tables/*.rb` baseline DSL → typed `DEFINE FIELD`.
+   Combined with the already-shipped validation triples this covers ~100% of
+   model-struct shape. Outranks everything.
+2. **Determinism contract + conservation ledger + walk/list fixes**
+   (handover §1–§4): dissolves the pipeline-noise half of B1 at the source;
+   makes every drop accounted.
+
+op-nexgen side (this repo):
+
+1. **Vendor the three OGAR crates** (`ogar-vocab`, `ogar-render-askama`,
+   `ogar-class-view`) from a session with OGAR read access — the single
+   blocker for building/verifying anything in the main workspace (including
+   the five recorded §4c bugs, which stay open until then).
+2. **PolyRef substrate DTO** (§4a meta-find): the shared
+   `{target_class, target_id}` primitive five-plus zones compose. Dep-free,
+   buildable in `op-codegen-residual` now; concept-id grounding attaches at
+   OGAR lift, not here.
+3. **Verb conformance suite before adapters**: a contract each zone adapter
+   is tested against (`apply mask` respects ACL semantics, `reorder`
+   respects canonical form, `open`∘`filter` round-trips). This is what makes
+   adapters mechanical enough to delegate.
+4. **B2 adapters** (once each, amortize forever — now 9 registered zones,
+   all composing PolyRef): each a `LabelDto` mapping onto an ogar-vocab
+   concept id (mint per RESERVE-DON'T-RECLAIM if absent).
+5. **B1 normalizer in the projection** (demoted from #1: upstream
+   determinism makes most of it free; the blade + gate already live in
+   `op-codegen-residual` for whatever remains).
+6. **B3 rewrites** (bounded, feed the ontology): `ProgressDerivation`,
+   `VersionRollup` — each mints its interface as a *candidate* B2 zone for
+   the Redmine pass.
 
 ## 4. Full-surface B2 survey (measured 2026-07-01, agent sweep)
 
@@ -226,6 +246,60 @@ layer never swallows a model.
 Both actionable fixes are **upstream-owned** (`AdaWorldAPI/ruff`): patching
 the vendor mirror here would silently drift from the emitter session's
 source of truth, so they are pinned as the handoff instead.
+
+## 4c. Oracle diff — WorkPackage, first empirical residual measurement (2026-07-02)
+
+Method: diff the three representations — DB schema (ground truth), hand-written
+Rust, measured extraction — and the disagreement decomposes into extractor-gap
+/ true-residual / human-drift. First subject: WorkPackage.
+
+**Result: 90 / 10 / 0.** Schema = 35 columns (29 core + 6 module: backlogs,
+budgets; reconstructed from `db/migrate/tables/work_packages.rb` + later
+migrations — the checkout has NO `schema.rb`/`structure.sql`). Hand-written
+union (`WorkPackage` 18 + `WorkPackageRow` 20) = 20 field names. Every
+hand-written field maps to a real column (SET-2 empty — the humans were
+disciplined). **18/20 (90%) derivable from schema alone** (name + SQL type +
+nullability). The other 2 need model-file context: `description → Formattable`
+(an app/API rendering convention) and `done_ratio`'s `0..100` clamp (from
+`validates … inclusion: {in: 0..100}, allow_nil: true`). **0% human-only.**
+
+**The stratum insight (the day's biggest lever).** The extractor reads the
+*instance-method* stratum (its 2 WorkPackage emissions are methods, verified
+absent from all 35 columns); the struct-shape need is the *column* stratum,
+which lives in the **migration DSL** (`db/migrate/tables/*.rb` squashed
+baseline — standard Rails `t.column` calls, statically extractable). And the
+remaining 10% maps onto the **already-extracted validation triples**
+(`validates_constraint`/`validation_kind`/`validation_param` — done_ratio's
+clamp is literally a `GUARD_RANGE` recipe fact). So: **column stratum (new) +
+validation triples (already shipped) ≈ 100% of the WorkPackage struct
+derivable.** Handed off upstream (handover doc §6).
+
+**Bugs found (recorded, NOT fixed — the workspace doesn't build in this
+session (OGAR git deps), so any refactor here would be blind):**
+
+1. `done_ratio` "unset"≡"0%" collapse: schema + validator explicitly allow
+   NULL ("unset"); both Rust shapes force a concrete value. Fix spec:
+   `Option<DoneRatio>` end-to-end.
+2. `WorkPackage.description: Formattable` (non-Option) loses the NULL/empty
+   distinction (`WorkPackageRow.description: Option<String>` is correct).
+3. Intra-crate contradiction: op-db has TWO same-named `WorkPackageRow`
+   (`work_packages.rs` 20-field vs `query_executor.rs` 25-field) that
+   disagree on `author_id` nullability — schema says NOT NULL, so
+   `query_executor.rs`'s `Option<i64>` is wrong.
+4. **The struct zoo, measured in our own code:** ≥5 divergent hand-written
+   WorkPackage-shaped structs across crates (op-work-packages, op-db ×2,
+   op-models — a stale 13-field variant, op-api's 39-field view projection).
+   The doctrine's "extinct zoo" isn't hypothetical; it's in-repo. The
+   generated single-source-of-truth is the cure.
+5. **Upstream drift, silently:** `project_phase_definition_id` (Apr 2025),
+   `sequence_number` + `identifier` (Mar 2026) are absent from ALL five
+   structs — upstream moved, the port didn't notice. Exactly what the
+   conservation ledger + regeneration would flag automatically.
+
+**Verdict for the doctrine:** the oracle method works — one agent-run
+produced the empirical split, five concrete bugs, and re-prioritized the
+pipeline (column stratum first). Repeat per model; every hand-written crate
+is a test fixture.
 
 ## 5. Caveats (record honestly)
 

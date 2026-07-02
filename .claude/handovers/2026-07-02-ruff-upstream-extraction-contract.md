@@ -114,6 +114,48 @@ op-nexgen's `RESIDUAL_MANIFEST` is a snapshot that will drift; the
 c-channel version cannot. No schema change needed — the channel is already
 plumbed; it just needs semantics assigned at emit time.
 
+## 6. The missing stratum: migration-DSL column extraction (measured 90% yield)
+
+Added after the WorkPackage oracle diff (RESIDUAL-THREE-BUCKETS.md §4c) —
+this outranks everything above in yield.
+
+The extractor today reads the **instance-method / AR-DSL stratum** of
+`app/models`. The oracle diff measured what a Rust model struct actually
+needs: **90% of it is the column stratum** (name + SQL type + nullability),
+which lives in the **migration DSL** — OpenProject ships no
+`schema.rb`/`structure.sql`; the squashed baseline is
+`db/migrate/tables/*.rb` (plain Rails `create_table`/`t.column`/`t.index`
+calls — a fixed, enumerable, statically-parsable vocabulary, exactly like
+the AR recipe DSL you already parse), plus incremental migrations layered
+after (`db/migrate/*.rb`, `modules/*/db/migrate/*.rb`).
+
+And the last 10% is **already in your triples**: the two non-schema-derivable
+typings found (`description`'s Formattable convention aside) come from
+`validates` calls — `done_ratio`'s `0..100` clamp is a
+`validates_constraint`/`validation_param` fact you already emit (a
+`GUARD_RANGE` recipe concept). So:
+
+> **column stratum (new) + validation triples (shipped) ≈ 100% of model
+> struct shape.**
+
+Suggested contract:
+
+- Parse `db/migrate/tables/*.rb` baseline first (cheap, static; ignore
+  incremental replay initially — note it in the conservation ledger as
+  `columns-from: baseline-only`).
+- Emit `has_column` triples: `(ns:Model, has_column, "name")` +
+  `(ns:Model.name, has_sql_type, "bigint")` + nullability/default facts —
+  whatever predicate shape fits your existing vocabulary; the projection
+  then emits typed `DEFINE FIELD` instead of `option<any>`.
+- Table→model naming: `work_packages` → `WorkPackage` (Rails inflection);
+  emit unmatched tables in the ledger rather than dropping them.
+- Module migrations (`modules/*/db/migrate`) ride the same §1 walk widening.
+
+Yield claim to verify on your side: for WorkPackage this turns a 2-field
+`option<any>` emission into ~35 typed fields, and the same should hold
+across the curated set (the columns are the *easy* 90% — it's the stratum
+hand-written Rust actually consumed).
+
 ## What op-nexgen holds on its side (no action needed from you)
 
 - `op-codegen-residual` (standalone crate): typed manifest, B1 blade,
