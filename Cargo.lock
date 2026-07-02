@@ -1210,7 +1210,7 @@ version = "0.1.0"
 [[package]]
 name = "lance-graph-contract"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/lance-graph?branch=main#d8a59a44ccafdff107b1ca370f38da0b1252938c"
+source = "git+https://github.com/AdaWorldAPI/lance-graph?branch=main#6858118b30816298a2e78448790131732647b6d8"
 dependencies = [
  "glob",
  "serde",
@@ -1504,7 +1504,7 @@ dependencies = [
 [[package]]
 name = "ogar-class-view"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#991450a0dead2a2066239f31ee668927d8e63364"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#19373a2da837991058ef61bb2175da2371d54232"
 dependencies = [
  "lance-graph-contract 0.1.0 (git+https://github.com/AdaWorldAPI/lance-graph?branch=main)",
  "ogar-vocab",
@@ -1513,7 +1513,7 @@ dependencies = [
 [[package]]
 name = "ogar-render-askama"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#991450a0dead2a2066239f31ee668927d8e63364"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#19373a2da837991058ef61bb2175da2371d54232"
 dependencies = [
  "askama",
  "ogar-vocab",
@@ -1522,7 +1522,7 @@ dependencies = [
 [[package]]
 name = "ogar-vocab"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#991450a0dead2a2066239f31ee668927d8e63364"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#19373a2da837991058ef61bb2175da2371d54232"
 
 [[package]]
 name = "once_cell"
