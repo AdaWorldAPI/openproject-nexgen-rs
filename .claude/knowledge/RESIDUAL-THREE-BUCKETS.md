@@ -301,6 +301,37 @@ produced the empirical split, five concrete bugs, and re-prioritized the
 pipeline (column stratum first). Repeat per model; every hand-written crate
 is a test fixture.
 
+## 4d. OGIT key status per zone (inventory 2026-07-02, AdaWorldAPI/OGIT@master)
+
+The ontology-cache DTO layer keys zones on OGIT ids where stock ids exist and
+**mints** where they don't. Inventory verdicts (fork chain: arago → Almato AI
+→ AdaWorldAPI, which grafts a Rust crate embedding ~1500 TTLs as const data —
+`build.rs` names `lance-graph-contract` as its codegen consumer, so the
+"ontology cached as DTOs" pattern already has in-family precedent):
+
+| Zone | OGIT key | Status |
+|---|---|---|
+| GroupMembership | `ogit.Auth:isMemberOf` (verb, stock arago 2018) | **CONFIRMED** — exercised in `Account.ttl`'s allowed edges vs `Organization`/`Team` |
+| Acl | `ogit.Auth:assumes → ogit.Auth:Role` | probable stock id, **unverified** (Role definition file not located this pass) |
+| Subscription | `ogit:Subscription` | **attested, unlocated** — referenced by `Account.ttl` (`ogit:manages`), definition path 404'd |
+| AuditChain | `ogit:Timeseries` | **attested, unlocated** — referenced by `JournalEntry.ttl` (`ogit:reports`/`generates`) |
+| Session, DocLink, Locale, ScheduledReminder, ExternalRef | — | **no stock hits** → mint per the in-repo precedent: `NTO/Accounting/entities/JournalEntry.ttl` was minted wholesale by an AI session (lance-graph 3-hop optim, 2026-05-28) in the exact stock schema shape (`rdfs:Class`/`subClassOf`/`scope`/`parent`/attribute tiers/`allowed` edges) |
+
+DTO-layer design constraints the inventory surfaced:
+
+- **Branch on TtlKind**: entities carry `scope`+`parent`+attribute tiers+
+  `allowed` edges; verbs carry only `rdfs:subPropertyOf ogit:Verb` (no
+  scope/parent). A DTO keyed on `parent` must branch Entity/Verb/Attribute.
+- **Depend on, don't duplicate**: the OGIT crate's `build.rs` already ships
+  `by_branch`/`by_kind` iterators over `ALL_TTLS` — the canonical index. OGAR
+  consumes it; a second lookup copy is the drift its own docstring warns of.
+- **The mint doctrine carries a bonus**: `JournalEntry.ttl` documents the
+  3-hop optimisation (promote hot leaf attributes onto the entity, keep the
+  shortcut verb, cohere via EdgeColumn ComputeRecompute cascade) — the mint
+  template for the five missing zones.
+- `SGO core Node` mandatory `ogit:_*` system fields (`_id`, `_type`,
+  `_owner`, `_version`, …) are the substrate every entity DTO inherits.
+
 ## 5. Caveats (record honestly)
 
 - The manifest covers the **curated 18-resource core** (`CORE_V3_RESOURCES`,
