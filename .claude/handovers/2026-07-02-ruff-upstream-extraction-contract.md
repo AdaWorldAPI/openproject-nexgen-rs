@@ -1,0 +1,125 @@
+# Handoff → ruff session: extraction-layer fixes + two new contracts
+
+> From the op-nexgen session, 2026-07-02, under operator full authorization.
+> Companion canon: `.claude/knowledge/RESIDUAL-THREE-BUCKETS.md` (three-buckets
+> doctrine, measured manifest, §4b probe) and
+> `.claude/knowledge/RAILS-COVERAGE-KIT.md`. Everything here is
+> **upstream-owned** (`AdaWorldAPI/ruff`); op-nexgen deliberately did NOT
+> patch its vendor mirror (`vendor/AdaWorldAPI-ruff`) to avoid silent drift
+> from your source of truth. File:line refs below are into that mirror's
+> snapshot — verify against your branch head before applying.
+>
+> Ordering is by leverage: items 1–2 are cheap bugfixes; items 3–4 are new
+> *contracts* that change what every downstream consumer can assume; item 5
+> is forward-looking design.
+
+## 1. Bugfixes (probe-verified, file:line)
+
+Two of the 18 `CORE_V3_RESOURCES` produce no `Model` today; a third only
+matches by accident of pipeline vintage. Full diagnosis with evidence:
+RESIDUAL-THREE-BUCKETS.md §4b.
+
+- **Walk gap (hides ~half the domain):** `ruff_ruby_spo::parse::parse_models`
+  walks only `<root>/app/models` (`parse.rs:64-68`). OpenProject keeps ~half
+  its models in engine dirs — `TimeEntry` lives at
+  `modules/costs/app/models/time_entry.rb:31` and is invisible. Fix: also
+  walk `modules/*/app/models/**/*.rb` (and `engines/*/app/models` for other
+  Rails hosts) — the coverage kit's `extract_app_with` already names this
+  surface; make the core walk honor it or make `extract_app_with` the
+  documented default for full-app extraction.
+- **Curated-list mismatches** (`ruff_openproject/src/lib.rs:56-75`):
+  - `"Priority"` → **`"IssuePriority"`** (real class:
+    `app/models/issue_priority.rb:31`, STI under `Enumeration`).
+    `filter_to_core` exact-matches and silently drops it (`lib.rs:97-101`).
+  - `"Activity"` → **no AR class exists at all** (only
+    `module Projects::Activity`, an `Activities::Event` Struct, and
+    `*ActivityProvider` classes). The entry names an API-v3 aggregate, not a
+    model. Drop it or replace with the provider classes — decision is yours;
+    op-nexgen only needs the list to stop naming phantoms.
+
+## 2. Provenance stamping (drift is now *proven*, not hypothetical)
+
+The 2026-07-01 measured run emitted `DEFINE TABLE Priority`; the code
+snapshot vendored in op-nexgen *cannot* (exact-match filter above). Artifact
+and alleged producer already disagree, and it was discovered by accident.
+
+**Contract:** every generated artifact carries a provenance header —
+
+```
+-- generated-by: ruff@<git-sha> curated-list@<hash-of-CORE_V3_RESOURCES> <UTC timestamp>
+```
+
+Cheap (the emitter knows its own build info), and it converts "which
+pipeline produced this file?" from archaeology into a grep. Applies to the
+SurrealQL emitter and any future Rust/sqlx emitter equally.
+
+## 3. Conservation-of-mass ledger (the systemic fix)
+
+All three §1 failures had different causes but one shared property:
+**silent loss**. `filter_to_core` retains without logging; the walk skips
+without logging; the phantom entry matches nothing without warning. For a
+pipeline whose thesis is "determine statically," unaccounted mass is the
+worst failure mode — every future miss costs an agent-investigation instead
+of a grep.
+
+**Contract:** each stage reports `N_in = N_out + Σ N_dropped(reason)`:
+
+- extraction: files seen / parsed / skipped(reason: no-class, parse-error);
+- filtering: models in / retained / dropped(no-curated-match: **name them**);
+- projection: triples in / projected / unrecognized-predicate(count by kind).
+
+Emit the ledger to stderr AND as a trailer comment block in the artifact:
+
+```
+-- dropped: Activity (curated entry matched no model)
+-- dropped: 312 models (not in curated list)  [full list: stderr]
+```
+
+With this, the coverage number becomes *self-reporting* on every run, and
+the curated-list mismatch class of bug (§1) can never silently recur.
+
+## 4. Determinism contract (dissolves most of bucket B1 at the source)
+
+The three-buckets doctrine's B1 ("emits X but the arrangement drifts
+run-to-run") conflates two populations:
+
+- **pipeline nondeterminism** — filesystem walk order, hash-map iteration
+  order leaking into emission. Fixable once, at the source, for every
+  consumer forever.
+- **domain order-sensitivity** — order that carries meaning. The real
+  signal; must escalate to B3 (PRESERVE + RFC), never be "fixed".
+
+**Contract:** extraction output is a pure function of source *content* —
+byte-identical across runs regardless of walk order. Concretely: sort file
+lists after collection; use BTreeMap/sorted emission wherever iteration
+order reaches output; then pin it with a property test — extract the same
+tree twice with shuffled file enumeration; assert byte-identical triples.
+
+Once this holds, any *remaining* arrangement instability is real domain
+signal, and the B1 gate (`order_free_eq` in op-nexgen's
+`op-codegen-residual`) becomes a sharp instrument instead of a noise filter.
+Downstream, ~9 of the 21 measured residual rows are expected to move
+B1 → determined without any consumer-side work.
+
+## 5. Forward design: bucket via the confidence channel (don't build a side-car)
+
+The triples already carry NARS truth `f`/`c` end-to-end and the projection
+ignores it (strict-roundtrip trick aside). The three buckets are a
+confidence gradient in disguise: determined (declared column, c≈1) /
+fuzzy-arrangement / anticipated-shape / bespoke (c≈0). If extraction stamps
+**how** each field was derived (declared column vs. method-inferred vs.
+metaprogrammed) into `f`/`c` (or a derivation predicate), the residual
+manifest becomes *computed per run* instead of hand-transcribed —
+op-nexgen's `RESIDUAL_MANIFEST` is a snapshot that will drift; the
+c-channel version cannot. No schema change needed — the channel is already
+plumbed; it just needs semantics assigned at emit time.
+
+## What op-nexgen holds on its side (no action needed from you)
+
+- `op-codegen-residual` (standalone crate): typed manifest, B1 blade,
+  `order_free_eq` gate, 7-zone `LandingZone::REGISTRY` — consumes your fixes
+  as manifest-row deletions (rows only ever leave).
+- The doctrine doc tracks which residual rows are expected to become
+  determined after your §4 (determinism) and C12-era type inference — we
+  re-measure and prune when the OGAR crates are vendored and the pipeline
+  builds here again (that vendoring is on us, not you).
