@@ -147,6 +147,26 @@ pub enum EnvelopeError {
 /// the already-resident backing bytes and *what cycle stamp* the store carries.
 /// The read-only view here mirrors `MailboxSoaView` vs `MailboxSoaOwner`:
 /// mutation lives on the owner type, never on this trait.
+///
+/// # Ownership inheritance — up and down (operator, 2026-07-02)
+///
+/// The LE contract IS the ownership carrier, in both directions:
+///
+/// - **Structurally (compile time):** every view this trait hands out
+///   ([`as_le_bytes`](SoaEnvelope::as_le_bytes) / [`row_le`](SoaEnvelope::row_le)
+///   / [`column_le`](SoaEnvelope::column_le)) is a `&self` borrow OF the
+///   implementing owner — a view cannot outlive or alias the mailbox that
+///   owns the backing store, and a batch-writer cast (`&mut` on the owner)
+///   cannot begin while any view is live. Rust's borrow rules ARE the
+///   inheritance; nothing is checked at runtime.
+/// - **Nominally (provenance):** [`mailbox_owner`](SoaEnvelope::mailbox_owner)
+///   stamps WHICH mailbox owns these bytes, so the ownership survives the
+///   two places borrows cannot reach — DOWN into Lance (the tombstone
+///   records whose mailbox wrote the packet) and UP to consumers (every
+///   consuming crate writes ON BEHALF OF this id, never directly — the
+///   fleet-wide write-on-behalf rule; a write cast naming a different
+///   mailbox than the envelope's stamp is the delegation case the batch
+///   writer's cache logic resolves at cast time).
 pub trait SoaEnvelope {
     /// Layout version this implementor's geometry conforms to.
     const LAYOUT_VERSION: u8 = ENVELOPE_LAYOUT_VERSION;
@@ -165,6 +185,16 @@ pub trait SoaEnvelope {
     /// state these bytes are). This is what turns a Lance version into a
     /// coherent "packet at cycle N".
     fn cycle(&self) -> u32;
+
+    /// The mailbox that OWNS this envelope's backing store — the nominal half
+    /// of the up/down ownership inheritance (see the trait docs). `0` is the
+    /// bootstrap/unowned stamp per the zero-fallback ladder (RESERVE, DON'T
+    /// RECLAIM: default = not consulted, never absent); a real mailbox
+    /// overrides with its [`MailboxId`](crate::collapse_gate::MailboxId).
+    /// Consumers write on behalf of THIS id, never directly.
+    fn mailbox_owner(&self) -> crate::collapse_gate::MailboxId {
+        0
+    }
 
     /// The whole packet as contiguous LE bytes, zero-copy. Length MUST be
     /// `row_stride() * n_rows()`.
@@ -313,6 +343,38 @@ mod tests {
             bytes: vec![0u8; stride * rows],
             cycle: 7,
         }
+    }
+
+    #[test]
+    fn mailbox_owner_defaults_to_bootstrap_and_is_overridable() {
+        // Zero-fallback ladder: the default stamp is 0 (bootstrap/unowned —
+        // reserved, never absent), so every existing implementor is already
+        // conformant; a real mailbox overrides with its id.
+        let e = two_col_envelope(1);
+        assert_eq!(e.mailbox_owner(), 0, "default = bootstrap/unowned");
+
+        struct Owned;
+        impl SoaEnvelope for Owned {
+            fn columns(&self) -> &[ColumnDescriptor] {
+                &[]
+            }
+            fn row_stride(&self) -> usize {
+                0
+            }
+            fn n_rows(&self) -> usize {
+                0
+            }
+            fn cycle(&self) -> u32 {
+                0
+            }
+            fn as_le_bytes(&self) -> &[u8] {
+                &[]
+            }
+            fn mailbox_owner(&self) -> crate::collapse_gate::MailboxId {
+                42
+            }
+        }
+        assert_eq!(Owned.mailbox_owner(), 42, "owner stamp inherits up/down");
     }
 
     #[test]
