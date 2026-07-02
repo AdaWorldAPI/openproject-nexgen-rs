@@ -1,5 +1,48 @@
 # Handoff → ruff session: extraction-layer fixes + two new contracts
 
+> ## STATUS UPDATE (2026-07-02, later the same day — verified against
+> ## upstream `main` HEAD via raw-fetch reassembly)
+>
+> | Item | Status |
+> |---|---|
+> | §1 walk widening | **ALREADY ON MAIN** — `collect_model_roots` walks `modules/*/app/models` + `engines/*/app/models` (`parse.rs:76`), tested. The engine-walk branch adds nothing over main here. |
+> | §1 curated-list fixes (Priority/Activity) | Still open — `ruff_openproject` lives branch-side (404 on main); fixes remain yours. |
+> | §2 provenance stamping | Still open. |
+> | §3 conservation ledger | **SEEDED** — the D-AR-3.5 patch introduces `SchemaReport` (tables seen/matched/unmatched **named**, files skipped named, `columns_from` marker). Full per-stage ledger still open. |
+> | §4 determinism | **ALREADY ON MAIN** — files sorted, `expand()` sorted+deduped by `(s,p,o)`, BTree throughout, doc'd as a contract. |
+> | §5 confidence-channel bucketing | Still open (forward design). |
+> | §6 column stratum | **IMPLEMENTED — patch ready.** `vendor/AdaWorldAPI-ruff/D-AR-3.5-column-stratum.diff` (642 lines, 5 files) applies to pristine `main`. Details below. |
+> | (new) F17 write/call capture | **ALREADY ON MAIN** — `writes_field` / `calls` predicates exist; the §6-of-coverage-kit prerequisite is met. |
+>
+> ### What the D-AR-3.5 patch contains
+>
+> - `ruff_spo_triplet`: `Field.not_null: Option<bool>` (serde-stable), new
+>   closed-vocab predicate `column_not_null` (Authoritative; count-lock test
+>   62→63), emission next to `field_type`.
+> - `ruff_ruby_spo`: new `schema.rs` — line-scanner for the
+>   `db/migrate/tables/*.rb` baseline DSL (17 typed forms + `t.column` +
+>   `references`/`belongs_to` incl. the polymorphic `_id`/`_type` pair +
+>   `timestamps` + implicit `id` PK w/ `id: false` opt-out), Rails
+>   inflection, merge into the extracted graph via
+>   `extract_app_with_schema(root, ns) -> (ModelGraph, SchemaReport)`.
+> - Fills the `extract_fields` D-AR-3.5 stub's intent from the migration
+>   DSL instead of the planned `db/schema.rb` (OpenProject ships none).
+>
+> **Measured on the real corpus** (`OPENPROJECT_PATH=/home/user/openproject`):
+> 99 baseline tables seen, 65 matched to extracted models, 34 unmatched
+> (join tables, named in the report), 0 files skipped; WorkPackage lands
+> exactly its 27 baseline columns typed+nullability'd (incl.
+> `done_ratio` nullable — the oracle-diff unset≠0% bug, now visible in
+> data). All 41 ruby_spo + 66 triplet tests green, clippy clean.
+>
+> ### One drift you should know about (verified, not caused by the patch)
+>
+> Vendored branch-era `ruff_openproject`'s locked-shape test
+> (`extract_triples_produces_locked_shape`) fails against **pristine**
+> main's ruby_spo — the fixture's `raises` body-fact is no longer
+> emitted. Main-vs-branch reconciliation is yours; evidence in
+> `vendor/AdaWorldAPI-ruff/Cargo.toml` header.
+
 > From the op-nexgen session, 2026-07-02, under operator full authorization.
 > Companion canon: `.claude/knowledge/RESIDUAL-THREE-BUCKETS.md` (three-buckets
 > doctrine, measured manifest, §4b probe) and

@@ -1,305 +1,772 @@
-//! `extract_functions` — Rails class → [`Function`]s. Sprint C4 fanout slot C.
+//! Class-body method-def walker — extracts [`ruff_spo_triplet::Function`]
+//! records from `def name … end` blocks (D-AR-3.5).
 //!
-//! Maps a [`RubyClass`] to SPO [`Function`]s with ZERO external parser deps —
-//! line scanning over the class body via the shared [`crate::scan`] primitives
-//! plus a couple of inline identifier/exception scanners.
+//! # What it captures
 //!
-//! Two sources of functions:
-//! 1. Each top-level `def … end` block becomes a [`Function`]; its body is
-//!    scanned for bare attribute reads (column identifiers), `raise`/`errors.add`
-//!    guards, and association traversals.
-//! 2. Declarative validations (`validates`/`validate`) collapse into ONE
-//!    synthetic `_validate` guard that raises `ActiveRecord::RecordInvalid`
-//!    (see `SPO_TRIPLET_EXTRACTION.md` §5).
+//! - **`Function::name`** — the method name from `Node::Def` (instance
+//!   methods only; `Node::Defs` for `def self.foo` is class-method
+//!   territory, treated separately).
+//! - **`Function::raises`** — every `raise X[.new(…)]` statement
+//!   reachable from the body. The exception type name is the constant
+//!   passed to `raise`; falls back to a marker for `raise <expr>` forms
+//!   that aren't a static constant.
+//! - **`Function::traverses`** — every `<relation>.each` / `for r in
+//!   <relation>` / association walk on `self.<rel>` whose name matches
+//!   one of the class's declared associations. The walker takes the
+//!   `known_relations` slice so it can filter (no relation declared →
+//!   no traversal recorded; conservative for D-AR-3.5).
+//! - **`Function::reads`** — `self.<field>` reads and bare attribute
+//!   reads (no scope analysis — every `Send { recv: self, method: foo }`
+//!   that is not a write or a mutator counts as a read of `foo`).
+//! - **`Function::writes`** — `self.<field> = …` setter calls. The `=`
+//!   suffix on the method name marks the assignment; the field is the name
+//!   without the `=`. Plain instance-var assignment (`@x = …`) is NOT a
+//!   write — it is local memoization, not an AR attribute.
+//! - **`Function::calls`** — `ActiveRecord` lifecycle-mutator dispatches
+//!   (`save` / `update` / `destroy` / …) on any receiver, recorded as
+//!   `"<receiver>.<method>"`. Only the closed mutator set is captured — the
+//!   body-pass triage (E-ACCIDENTAL-IMPERATIVE / OGAR F17) needs "does this
+//!   method call a writer", not every call.
+//!
+//! Together, `writes` + `calls` are the **command-shape** facts that let the
+//! triage split a method into query (read-only) vs command (mutates state).
+//!
+//! # What it doesn't capture (deferred)
+//!
+//! - Class methods (`def self.foo`, `class << self` blocks).
+//! - `errors.add(...)` → `raises ActiveRecord::RecordInvalid` mapping.
+//! - Block-form callbacks (`before_save do |r| … end`) — the block
+//!   body's def-less statements aren't reachable here.
+//! - Receiver-walks that span multiple hops (`self.project.members`).
+//! - Op-assign writes (`self.x += 1`, `self.x ||= y`) — only the plain
+//!   `self.x = …` setter form is recorded as a write today.
+//!
+//! These all land in follow-up D-AR-3.6 (method bodies are deep; the
+//! 80/20 here is method NAMES + leaf `raise` + association walks).
 
+use lib_ruby_parser::Node;
 use ruff_spo_triplet::Function;
 
-use crate::scan;
-use crate::RubyClass;
+use crate::Declaration;
 
-/// The exception every declarative `ActiveRecord` validation raises, and the one
-/// synthesised for an `errors.add(...)` call.
-const RECORD_INVALID: &str = "ActiveRecord::RecordInvalid";
-
-/// Map a Rails class to SPO [`Function`]s.
-///
-/// Ordering is deterministic: one function per `def` block in source order,
-/// then (if the class declares any validation) a single synthetic `_validate`
-/// guard appended last.
-pub(crate) fn extract_functions(class: &RubyClass) -> Vec<Function> {
-    let mut functions = Vec::new();
-
-    for block in scan::def_blocks(&class.body_source) {
-        functions.push(Function {
-            name: block.name,
-            reads: members_in_body(&block.body, &class.columns),
-            raises: raises_in_body(&block.body),
-            traverses: members_in_body(&block.body, &class.associations),
-        });
-    }
-
-    if let Some(validated) = validated_columns(class) {
-        functions.push(Function {
-            name: "_validate".to_string(),
-            reads: validated,
-            raises: vec![RECORD_INVALID.to_string()],
-            traverses: Vec::new(),
-        });
-    }
-
-    functions
+/// Walk a class body and produce one [`Function`] per `def`. The
+/// `declarations` slice lets the body walker filter `traverses_relation`
+/// candidates to known association names (per the Inferred-tier
+/// I-RAILS-RELATION-WALK convention).
+#[must_use]
+pub(crate) fn extract_functions_from_body(
+    body: Option<&Node>,
+    declarations: &[Declaration],
+) -> Vec<Function> {
+    let Some(body) = body else {
+        return Vec::new();
+    };
+    let known_relations = collect_known_relations(declarations);
+    let mut out = Vec::new();
+    walk_class_body_for_defs(body, &known_relations, &mut out);
+    out
 }
 
-/// First-seen, de-duplicated identifier words in `body` that are members of
-/// `set`. Used both for column reads and association traversals — membership in
-/// the relevant set is what disambiguates a real attribute/relation reference
-/// from an ordinary local variable or method call.
-fn members_in_body(body: &str, set: &[String]) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for raw in body.lines() {
-        for word in identifiers(scan::strip_comment(raw)) {
-            if set.iter().any(|m| m == word) && !out.iter().any(|o| o == word) {
-                out.push(word.to_string());
+/// Pre-compute the set of relation names declared on the class so
+/// `traverses_relation` extraction can filter body-walked sends.
+fn collect_known_relations(decls: &[Declaration]) -> Vec<String> {
+    let mut names = Vec::new();
+    for d in decls {
+        if let Declaration::Association(a) = d {
+            names.push(a.name.clone());
+        }
+    }
+    names
+}
+
+/// Recurse into Begin / Module / Class wrappers AND `class_methods do`
+/// blocks; for each `Node::Def` encountered, extract one Function.
+fn walk_class_body_for_defs(
+    node: &Node,
+    known_relations: &[String],
+    out: &mut Vec<Function>,
+) {
+    match node {
+        Node::Begin(b) => {
+            for stmt in &b.statements {
+                walk_class_body_for_defs(stmt, known_relations, out);
             }
         }
-    }
-    out
-}
-
-/// Exceptions raised in `body`, first-seen and de-duplicated:
-/// - `raise <Exception>` → the exception class token verbatim, `::` preserved
-///   (e.g. `ActiveRecord::RecordInvalid`).
-/// - any `errors.add(` call → `ActiveRecord::RecordInvalid`.
-fn raises_in_body(body: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let mut push = |exc: String| {
-        if !out.contains(&exc) {
-            out.push(exc);
+        Node::Def(d) => {
+            let mut func = Function {
+                name: d.name.clone(),
+                reads: Vec::new(),
+                raises: Vec::new(),
+                traverses: Vec::new(),
+                writes: Vec::new(),
+                calls: Vec::new(),
+            };
+            if let Some(fn_body) = d.body.as_deref() {
+                walk_method_body(fn_body, known_relations, &mut func);
+            }
+            // Dedupe per-function reads / raises / traverses / writes /
+            // calls (a method that calls `raise UserError` twice should
+            // produce one `raises` triple, not two — `expand()` dedupes by
+            // (s, p, o) anyway, but keeping the IR tight reduces churn).
+            dedup_in_place(&mut func.reads);
+            dedup_in_place(&mut func.raises);
+            dedup_in_place(&mut func.traverses);
+            dedup_in_place(&mut func.writes);
+            dedup_in_place(&mut func.calls);
+            out.push(func);
         }
-    };
-    for raw in body.lines() {
-        let code = scan::strip_comment(raw).trim();
-        if let Some(exc) = raised_exception(code) {
-            push(exc);
+        Node::Block(blk) => {
+            // `class_methods do … end` / `included do … end` blocks
+            // wrap `def` nodes whose methods are class-level (or
+            // instance-level via include). The walker treats them as
+            // siblings of regular `def` for now — D-AR-3.6 will split
+            // class-method discovery off.
+            if let Some(body) = blk.body.as_deref() {
+                walk_class_body_for_defs(body, known_relations, out);
+            }
         }
-        if code.contains("errors.add") {
-            push(RECORD_INVALID.to_string());
+        _ => {}
+    }
+}
+
+/// Walk one method body, populating `func.reads` / `raises` / `traverses`.
+fn walk_method_body(node: &Node, known_relations: &[String], func: &mut Function) {
+    match node {
+        Node::Begin(b) => {
+            for stmt in &b.statements {
+                walk_method_body(stmt, known_relations, func);
+            }
         }
-    }
-    out
-}
-
-/// If `code` is (or contains, as a statement) a `raise <Exception>`, return the
-/// exception class token — the first `[A-Za-z0-9_:]+` run after the `raise`
-/// keyword. Keeps `::` so `ActiveRecord::RecordInvalid` stays whole. Bare
-/// `raise` (re-raise) and `raise "msg"` yield no token.
-fn raised_exception(code: &str) -> Option<String> {
-    let rest = strip_keyword(code, "raise")?;
-    let token: String = rest
-        .chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == ':')
-        .collect();
-    // Require it to look like a constant (start with an upper/`_`, not a digit
-    // or a stray `:`), so `raise :sym` / `raise 1` don't masquerade as classes.
-    let first = token.chars().next()?;
-    if first.is_ascii_alphabetic() || first == '_' {
-        Some(token)
-    } else {
-        None
-    }
-}
-
-/// Return the remainder of `code` after a leading `keyword ` (keyword followed
-/// by whitespace), with that whitespace trimmed. `None` if `code` does not
-/// start with the bare keyword.
-fn strip_keyword<'a>(code: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = code.strip_prefix(keyword)?;
-    if rest.starts_with([' ', '\t']) {
-        Some(rest.trim_start())
-    } else {
-        None
-    }
-}
-
-/// The validated column names for a class, if it declares any validation.
-///
-/// Scans every line of the class body for `validates :a, :b, …` (collecting the
-/// leading symbols via [`scan::macro_symbols`]) and for bare `validate …`
-/// callbacks (which name no column but still mark the class as validated).
-/// Returns `Some` iff at least one validation line is present; the vector holds
-/// the de-duplicated validated names that are real columns, in first-seen order.
-fn validated_columns(class: &RubyClass) -> Option<Vec<String>> {
-    let mut any = false;
-    let mut out: Vec<String> = Vec::new();
-    for raw in class.body_source.lines() {
-        let code = scan::strip_comment(raw).trim();
-        let symbols = scan::macro_symbols(code, "validates");
-        if !symbols.is_empty() {
-            any = true;
-            for name in symbols {
-                if class.columns.contains(&name) && !out.contains(&name) {
-                    out.push(name);
+        // `raise X` / `raise X.new(...)` / `raise X, ...`.
+        Node::Send(s) if s.method_name == "raise" && s.recv.is_none() => {
+            if let Some(arg) = s.args.first() {
+                if let Some(exc_name) = exception_type_name(arg) {
+                    func.raises.push(exc_name);
                 }
             }
-        } else if strip_keyword(code, "validate").is_some() {
-            // A custom `validate :method` callback — still a raising guard, but
-            // names a method, not a column, so it contributes no reads.
-            any = true;
         }
-    }
-    if any {
-        Some(out)
-    } else {
-        None
-    }
-}
-
-/// Tokenise `line` into identifier words matching `[A-Za-z_][A-Za-z0-9_]*`.
-/// A leading `@`/`@@` (ivar) is not part of an identifier char class, so
-/// `@total_hours` tokenises to `total_hours` — the bare attribute name.
-fn identifiers(line: &str) -> Vec<&str> {
-    let bytes = line.as_bytes();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        if is_ident_start(bytes[i]) {
-            let start = i;
-            i += 1;
-            while i < bytes.len() && is_ident_continue(bytes[i]) {
-                i += 1;
+        // `self.<x>` — write (`self.x = …`), mutator call (`self.save`),
+        // or plain attribute read (`self.x`), in that priority order.
+        Node::Send(s) if matches!(s.recv.as_deref(), Some(Node::Self_(_))) => {
+            let method = s.method_name.as_str();
+            if let Some(field) = method.strip_suffix('=')
+                && is_attr_ident(field)
+            {
+                // `self.<field> = …` — the setter call: a write of `<field>`.
+                // The `is_attr_ident` guard excludes comparison operators
+                // (`==`, `<=`, `>=`, `===`) and `[]=`, which also end in `=`
+                // but are not setters — without it, `self == other` would
+                // record a bogus write of a field named `=`.
+                func.writes.push(field.to_string());
+            } else if is_ar_mutator(method) {
+                // `self.save` / `self.update(...)` — lifecycle mutator on self.
+                func.calls.push(format!("self.{method}"));
+            } else if is_attr_ident(method) {
+                // `self.<field>` — a plain attribute read (operator self-sends
+                // such as `self == other` are neither a read nor a write).
+                func.reads.push(s.method_name.clone());
             }
-            out.push(&line[start..i]);
-        } else {
-            i += 1;
+            // Recurse into args (the RHS of a write, or call/read args, may
+            // themselves contain a raise/read/write/call).
+            for arg in &s.args {
+                walk_method_body(arg, known_relations, func);
+            }
+        }
+        // `<relation>.each` / `<relation>.<m>` — association walks, plus any
+        // `ActiveRecord` lifecycle mutator dispatched on a non-self receiver
+        // (`order.update`, `User.create`, bare `save`).
+        Node::Send(s) => {
+            if is_ar_mutator(&s.method_name) {
+                func.calls.push(format!(
+                    "{}.{}",
+                    receiver_label(s.recv.as_deref()),
+                    s.method_name
+                ));
+            }
+            if let Some(rel) = traversed_relation(s, known_relations) {
+                func.traverses.push(rel);
+            }
+            if let Some(recv) = s.recv.as_deref() {
+                walk_method_body(recv, known_relations, func);
+            }
+            for arg in &s.args {
+                walk_method_body(arg, known_relations, func);
+            }
+        }
+        // `for r in <rel>` — classic for-loop traversal.
+        Node::For(f) => {
+            if let Some(rel) = node_relation_name(&f.iteratee, known_relations) {
+                func.traverses.push(rel);
+            }
+            if let Some(body) = f.body.as_deref() {
+                walk_method_body(body, known_relations, func);
+            }
+        }
+        // Walk into structural wrappers without changing func state.
+        Node::Block(blk) => {
+            if let Some(body) = blk.body.as_deref() {
+                walk_method_body(body, known_relations, func);
+            }
+            walk_method_body(&blk.call, known_relations, func);
+        }
+        Node::If(i) => {
+            if let Some(b) = i.if_true.as_deref() {
+                walk_method_body(b, known_relations, func);
+            }
+            if let Some(b) = i.if_false.as_deref() {
+                walk_method_body(b, known_relations, func);
+            }
+            walk_method_body(&i.cond, known_relations, func);
+        }
+        Node::Case(c) => {
+            for arm in &c.when_bodies {
+                walk_method_body(arm, known_relations, func);
+            }
+            if let Some(b) = c.else_body.as_deref() {
+                walk_method_body(b, known_relations, func);
+            }
+        }
+        Node::Ensure(e) => {
+            if let Some(b) = e.body.as_deref() {
+                walk_method_body(b, known_relations, func);
+            }
+            if let Some(b) = e.ensure.as_deref() {
+                walk_method_body(b, known_relations, func);
+            }
+        }
+        Node::Rescue(r) => {
+            if let Some(b) = r.body.as_deref() {
+                walk_method_body(b, known_relations, func);
+            }
+            for arm in &r.rescue_bodies {
+                walk_method_body(arm, known_relations, func);
+            }
+        }
+        Node::RescueBody(r) => {
+            if let Some(b) = r.body.as_deref() {
+                walk_method_body(b, known_relations, func);
+            }
+            if let Some(e) = r.exc_list.as_deref() {
+                walk_method_body(e, known_relations, func);
+            }
+        }
+        Node::Return(r) => {
+            for arg in &r.args {
+                walk_method_body(arg, known_relations, func);
+            }
+        }
+        Node::Lvasgn(a) => {
+            if let Some(v) = a.value.as_deref() {
+                walk_method_body(v, known_relations, func);
+            }
+        }
+        Node::Ivasgn(a) => {
+            if let Some(v) = a.value.as_deref() {
+                walk_method_body(v, known_relations, func);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The closed set of `ActiveRecord` lifecycle mutators. A call to one of
+/// these marks a method as a *command* (it writes persistent state) rather
+/// than a *query*. The body-pass triage (E-ACCIDENTAL-IMPERATIVE / OGAR F17)
+/// groups methods by "calls a writer" — this IS that set. Not every call is
+/// captured into `Function::calls`; only a dispatch of one of these verbs.
+const AR_MUTATORS: &[&str] = &[
+    "create",
+    "create!",
+    "update",
+    "update!",
+    "update_all",
+    "update_attribute",
+    "update_column",
+    "update_columns",
+    "destroy",
+    "destroy!",
+    "destroy_all",
+    "delete",
+    "delete_all",
+    "save",
+    "save!",
+    "insert",
+    "insert_all",
+    "upsert",
+    "upsert_all",
+    "touch",
+    "increment!",
+    "decrement!",
+    "toggle!",
+    "write_attribute",
+];
+
+/// Is `method` one of the [`AR_MUTATORS`]?
+fn is_ar_mutator(method: &str) -> bool {
+    AR_MUTATORS.contains(&method)
+}
+
+/// Is `name` a valid Ruby attribute identifier — `[A-Za-z_][A-Za-z0-9_]*`?
+/// Distinguishes attribute reads/setters (`name`, `name=`) from operator
+/// methods (`==`, `<=`, `[]=`, `+`, …), so an operator self-send never
+/// becomes a `reads`/`writes` entry. A setter is recognised by stripping the
+/// trailing `=` and checking the base with this — `==` strips to `=` (not an
+/// ident → not a write), `state=` strips to `state` (ident → a write).
+fn is_attr_ident(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Best-effort label for a call receiver, used for the `calls` capture
+/// (`"<receiver>.<method>"`). A bare call (`None`) and an explicit `self`
+/// both render as `"self"`. A relation/local receiver renders as its name; a
+/// constant as its dotted path; an unresolvable receiver as `"<expr>"`.
+fn receiver_label(recv: Option<&Node>) -> String {
+    match recv {
+        None | Some(Node::Self_(_)) => "self".to_string(),
+        Some(node @ Node::Const(_)) => {
+            const_to_dotted(node).unwrap_or_else(|| "<const>".to_string())
+        }
+        Some(Node::Lvar(l)) => l.name.clone(),
+        Some(Node::Ivar(i)) => i.name.clone(),
+        // `order.update` / `self.order.update` — the immediate receiver is a
+        // bare or self-rooted send naming the relation/attribute.
+        Some(Node::Send(inner))
+            if inner.recv.is_none()
+                || matches!(inner.recv.as_deref(), Some(Node::Self_(_))) =>
+        {
+            inner.method_name.clone()
+        }
+        _ => "<expr>".to_string(),
+    }
+}
+
+/// Extract the exception type-name from a `raise <arg>` argument.
+///
+/// - `raise UserError` → `"UserError"` (`Node::Const`).
+/// - `raise UserError.new("msg")` → `"UserError"` (`Node::Send` with recv=Const).
+/// - `raise UserError, "msg"` → handled by caller via `args.first()`.
+/// - `raise foo` (variable) → `None` (can't statically resolve).
+fn exception_type_name(arg: &Node) -> Option<String> {
+    match arg {
+        Node::Const(_) => const_to_dotted(arg),
+        Node::Send(s) if s.method_name == "new" => {
+            s.recv.as_deref().and_then(const_to_dotted)
+        }
+        _ => None,
+    }
+}
+
+/// Render a constant-chain node to a dotted string. (Re-implemented
+/// here because `parse.rs::const_to_string` is module-local; both
+/// functions agree on the format.)
+fn const_to_dotted(node: &Node) -> Option<String> {
+    let Node::Const(c) = node else { return None };
+    let suffix = c.name.clone();
+    match c.scope.as_deref() {
+        Some(Node::Cbase(_)) => Some(format!("::{suffix}")),
+        Some(inner) => {
+            const_to_dotted(inner).map(|p| format!("{p}::{suffix}"))
+        }
+        None => Some(suffix),
+    }
+}
+
+/// If `s` is a method call whose immediate receiver is a known relation
+/// name, return the relation. The receiver can be:
+///
+/// - `self.<rel>` — `s.recv == Self_`, but then we'd be reading
+///   `<rel>` on self, not traversing — handled by the `reads` arm.
+/// - `<rel>` bare (the recv is `Node::Send { method_name: "rel", recv: None }`
+///   OR `Node::Lvar("rel")`) — that's the traversal entry.
+fn traversed_relation(s: &lib_ruby_parser::nodes::Send, known: &[String]) -> Option<String> {
+    let recv = s.recv.as_deref()?;
+    // `<rel>.each` — recv is a bare send with method == rel name and no
+    // further receiver.
+    if let Node::Send(inner) = recv {
+        if inner.recv.is_none() && known.iter().any(|r| r == &inner.method_name) {
+            return Some(inner.method_name.clone());
         }
     }
-    out
+    // `self.<rel>.each` — recv is `self.<rel>`, i.e. a Send with recv=Self.
+    if let Node::Send(inner) = recv {
+        if matches!(inner.recv.as_deref(), Some(Node::Self_(_)))
+            && known.iter().any(|r| r == &inner.method_name)
+        {
+            return Some(inner.method_name.clone());
+        }
+    }
+    None
 }
 
-fn is_ident_start(b: u8) -> bool {
-    b.is_ascii_alphabetic() || b == b'_'
+/// `for r in <expr>` — does `<expr>` name a known relation?
+fn node_relation_name(node: &Node, known: &[String]) -> Option<String> {
+    match node {
+        Node::Send(s) if s.recv.is_none() && known.iter().any(|r| r == &s.method_name) => {
+            Some(s.method_name.clone())
+        }
+        Node::Send(s)
+            if matches!(s.recv.as_deref(), Some(Node::Self_(_)))
+                && known.iter().any(|r| r == &s.method_name) =>
+        {
+            Some(s.method_name.clone())
+        }
+        _ => None,
+    }
 }
 
-fn is_ident_continue(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_'
+fn dedup_in_place<T: Ord + Clone>(v: &mut Vec<T>) {
+    v.sort();
+    v.dedup();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::extract_from_source;
+    use lib_ruby_parser::{Parser, ParserOptions};
 
-    fn class(body: &str, associations: &[&str], columns: &[&str]) -> RubyClass {
-        RubyClass {
-            name: "T".to_string(),
-            body_source: body.to_string(),
-            associations: associations.iter().map(|s| (*s).to_string()).collect(),
-            columns: columns.iter().map(|s| (*s).to_string()).collect(),
-            ..Default::default()
+    fn class_functions(src: &str) -> Vec<Function> {
+        let classes = extract_from_source(src);
+        assert_eq!(classes.len(), 1, "expected exactly one class");
+        // The test entry uses the public extract path which still has
+        // empty functions — call extract_functions_from_body directly
+        // on the AST. Re-parse for the test fixture.
+        let parser = Parser::new(src.as_bytes().to_vec(), ParserOptions::default());
+        let ast = parser.do_parse().ast.expect("parse");
+        let class = find_first_class(&ast).expect("class");
+        extract_functions_from_body(class.body.as_deref(), &classes[0].declarations)
+    }
+
+    fn find_first_class(node: &Node) -> Option<&lib_ruby_parser::nodes::Class> {
+        match node {
+            Node::Class(c) => Some(c),
+            Node::Module(m) => m.body.as_deref().and_then(find_first_class),
+            Node::Begin(b) => b.statements.iter().find_map(find_first_class),
+            _ => None,
         }
     }
 
     #[test]
-    fn work_package_def_and_validate() {
-        let body = "  belongs_to :project\n\
-                    \x20 has_many :time_entries\n\
-                    \n\
-                    \x20 validates :subject, presence: true\n\
-                    \n\
-                    \x20 def compute_total_hours\n\
-                    \x20   raise ActiveRecord::RecordInvalid unless status\n\
-                    \x20   @total_hours ||= time_entries.hours\n\
-                    \x20 end\n";
-        let c = class(
-            body,
-            &["project", "time_entries"],
-            &[
-                "subject",
-                "description",
-                "status_id",
-                "status",
-                "created_at",
-                "updated_at",
-            ],
+    fn def_emits_function_name() {
+        let funcs = class_functions(
+            r#"
+class M
+  def compute_total
+  end
+  def status
+  end
+end
+"#,
         );
-        let fns = extract_functions(&c);
-        assert_eq!(fns.len(), 2);
-
-        assert_eq!(fns[0].name, "compute_total_hours");
-        assert_eq!(fns[0].reads, ["status"]);
-        assert_eq!(fns[0].raises, ["ActiveRecord::RecordInvalid"]);
-        assert_eq!(fns[0].traverses, ["time_entries"]);
-
-        assert_eq!(fns[1].name, "_validate");
-        assert_eq!(fns[1].reads, ["subject"]);
-        assert_eq!(fns[1].raises, ["ActiveRecord::RecordInvalid"]);
-        assert!(fns[1].traverses.is_empty());
+        let names: Vec<&str> = funcs.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["compute_total", "status"]);
     }
 
     #[test]
-    fn time_entry_validate_only() {
-        let body = "  belongs_to :work_package\n\
-                    \x20 belongs_to :user\n\
-                    \n\
-                    \x20 validates :hours, presence: true\n";
-        let c = class(
-            body,
-            &["work_package", "user"],
-            &["work_package_id", "user_id", "hours", "spent_on"],
+    fn raise_const_captures_exception_type() {
+        let funcs = class_functions(
+            r#"
+class M
+  def must_be_valid
+    raise ::ActiveRecord::RecordInvalid
+  end
+end
+"#,
         );
-        let fns = extract_functions(&c);
-        assert_eq!(fns.len(), 1);
-        assert_eq!(fns[0].name, "_validate");
-        assert_eq!(fns[0].reads, ["hours"]);
-        assert_eq!(fns[0].raises, ["ActiveRecord::RecordInvalid"]);
-        assert!(fns[0].traverses.is_empty());
+        assert_eq!(funcs[0].raises, vec!["::ActiveRecord::RecordInvalid"]);
     }
 
     #[test]
-    fn no_validation_means_no_synthetic_guard() {
-        let body = "  def noop\n    1\n  end\n";
-        let c = class(body, &[], &[]);
-        let fns = extract_functions(&c);
-        assert_eq!(fns.len(), 1);
-        assert_eq!(fns[0].name, "noop");
-    }
-
-    #[test]
-    fn errors_add_maps_to_record_invalid() {
-        let body = "  def check\n    errors.add(:base, \"bad\") if status\n  end\n";
-        let c = class(body, &[], &["status"]);
-        let fns = extract_functions(&c);
-        assert_eq!(fns[0].raises, ["ActiveRecord::RecordInvalid"]);
-        assert_eq!(fns[0].reads, ["status"]);
-    }
-
-    #[test]
-    fn explicit_raise_keeps_namespaced_token() {
-        assert_eq!(
-            raised_exception("raise ActiveRecord::RecordInvalid unless status").as_deref(),
-            Some("ActiveRecord::RecordInvalid")
+    fn raise_new_captures_exception_type() {
+        let funcs = class_functions(
+            r#"
+class M
+  def fail!
+    raise UserError.new("oops")
+  end
+end
+"#,
         );
-        assert_eq!(raised_exception("raise").as_deref(), None);
-        assert_eq!(raised_exception("raise \"boom\"").as_deref(), None);
-        assert_eq!(raised_exception("status = 1").as_deref(), None);
+        assert_eq!(funcs[0].raises, vec!["UserError"]);
     }
 
     #[test]
-    fn bare_validate_callback_marks_class_validated() {
-        let body = "  validate :consistent_dates\n";
-        let c = class(body, &[], &["start_date"]);
-        let fns = extract_functions(&c);
-        assert_eq!(fns.len(), 1);
-        assert_eq!(fns[0].name, "_validate");
-        assert!(fns[0].reads.is_empty());
-        assert_eq!(fns[0].raises, ["ActiveRecord::RecordInvalid"]);
+    fn raise_variable_skipped() {
+        let funcs = class_functions(
+            r#"
+class M
+  def relay(err)
+    raise err
+  end
+end
+"#,
+        );
+        assert!(funcs[0].raises.is_empty(), "variable raise must not be captured");
     }
 
     #[test]
-    fn identifiers_strip_ivar_sigil() {
-        assert_eq!(identifiers("@total_hours ||= time_entries.hours"), [
-            "total_hours",
-            "time_entries",
-            "hours"
-        ]);
+    fn self_dot_attribute_emits_read() {
+        let funcs = class_functions(
+            r#"
+class M
+  def fmt
+    self.subject
+  end
+end
+"#,
+        );
+        assert_eq!(funcs[0].reads, vec!["subject"]);
+    }
+
+    #[test]
+    fn association_walk_emits_traversal() {
+        let funcs = class_functions(
+            r#"
+class M
+  belongs_to :project
+  has_many :time_entries
+
+  def total_hours
+    time_entries.each { |te| te.hours }
+  end
+
+  def project_name
+    self.project.name
+  end
+end
+"#,
+        );
+        let total_hours = funcs.iter().find(|f| f.name == "total_hours").unwrap();
+        assert!(
+            total_hours.traverses.contains(&"time_entries".to_string()),
+            "expected time_entries traversal; got {:?}",
+            total_hours.traverses,
+        );
+        let proj_name = funcs.iter().find(|f| f.name == "project_name").unwrap();
+        assert!(
+            proj_name.traverses.contains(&"project".to_string()),
+            "expected project traversal; got {:?}",
+            proj_name.traverses,
+        );
+    }
+
+    #[test]
+    fn for_loop_emits_traversal() {
+        let funcs = class_functions(
+            r#"
+class M
+  has_many :time_entries
+
+  def report
+    for t in time_entries
+      t.hours
+    end
+  end
+end
+"#,
+        );
+        assert!(
+            funcs[0].traverses.contains(&"time_entries".to_string()),
+            "for-loop must extract traversal; got {:?}",
+            funcs[0].traverses,
+        );
+    }
+
+    #[test]
+    fn unrelated_send_does_not_emit_traversal() {
+        let funcs = class_functions(
+            r#"
+class M
+  def calc
+    something_unknown.each { |x| x }
+  end
+end
+"#,
+        );
+        assert!(
+            funcs[0].traverses.is_empty(),
+            "no traversal expected for unknown method; got {:?}",
+            funcs[0].traverses,
+        );
+    }
+
+    #[test]
+    fn raises_in_rescue_arm_captured() {
+        let funcs = class_functions(
+            r#"
+class M
+  def safe
+    do_work
+  rescue StandardError
+    raise UserError
+  end
+end
+"#,
+        );
+        assert!(
+            funcs[0].raises.contains(&"UserError".to_string()),
+            "rescue-arm raise must be captured; got {:?}",
+            funcs[0].raises,
+        );
+    }
+
+    #[test]
+    fn self_assignment_emits_write_not_read() {
+        let funcs = class_functions(
+            r#"
+class M
+  def post
+    self.state = "posted"
+  end
+end
+"#,
+        );
+        assert_eq!(funcs[0].writes, vec!["state"]);
+        // The `state=` setter must NOT leak into `reads` as `"state="`.
+        assert!(
+            funcs[0].reads.is_empty(),
+            "a write must not be recorded as a read; got reads {:?}",
+            funcs[0].reads,
+        );
+    }
+
+    #[test]
+    fn write_and_read_coexist() {
+        let funcs = class_functions(
+            r#"
+class M
+  def recompute
+    self.total = self.subtotal
+  end
+end
+"#,
+        );
+        assert_eq!(funcs[0].writes, vec!["total"]);
+        assert_eq!(funcs[0].reads, vec!["subtotal"]);
+    }
+
+    #[test]
+    fn ivar_assignment_is_not_a_write() {
+        // `@x = …` is local memoization, not an AR attribute write.
+        let funcs = class_functions(
+            r#"
+class M
+  def memo
+    @cache = expensive
+  end
+end
+"#,
+        );
+        assert!(
+            funcs[0].writes.is_empty(),
+            "instance-var assignment must not be a field write; got {:?}",
+            funcs[0].writes,
+        );
+    }
+
+    #[test]
+    fn bare_and_self_mutator_emit_self_call() {
+        let funcs = class_functions(
+            r#"
+class M
+  def persist
+    save
+  end
+  def persist_bang
+    self.save!
+  end
+end
+"#,
+        );
+        let persist = funcs.iter().find(|f| f.name == "persist").unwrap();
+        assert!(
+            persist.calls.contains(&"self.save".to_string()),
+            "bare `save` must be a self-call; got {:?}",
+            persist.calls,
+        );
+        let persist_bang = funcs.iter().find(|f| f.name == "persist_bang").unwrap();
+        assert!(
+            persist_bang.calls.contains(&"self.save!".to_string()),
+            "`self.save!` must be a self-call; got {:?}",
+            persist_bang.calls,
+        );
+    }
+
+    #[test]
+    fn receiver_mutator_emits_call() {
+        let funcs = class_functions(
+            r#"
+class M
+  def touch_order(order)
+    order.update(state: "x")
+    User.create!(name: "y")
+  end
+end
+"#,
+        );
+        assert!(
+            funcs[0].calls.contains(&"order.update".to_string()),
+            "local-receiver mutator must be captured; got {:?}",
+            funcs[0].calls,
+        );
+        assert!(
+            funcs[0].calls.contains(&"User.create!".to_string()),
+            "const-receiver mutator must be captured; got {:?}",
+            funcs[0].calls,
+        );
+    }
+
+    #[test]
+    fn non_mutator_call_not_captured() {
+        let funcs = class_functions(
+            r#"
+class M
+  def compute
+    helper.format(value)
+  end
+end
+"#,
+        );
+        assert!(
+            funcs[0].calls.is_empty(),
+            "non-mutator calls must not be captured; got {:?}",
+            funcs[0].calls,
+        );
+    }
+
+    #[test]
+    fn operator_self_send_is_neither_write_nor_read() {
+        // `self == other` / `self <= other` are comparison operators whose
+        // method names end in `=` — they must NOT strip to a bogus write of a
+        // field named `=`/`<` (codex P2), nor be recorded as reads.
+        let funcs = class_functions(
+            r#"
+class M
+  def ==(other)
+    self.id == other.id
+  end
+  def le(other)
+    self <= other
+  end
+end
+"#,
+        );
+        let eq = funcs.iter().find(|f| f.name == "==").unwrap();
+        assert!(
+            eq.writes.is_empty(),
+            "operator method must not produce a write; got {:?}",
+            eq.writes,
+        );
+        // `self.id` IS a valid attribute read; the `==` operator send is not.
+        assert_eq!(eq.reads, vec!["id"]);
+        let le = funcs.iter().find(|f| f.name == "le").unwrap();
+        assert!(
+            le.writes.is_empty() && le.reads.is_empty(),
+            "`self <= other` is neither write nor read; got writes {:?} reads {:?}",
+            le.writes,
+            le.reads,
+        );
     }
 }

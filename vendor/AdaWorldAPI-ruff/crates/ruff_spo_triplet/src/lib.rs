@@ -9,7 +9,7 @@
 //!
 //! It exists so that **business logic extracted from different source
 //! languages produces the same ontology graph**. The Python/Odoo frontend
-//! (`ruff_python_dto_check`) and a future Ruby/Rails frontend (OpenProject)
+//! (`ruff_python_dto_check`) and a future Ruby/Rails frontend (`OpenProject`)
 //! both:
 //!
 //! 1. parse their own AST,
@@ -44,7 +44,7 @@
 //! See `SPO_TRIPLET_EXTRACTION.md` (this crate's root) for the full
 //! methodology, the "a + b → c through d" query it enables, and the
 //! step-by-step guide to writing a new language frontend (incl. the
-//! OpenProject Ruby/Rails mapping).
+//! `OpenProject` Ruby/Rails mapping).
 //!
 //! # Why these and not RDF libraries
 //!
@@ -56,11 +56,19 @@
 mod expand;
 mod ir;
 mod ndjson;
+mod reassemble;
 mod triple;
 
 pub use expand::expand;
-pub use ir::{Field, Function, Model, ModelGraph};
+pub use ir::{
+    ActsAs, AssocDecl, AssocKind, AttrDecl, AttrKind, Callback, ConcernKind, ConcernRef,
+    ConstexprKind, CppAccess, CppBase, CppField, CppFriend, CppMacroUse, CppMethod,
+    CppStaticAssert, CppTemplate, CppTemplateKind, Delegation, DslCall, DynMethod, Field, Function,
+    GemDsl, GemKind, Model, ModelGraph, ScopeDecl, ScopeKind, StiInfo, UsingRef, Validation,
+    ValidationKind,
+};
 pub use ndjson::{ParseError, from_ndjson, to_ndjson};
+pub use reassemble::{cpp_projection, reassemble};
 pub use triple::{EntityKind, Predicate, Provenance, Triple};
 
 #[cfg(test)]
@@ -77,13 +85,16 @@ mod integration_tests {
                 name: "total_hours".to_string(),
                 depends_on: vec!["time_entries.hours".to_string()],
                 emitted_by: Some("compute_total_hours".to_string()),
+                ..Default::default()
             }],
             functions: vec![Function {
                 name: "compute_total_hours".to_string(),
                 reads: vec!["status".to_string()],
                 raises: vec!["ActiveRecord::RecordInvalid".to_string()],
                 traverses: vec!["time_entries".to_string()],
+                ..Default::default()
             }],
+            ..Default::default()
         });
         graph.models.push(Model::new("Project"));
 
