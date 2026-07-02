@@ -159,6 +159,54 @@ Decisions taken on the survey:
   members are whole *models*, not core-18 residual fields — they enter the
   manifest when the pipeline widens to `extract_app_with`).
 
+## 4a. Odoo convergence probe (measured 2026-07-02, agent sweep of odoo/odoo@17.0)
+
+The zone registry's validation step. OpenProject↔Redmine convergence proves
+only shared ancestry (OP is a Redmine fork); Odoo is an **independent
+lineage** — if the zones hold there, they're real cross-domain ontology.
+Verdict: **they hold.**
+
+| Zone | Verdict | Odoo carrier (LabelDto surfaces) |
+|---|---|---|
+| Acl | **converges** | `ir.model.access` (class-level CRUD grant: model×group + 4 perm bools) + `ir.rule` (row-level policy w/ `domain_force`) + `res.groups` M2M. Two-layer grant/policy split — richer than OP's, same concept. |
+| Locale | **converges** | `res.partner.lang/tz` (delegated into `res.users` via `_inherits`) + `res.lang` as a DB locale-definition registry. |
+| AuditChain | **converges** (nuance) | `mail.message` (polymorphic `model`/`res_id`, self-referential `parent_id` thread) + `mail.tracking.value` (**typed** `old_value_*`/`new_value_*` columns, not a serialized blob). No explicit `version` counter — ordering implicit by id/date. Adapter must not assume a linear version integer. |
+| DocLink | **converges** (cleanest) | `ir.attachment`: `res_model` + `res_id` (`Many2oneReference`) + optional `res_field`. |
+| Session/Token | **converges (token half)** | `res.users.apikeys` (hashed key + prefix index + scope) and `auth_totp.device` — which literally `_inherit`s the apikeys shape as a TTL'd trusted-device token with GC. HTTP *sessions* are filesystem-stored, no DB model — the SESSION concept exists in both consumers; the **carrier** differs per host. That is exactly the LabelDto doctrine: concept converges, skin differs. |
+| Subscription/Watch | **converges** (cleanest) | `mail.followers`: `res_model`/`res_id` + `partner_id` + `subtype_ids` channel filter (channel registry = `mail.message.subtype`). |
+| GroupMembership | **partial/absent** | Odoo LDAP is connection-config + provision-by-template-clone (`res.company.ldap`); no membership-sync records, no refresh-on-login. The zone's "sync record" shape did NOT recur — see the re-read below. |
+
+**Two new families the probe surfaced (registered as zones):**
+
+- **ScheduledReminder** — `mail.activity`: polymorphic subject + assignee +
+  `date_deadline` + state machine (`overdue/today/planned/done`), mixin-layered
+  onto virtually every Odoo business object. OP-side members already exist
+  (`Reminder`, `ReminderNotification` — the survey had parked the latter under
+  Subscription). Two independent lineages ⇒ real zone.
+- **ExternalRef** — `ir.model.data`: `(module, name)` external-identifier key →
+  polymorphic target, `noupdate` flag; in-source documented as the third-party
+  integration/idempotent-sync registry. OP-side members: `RemoteIdentity`
+  (polymorphic auth_source/integration + `origin_user_id`),
+  `Storages::FileLink.origin_*`, and — the re-read — the three
+  `*::Membership` sync records. **GroupMembership is likely a
+  *specialization* of ExternalRef** (external-key↔local-record sync), which
+  explains its weakness as a standalone zone. Per RESERVE-DON'T-RECLAIM the
+  GroupMembership registration stays; new adapters should target ExternalRef
+  and treat directory-group sync as its instance.
+
+**The meta-find (changes adapter design):** the polymorphic-reference idiom
+(`res_model` Char + `res_id` `Many2oneReference` — Odoo ships a dedicated ORM
+field type for it) recurs verbatim beneath five of the families
+(`ir.attachment`, `mail.followers`, `mail.activity`, `mail.message`,
+`ir.model.data`); Rails' `belongs_to polymorphic:` is the same primitive
+(`Watcher.watchable`, `Attachment.container`, `Favorite.favorited`,
+`Notification.resource`). So the ontology has a layer BELOW the zones: a
+shared **PolyRef substrate DTO** (`{target_class, target_id}` + concept-id
+grounding). Build the PolyRef primitive ONCE; zone adapters *compose* it with
+zone-specific payload (subscriber+channels, deadline+assignee, old/new
+values, external key). This means the seven-plus-two adapters share one
+foundation — the amortization compounds a second time.
+
 ## 4b. Missing-DDL probe (measured 2026-07-01, agent diagnosis)
 
 Why 2 of the 18 curated `CORE_V3_RESOURCES` emitted no DDL — three distinct

@@ -106,14 +106,37 @@ pub enum LandingZone {
     /// user"), distinct from [`LandingZone::Acl`]'s `Member`/`MemberRole`
     /// (no role/permission payload). Survey: 3 members (LDAP groups/
     /// departments, OIDC group membership). No manifest rows yet.
+    ///
+    /// Odoo probe 2026-07-02: did NOT recur as a standalone shape (Odoo
+    /// LDAP is config + template-clone provisioning). Likely a
+    /// *specialization* of [`LandingZone::ExternalRef`]; kept per
+    /// RESERVE-DON'T-RECLAIM — new adapters should target `ExternalRef`.
     GroupMembership,
+    /// Polymorphic to-do: subject + assignee + deadline + state machine.
+    /// Established by the Odoo probe (`mail.activity`, mixin-layered onto
+    /// most business objects) with OP-side members `Reminder` /
+    /// `ReminderNotification` — two independent lineages. No manifest rows
+    /// yet.
+    ScheduledReminder,
+    /// External-identifier ↔ local-record sync registry. Odoo:
+    /// `ir.model.data` (`(module, name)` key → polymorphic target,
+    /// `noupdate`). OP: `RemoteIdentity`, `Storages::FileLink.origin_*`,
+    /// and the directory-membership sync records (see
+    /// [`LandingZone::GroupMembership`]). No manifest rows yet.
+    ExternalRef,
 }
 
 impl LandingZone {
     /// Every registered zone, in registration order (append-only — new
     /// zones go at the end, existing positions never change, mirroring
     /// RESERVE-DON'T-RECLAIM for the OGAR-side concept ids these map to).
-    pub const REGISTRY: [LandingZone; 7] = [
+    ///
+    /// Adapter note (Odoo probe meta-find): five-plus of these zones sit on
+    /// one shared substrate — the polymorphic reference
+    /// (`{target_class, target_id}`; Rails `belongs_to polymorphic:`, Odoo
+    /// `Many2oneReference`). Build the PolyRef DTO once; zone adapters
+    /// compose it with zone-specific payload.
+    pub const REGISTRY: [LandingZone; 9] = [
         LandingZone::Acl,
         LandingZone::Locale,
         LandingZone::AuditChain,
@@ -121,6 +144,8 @@ impl LandingZone {
         LandingZone::Session,
         LandingZone::Subscription,
         LandingZone::GroupMembership,
+        LandingZone::ScheduledReminder,
+        LandingZone::ExternalRef,
     ];
 }
 
@@ -397,7 +422,7 @@ mod tests {
     /// rows (they arrive with the `extract_app_with` widening).
     #[test]
     fn manifest_zones_are_registered() {
-        assert_eq!(LandingZone::REGISTRY.len(), 7);
+        assert_eq!(LandingZone::REGISTRY.len(), 9);
         for e in RESIDUAL_MANIFEST {
             if let Some(z) = e.zone {
                 assert!(
@@ -412,6 +437,8 @@ mod tests {
             LandingZone::Session,
             LandingZone::Subscription,
             LandingZone::GroupMembership,
+            LandingZone::ScheduledReminder,
+            LandingZone::ExternalRef,
         ] {
             assert!(
                 !RESIDUAL_MANIFEST.iter().any(|e| e.zone == Some(z)),
