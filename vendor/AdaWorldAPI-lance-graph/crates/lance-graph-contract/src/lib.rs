@@ -71,6 +71,10 @@ pub mod counterfactual;
 pub mod crystal;
 pub mod cycle_accumulator;
 pub mod distance;
+/// D-V3-W6a — DDL typed-emission counting logic (`TypedForm`,
+/// `classify_ddl_type`, `EmissionCounts`, `count_emission`), sibling of
+/// [`classid_scan`]. Requested by the op-nexgen consumer session.
+pub mod emission_scan;
 pub mod episodic_edges;
 pub mod escalation;
 pub mod exploration;

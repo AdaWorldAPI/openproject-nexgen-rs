@@ -476,6 +476,16 @@ pub const CODEBOOK: &[(&str, u16)] = &[
     ("pricelist", 0x0209),
     ("pricelist_rule", 0x020A),
     ("unit_of_measure", 0x020B),
+    // ── 0x08XX — OCR domain (document extraction; the Tesseract-rs arc) ──
+    // Class-level container KINDS only (the 5+3-hardened mint discipline):
+    // the concept slots name the container types the OGAR Core resolves —
+    // never their content. The 112 unichars of a trained unicharset are
+    // content-store rows, NOT concept slots (the Osint zero-rows ruling is
+    // the guard precedent; unlike Osint, OCR's container kinds ARE cross-app
+    // concepts and do get slots). Mirrors OGAR `ogar_vocab::CODEBOOK` 0x08XX.
+    ("unicharset", 0x0801),
+    ("recoder", 0x0802),
+    ("charset", 0x0803),
     // ── 0x09XX — Health domain (MedCare; OGIT NTO/Healthcare promotion) ──
     ("patient", 0x0901),
     ("diagnosis", 0x0902),
@@ -653,6 +663,9 @@ mod tests {
         assert_eq!(canonical_concept_id("commercial_line_item"), Some(0x0201));
         assert_eq!(canonical_concept_id("commercial_document"), Some(0x0202));
         assert_eq!(canonical_concept_id("currency_policy"), Some(0x0206));
+        // 0x08XX OCR (container kinds; unichar content stays out of the codebook).
+        assert_eq!(canonical_concept_id("unicharset"), Some(0x0801));
+        assert_eq!(canonical_concept_id("charset"), Some(0x0803));
         // 0x09XX Health + 0x0BXX Auth (OGAR #110 minted the AuthStore family).
         assert_eq!(canonical_concept_id("patient"), Some(0x0901));
         assert_eq!(canonical_concept_id("vital_sign"), Some(0x0907));

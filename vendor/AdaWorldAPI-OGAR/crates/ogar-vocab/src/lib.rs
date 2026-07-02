@@ -1027,12 +1027,14 @@ impl Class {
 ///   0x05XX  unassigned
 ///   0x06XX  unassigned
 ///   0x07XX  reserved: OSINT
-///   0x08XX  reserved: OCR
-///   0x09XX  reserved: Health
+///   0x08XX  OCR               (container kinds: unicharset/recoder/charset)
+///   0x09XX  Health            (clinical / patient / care; 7 OGIT entities)
 ///   0x0AXX  Anatomy           (FMA reference ontology; bones/skeleton)
 ///   0x0BXX  Auth              (IAM; the AuthStore class family)
 ///   0x0CXX  Automation        (HIRO IT-automation: MARS CMDB + actuators)
-///   0x0DXX+ unassigned
+///   0x0DXX  HR                (employment / org / contracts)
+///   0x0EXX  reserved: Genetics (CPIC pharmacogenomics, consumed by q2)
+///   0x0FXX+ unassigned
 /// ```
 ///
 /// **Anatomy vs Health (the firewall split).** `0x0AXX` Anatomy is the
@@ -1133,6 +1135,17 @@ const CODEBOOK: &[(&str, u16)] = &[
     // McClelland/Rubicon
     // person lens) lives consumer-side in q2's `osint_classview.rs` — OGAR
     // vocabulary carries no OSINT concept names. Do NOT re-mint rows here.
+    // ── 0x08XX — OCR domain (document extraction; the Tesseract-rs arc) ──
+    // Class-level container KINDS only: unicharset / recoder / charset are
+    // the container types the Core resolves. Their CONTENT (the 112 unichars
+    // of a trained set, the code tables) lives in content stores — never as
+    // concept slots. Guard precedent: the 0x07XX Osint zero-rows ruling
+    // (content ≠ concepts); the difference here is that OCR's container
+    // kinds ARE cross-app concepts (Tesseract-rs producer, lance-graph
+    // keystone consumer), so the kinds get slots while the content does not.
+    ("unicharset", 0x0801),
+    ("recoder", 0x0802),
+    ("charset", 0x0803),
     // ── 0x09XX — Health domain (clinical / patient / care) ──
     // medcare-rs Healthcare-namespace promotion (Northstar T9). The 7
     // entities the OGIT `NTO/Healthcare/entities/` TTL ships, projected
@@ -1187,9 +1200,10 @@ const CODEBOOK: &[(&str, u16)] = &[
     // AND the Automation actuators (`ogit.Automation:` — KnowledgeItem /
     // ActionHandler / Trigger, HIRO's behavioral vocabulary). Two OGIT
     // sub-namespaces, ONE concept domain — the same justification the Auth
-    // family uses (heterogeneous shapes, one cross-app concern): the render
-    // prefix (`ogit-mars` / `ogit-automation`) is the hi-u16 skin; the domain
-    // byte is the lo-u16 shared-concept half. The DO arm (`ActionDef`) and the
+    // family uses (heterogeneous shapes, one cross-app concern): the domain
+    // byte is the hi-u16 shared-concept half; the render prefix
+    // (`ogit-mars` / `ogit-automation`) is the lo-u16 skin (canon HIGH /
+    // custom LOW since the 2026-07-02 half-order flip). The DO arm (`ActionDef`) and the
     // THINK arm (the MARS `Class`es) meet here. This IS the codebook pass that
     // `docs/MARS-TRANSCODING.md` §1 deferred ("provisional… after the codebook
     // pass"); minted via the 5+3 hardening (theorem-checker / doctrine-keeper /
@@ -1215,6 +1229,13 @@ const CODEBOOK: &[(&str, u16)] = &[
     ("hr_department", 0x0D02),
     ("hr_job", 0x0D03),
     ("hr_employment_contract", 0x0D04),
+    // ── 0x0EXX — Genetics domain (CPIC pharmacogenomics, consumed by q2):
+    // ZERO vocabulary rows today — same posture as the 0x07XX OSINT block
+    // above. The domain slot is reserved (`ConceptDomain::Genetics`) so
+    // `canonical_concept_domain` returns a stable tag before any concept
+    // mints, per the ledger commitment to the V3 marker form
+    // `0x0E01_1000` (`docs/DISCOVERY-MAP.md` D-CLASSID-CANON-HIGH-FLIP).
+    // Do NOT mint rows here without an operator ruling.
 ];
 
 /// Codebook **domain** — the high byte of a canonical id (see
@@ -1269,8 +1290,18 @@ pub enum ConceptDomain {
     /// `vcard:Individual` / `org:OrganizationalUnit` / `org:Role` /
     /// `fibo:Contract` alignment.
     HR,
+    /// `0x0EXX` — Genetics (CPIC pharmacogenomics), consumed by q2. Carries
+    /// ZERO vocabulary rows today — same posture as [`Osint`](Self::Osint):
+    /// the domain slot is reserved so `canonical_concept_domain` returns a
+    /// stable tag before any concept mints, per the 2026-07-02 half-order
+    /// flip ledger commitment to the V3 marker form `0x0E01_1000` (CPIC
+    /// under q2, appid `0x01`; `docs/DISCOVERY-MAP.md`
+    /// D-CLASSID-CANON-HIGH-FLIP). Do NOT re-mint OSINT-style hallucinated
+    /// concept rows here — same guard as the OSINT domain note in
+    /// [`CODEBOOK`].
+    Genetics,
     /// Any high-byte slot not yet assigned a domain (`0x03XX`–`0x06XX`,
-    /// `0x0DXX`+).
+    /// `0x0FXX`+).
     Unassigned,
 }
 
@@ -1289,6 +1320,7 @@ pub fn canonical_concept_domain(id: u16) -> ConceptDomain {
         0x0B => ConceptDomain::Auth,
         0x0C => ConceptDomain::Automation,
         0x0D => ConceptDomain::HR,
+        0x0E => ConceptDomain::Genetics,
         _ => ConceptDomain::Unassigned,
     }
 }
@@ -1538,6 +1570,25 @@ pub mod class_ids {
     /// `uom.uom` (`qudt:Unit`).
     pub const UNIT_OF_MEASURE: u16 = 0x020B;
 
+    // ── 0x08XX — OCR domain (document extraction; the Tesseract-rs arc) ──
+    // Class-level container KINDS only: the concept slots name the container
+    // types the Core resolves — never their content. The 112 unichars of a
+    // trained unicharset are content-store rows, NOT concept slots (the
+    // 0x07XX Osint zero-rows ruling is the guard precedent; unlike Osint,
+    // OCR's container kinds ARE cross-app concepts and do get slots).
+
+    /// `unicharset` (`0x0801`) — a character-set container: the trained
+    /// unichar inventory a recognizer resolves against (Tesseract
+    /// `UNICHARSET`). The unichars themselves are content rows.
+    pub const UNICHARSET: u16 = 0x0801;
+    /// `recoder` (`0x0802`) — a code-compression mapping between unichar ids
+    /// and recognizer output codes (Tesseract `UnicharCompress`).
+    pub const RECODER: u16 = 0x0802;
+    /// `charset` (`0x0803`) — an encoding/character-repertoire declaration a
+    /// document or model asserts (distinct from the trained `unicharset`
+    /// inventory).
+    pub const CHARSET: u16 = 0x0803;
+
     // ── 0x09XX — health domain (medcare-rs Healthcare namespace) ──
 
     /// `patient` (`0x0901`) — the person receiving care. OGIT
@@ -1699,7 +1750,13 @@ pub mod class_ids {
         ("pricelist", PRICELIST),
         ("pricelist_rule", PRICELIST_RULE),
         ("unit_of_measure", UNIT_OF_MEASURE),
-        // 0x07XX — OSINT (AIRO/AIwar dual-use intelligence)
+        // 0x07XX — OSINT: ZERO vocabulary rows BY DESIGN (operator ruling
+        // 2026-07-02; see the CODEBOOK 0x07XX section note). No entries
+        // follow — OGAR vocabulary carries no OSINT concept names.
+        // 0x08XX — OCR (container kinds only; unichar content stays out)
+        ("unicharset", UNICHARSET),
+        ("recoder", RECODER),
+        ("charset", CHARSET),
         // 0x09XX — health
         ("patient", PATIENT),
         ("diagnosis", DIAGNOSIS),
@@ -1779,6 +1836,29 @@ pub mod class_ids {
                 assert_ne!(*id, 0, "{name}: id must be non-zero (0x0000 reserved)");
                 assert!(seen.insert(*id), "duplicate id 0x{id:04X} (saw at {name})");
             }
+        }
+
+        #[test]
+        fn count_fuse_matches_lance_graph_ogar_mirror() {
+            // OGAR-side half of the two-sided drift fuse. The lance-graph
+            // side half is `lance_graph_ogar::parity::COUNT_FUSE`
+            // (lance-graph `crates/lance-graph-ogar/src/lib.rs:119`), a
+            // compile-time assert that
+            // `lance_graph_contract::ogar_codebook::CODEBOOK.len() ==
+            // ogar_vocab::class_ids::ALL.len()`. That fuse only fires if
+            // OGAR's count changes without the contract mirror following —
+            // it cannot detect the mirror itself drifting, because it has
+            // no independent number to compare against on the OGAR side.
+            // Pin the number here too, so a change to this count is visible
+            // in THIS repo's CI the moment it happens, not only when the
+            // lance-graph mirror is rebuilt against it.
+            assert_eq!(
+                ALL.len(),
+                68,
+                "class_ids::ALL count changed — update this pin AND the \
+                 lance-graph mirror COUNT_FUSE (crates/lance-graph-ogar/src/lib.rs) \
+                 in the same PR",
+            );
         }
 
         #[test]
@@ -2591,8 +2671,15 @@ pub fn all_promoted_classes() -> Vec<Class> {
         pricelist(),
         pricelist_rule(),
         unit_of_measure(),
-        // 0x07XX — OSINT arm (AIRO/AIwar dual-use: system + person cards),
-        // in class_ids::ALL order.
+        // 0x07XX — OSINT arm: ZERO vocabulary rows BY DESIGN (operator
+        // ruling 2026-07-02, corrects PR #145's hallucinated
+        // `osint_system` / `osint_person` mints); no calls follow — OGAR
+        // vocabulary carries no OSINT concept names, see the CODEBOOK
+        // 0x07XX section note.
+        // 0x08XX — OCR arm (3 container kinds), in class_ids::ALL order.
+        unicharset(),
+        recoder(),
+        charset(),
         // 0x09XX — health arm (7 OGIT Healthcare concepts), in
         // class_ids::ALL order.
         patient(),
@@ -3527,6 +3614,55 @@ pub fn unit_of_measure() -> Class {
     let mut uom_type = Attribute::new("uom_type");
     uom_type.type_name = Some("string".to_string());
     c.attributes = vec![name, symbol, factor, uom_type];
+    c
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 0x08XX — OCR domain (document extraction; the Tesseract-rs arc).
+// Class-level container KINDS only — the concept slots name the container
+// types the Core resolves; their content (the 112 unichars of a trained
+// set, the code tables) lives in content stores, never as concept slots
+// (Osint zero-rows ruling is the guard precedent).
+// ─────────────────────────────────────────────────────────────────────
+
+/// Unicharset (`0x0801`) — a trained character-set container: the unichar
+/// inventory a recognizer resolves against (Tesseract `UNICHARSET`). The
+/// unichars themselves are content-store rows under this concept, the same
+/// way the ~206 bones are cascade-path nodes under `bone`, not slots.
+#[must_use]
+pub fn unicharset() -> Class {
+    let mut c = Class::new("Unicharset");
+    c.language = Language::Unknown;
+    c.canonical_concept = Some("unicharset".to_string());
+    let mut size = Attribute::new("size"); // number of unichars in the set
+    size.type_name = Some("integer".to_string());
+    c.attributes = vec![size];
+    c
+}
+
+/// Recoder (`0x0802`) — the code-compression mapping between unichar ids
+/// and recognizer output codes (Tesseract `UnicharCompress`). Compresses a
+/// [`unicharset`]'s inventory; the code tables are content, not slots.
+#[must_use]
+pub fn recoder() -> Class {
+    let mut c = Class::new("Recoder");
+    c.language = Language::Unknown;
+    c.canonical_concept = Some("recoder".to_string());
+    c.associations = vec![family_edge("compresses", "Unicharset")];
+    c
+}
+
+/// Charset (`0x0803`) — an encoding / character-repertoire declaration a
+/// document or model asserts (distinct from the trained [`unicharset`]
+/// inventory it may be realized by).
+#[must_use]
+pub fn charset() -> Class {
+    let mut c = Class::new("Charset");
+    c.language = Language::Unknown;
+    c.canonical_concept = Some("charset".to_string());
+    let mut encoding = Attribute::new("encoding");
+    encoding.type_name = Some("string".to_string());
+    c.attributes = vec![encoding];
     c
 }
 
@@ -4720,10 +4856,16 @@ mod tests {
         // Automation block (0x0C) — HIRO IT-automation stack.
         assert_eq!(canonical_concept_domain(0x0C00), ConceptDomain::Automation);
         assert_eq!(canonical_concept_domain(0x0C09), ConceptDomain::Automation);
-        // Unassigned blocks (3-6, D+).
+        // Unassigned blocks (3-6).
         assert_eq!(canonical_concept_domain(0x0300), ConceptDomain::Unassigned);
         assert_eq!(canonical_concept_domain(0x0600), ConceptDomain::Unassigned);
+        // HR block (0x0D).
         assert_eq!(canonical_concept_domain(0x0D00), ConceptDomain::HR);
+        // Genetics block (0x0E) — reserved, zero concept rows today (item-3
+        // mint, `docs/DISCOVERY-MAP.md` D-CLASSID-CANON-HIGH-FLIP).
+        assert_eq!(canonical_concept_domain(0x0E01), ConceptDomain::Genetics);
+        assert_eq!(canonical_concept_domain(0x0EFF), ConceptDomain::Genetics);
+        // Trailing unassigned tail (0x0F+).
         assert_eq!(canonical_concept_domain(0xFFFF), ConceptDomain::Unassigned);
     }
 
@@ -4822,6 +4964,18 @@ mod tests {
         }
         // Counts line up with the codebook blocks.
         assert_eq!(concepts_in_domain(ConceptDomain::Health).count(), 7);
+        // 0x08XX OCR: the three container KINDS (unicharset/recoder/charset).
+        // Content (the 112 unichars, code tables) never becomes concepts —
+        // see the CODEBOOK 0x08XX section note (Osint zero-rows precedent).
+        assert_eq!(concepts_in_domain(ConceptDomain::Ocr).count(), 3);
+        let ocr: Vec<&str> = concepts_in_domain(ConceptDomain::Ocr)
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(
+            ocr,
+            ["unicharset", "recoder", "charset"],
+            "OCR domain set drift — re-sync the consumer coverage gate",
+        );
         assert_eq!(concepts_in_domain(ConceptDomain::HR).count(), 4);
         assert_eq!(concepts_in_domain(ConceptDomain::Commerce).count(), 11);
         assert_eq!(concepts_in_domain(ConceptDomain::ProjectMgmt).count(), 26);
@@ -4851,6 +5005,10 @@ mod tests {
         // ruling 2026-07-02): its low byte is appid space (q2 = 0x01), not a
         // concept slot — see the CODEBOOK 0x07XX section note.
         assert_eq!(concepts_in_domain(ConceptDomain::Osint).count(), 0);
+        // Same posture for the Genetics domain (0x0E, CPIC pharmacogenomics
+        // under q2) — reserved, zero concept rows until an operator ruling
+        // mints one — see the CODEBOOK 0x0EXX section note.
+        assert_eq!(concepts_in_domain(ConceptDomain::Genetics).count(), 0);
     }
 
     #[test]

@@ -384,6 +384,23 @@ pub trait RouteBucket {
 /// implementor. A type that *also* needs `RouteBucketTyped` with a
 /// **different** kind must NOT impl `RouteBucket` (it would conflict).
 /// Non-Odoo targets simply skip the legacy trait and impl this one directly.
+///
+/// # Method-name collision with `RouteBucket` (deliberate — read this)
+///
+/// This trait intentionally reuses the `kind` / `id` / `id_owned` method
+/// names so the two traits carry ONE contract shape, and the blanket impl
+/// delegates verbatim to `RouteBucket` — the two resolutions are always
+/// semantically identical. The cost (codex P2, PR #632): a scope that
+/// brings BOTH traits in unqualified (e.g. `use codegen_spine::*;`) makes
+/// `bucket.kind()` ambiguous on a concrete `RouteBucket` implementor.
+/// This is a **compile error with an obvious fix, never silent
+/// misbehavior** — disambiguate with UFCS (`RouteBucket::kind(&b)` /
+/// `RouteBucketTyped::kind(&b)`, either is correct because the blanket
+/// delegates), or import only the trait you consume. Renaming the methods
+/// was rejected: it would fork the contract shape and break the
+/// already-deployed op-nexgen consumers that code against `kind()`. The
+/// tests below demonstrate the UFCS pattern where both traits share a
+/// scope.
 pub trait RouteBucketTyped {
     /// The handler-kind enum specific to this target. Must be `Copy + Eq`
     /// so it can drive dispatcher tables / `match` arms / hash keys.
@@ -667,7 +684,10 @@ mod tests {
         // blanket impl) `RouteBucketTyped::kind` are in scope here through
         // `use super::*`; downstream consumers that import only one trait
         // do NOT need this. Semantics unchanged.
-        assert_eq!(RouteBucket::kind(&r).id(), "iter_records_aggregate_relation");
+        assert_eq!(
+            RouteBucket::kind(&r).id(),
+            "iter_records_aggregate_relation"
+        );
         assert_eq!(RouteBucket::id(&r), "account.move._compute_amount");
     }
 
@@ -770,6 +790,14 @@ mod tests {
             id: "projects.get_work_package".to_string(),
         };
         assert_eq!(dispatch_one(&b), "detail");
+        // Construct the remaining fixture variant through the same generic
+        // consumer so every OpKindFixture variant is exercised (dead-code
+        // lint under `-D warnings`) and all match arms are reachable.
+        let t = OpBucket {
+            kind: OpKindFixture::TemplateGet,
+            id: "projects.render_template".to_string(),
+        };
+        assert_eq!(dispatch_one(&t), "template");
     }
 
     /// A back-compat Odoo bucket: impls `RouteBucket` only. The blanket impl
@@ -842,10 +870,7 @@ mod tests {
         fn label<B: RouteBucketTyped<Kind = OdooMethodKind> + ?Sized>(b: &B) -> String {
             format!("{}={}", b.id(), b.kind().id())
         }
-        assert_eq!(
-            label(erased),
-            "account.move._compute_amount=pass_override"
-        );
+        assert_eq!(label(erased), "account.move._compute_amount=pass_override");
 
         // Bonus: same generic accepts a sized concrete implementor, ensuring
         // the `?Sized` widening did not break the original Sized path.

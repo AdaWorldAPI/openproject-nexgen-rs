@@ -79,6 +79,7 @@ use ogar_vocab::{
     billing_party,
     bone,
     canonical_concept_id,
+    charset,
     commercial_document,
     commercial_line_item,
     currency_policy,
@@ -126,9 +127,11 @@ use ogar_vocab::{
     project_watcher,
     project_wiki_page,
     project_work_item,
+    recoder,
     skeleton,
     tax_policy,
     treatment,
+    unicharset,
     unit_of_measure,
     visit,
     vital_sign,
@@ -181,6 +184,10 @@ fn all_canonical_classes() -> Vec<(&'static str, Class)> {
         ("pricelist", pricelist()),
         ("pricelist_rule", pricelist_rule()),
         ("unit_of_measure", unit_of_measure()),
+        // ── 0x08XX — OCR (container kinds; content stays in content stores) ──
+        ("unicharset", unicharset()),
+        ("recoder", recoder()),
+        ("charset", charset()),
         // ── 0x09XX — health (OGIT Healthcare) ──
         ("patient", patient()),
         ("diagnosis", diagnosis()),
@@ -339,6 +346,39 @@ impl ClassView for OgarClassView {
 mod tests {
     use super::*;
     use lance_graph_contract::class_view::FieldMask;
+
+    #[test]
+    fn classid_order_agrees_with_lance_graph_contract_canon_high() {
+        // The two-sided flip fuse: OGAR's `ogar_vocab::app::{app_of,
+        // concept_of}` (PR #147) and lance-graph-contract's
+        // `ogar_codebook::split_classid` under `ClassidOrder::CanonHigh`
+        // (PR #628/#630) must agree bit-for-bit on the same composed
+        // literal, or a one-sided revert on either side goes silent —
+        // this crate is the only place in OGAR that links
+        // `lance-graph-contract`, so it is the natural home for the
+        // lockstep pin. Known-good literal: openproject:WorkPackage
+        // composes to `0x0102_0001` (concept hi=0x0102, app lo=0x0001).
+        use lance_graph_contract::ogar_codebook::{CLASSID_ORDER, ClassidOrder, split_classid};
+
+        assert_eq!(CLASSID_ORDER, ClassidOrder::CanonHigh);
+
+        let classid =
+            ogar_vocab::app::render_classid(0x0001, ogar_vocab::class_ids::PROJECT_WORK_ITEM);
+        assert_eq!(classid, 0x0102_0001);
+
+        let ogar_app = ogar_vocab::app::app_of(classid);
+        let ogar_concept = ogar_vocab::app::concept_of(classid);
+        let (contract_canon, contract_custom) = split_classid(classid);
+
+        assert_eq!(
+            ogar_concept, contract_canon,
+            "OGAR concept half must equal lance-graph-contract's canon half",
+        );
+        assert_eq!(
+            ogar_app, contract_custom,
+            "OGAR app half must equal lance-graph-contract's custom half",
+        );
+    }
 
     #[test]
     fn registry_carries_every_codebook_concept() {

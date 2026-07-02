@@ -113,6 +113,22 @@ pub fn render_typed_surreal(rails_root: &std::path::Path) -> String {
     let schema = op_surreal_ast::from_triples::triples_to_schema_with_targets(&spine, &all_models);
     let mut out = schema.to_sql();
     // Conservation trailer: the artifact accounts for what it covers.
+    // Typed-coverage line measured via the contract scan family
+    // (lance-graph #632 `emission_scan`, shipped against wishlist L2) —
+    // every consumer counts identically; no local grep.
+    let kind_tokens: Vec<String> = schema
+        .tables
+        .iter()
+        .flat_map(|t| t.fields.iter())
+        .map(|f| f.kind.to_sql())
+        .collect();
+    let counts = lance_graph_contract::emission_scan::count_emission(
+        kind_tokens.iter().map(String::as_str),
+    );
+    out.push_str(&format!(
+        "-- emission: typed={} record={} any={} stub={} (contract::emission_scan)\n",
+        counts.typed, counts.record_link, counts.any_typed, counts.stub,
+    ));
     out.push_str(&format!(
         "-- columns-from: {} | tables seen: {} matched: {} unmatched: {} skipped: {}\n",
         report.columns_from,

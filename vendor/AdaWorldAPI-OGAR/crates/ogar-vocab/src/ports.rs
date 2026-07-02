@@ -1053,7 +1053,8 @@ mod tests {
     /// Pins all six APP_PREFIX overrides against the §2 allocation table
     /// in `APP-CLASS-CODEBOOK-LAYOUT.md`. The default in the trait is
     /// `0x0000` (shared canonical core); each app port overrides with its
-    /// reserved high-u16 so consumers can re-export the typed constant
+    /// reserved low-u16 (canon HIGH / custom LOW since the 2026-07-02
+    /// half-order flip) so consumers can re-export the typed constant
     /// instead of hardcoding hex literals.
     ///
     /// Reserving a prefix costs nothing (§2): no codebook is materialised
@@ -1087,7 +1088,30 @@ mod tests {
         // The trait default (0x0000 = shared core) is expressed directly
         // in the trait definition; ports that do not override it resolve
         // to the core codebook namespace, which is the bootstrap/core
-        // prefix per §2 ("hi = 0x0000 is the bootstrap/core prefix").
+        // prefix per §2 ("lo = 0x0000 is the bootstrap/core prefix" —
+        // canon HIGH / custom LOW since the 2026-07-02 half-order flip).
+        //
+        // 0x1000 is RESERVED — the V3-adoption monitor marker (the custom
+        // half stamped on legacy stored classids, e.g. `0x0701_1000` OSINT
+        // / `0x0A01_1000` FMA / `0x0E01_1000` CPIC —
+        // `docs/DISCOVERY-MAP.md` D-CLASSID-CANON-HIGH-FLIP). It must never
+        // be allocatable as a port's APP_PREFIX.
+        for prefix in [
+            OpenProjectPort::APP_PREFIX,
+            OdooPort::APP_PREFIX,
+            WoaPort::APP_PREFIX,
+            SmbPort::APP_PREFIX,
+            HealthcarePort::APP_PREFIX,
+            RedminePort::APP_PREFIX,
+        ] {
+            assert_ne!(
+                prefix, 0x1000,
+                "0x1000 is reserved for the V3-adoption monitor marker, \
+                 never a port APP_PREFIX",
+            );
+        }
+        // NOTE: q2 does not get an APP_PREFIX row here by design — its
+        // render-prefix allocation awaits an operator naming ruling.
     }
 
     /// **The five-way `billable_work_entry` convergence pin.** Ratifies

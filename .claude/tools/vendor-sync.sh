@@ -64,14 +64,12 @@ sweep() { # sweep <vendor-subdir> <github-repo> <repo-prefix>
 # ── lance-graph-contract ──
 sweep "vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" \
       "AdaWorldAPI/lance-graph" "crates/lance-graph-contract"
-# deviation 1: C6 spine diff (idempotent: skip when already applied)
-cd "$ROOT/vendor/AdaWorldAPI-lance-graph"
-if ! grep -q RouteBucketTyped crates/lance-graph-contract/src/codegen_spine.rs; then
-  if patch -p1 --forward < codegen_spine.diff >/dev/null 2>&1; then
-    echo "C6 codegen_spine.diff re-applied"
-  else
-    echo "!! C6 DIFF CONFLICT — rebase codegen_spine.diff manually" >&2
-  fi
+# deviation 1 RETIRED (lance-graph #632 merged RouteBucketTyped upstream;
+# diff archived as codegen_spine.diff.retired-632). Guard remains: if the
+# symbol ever vanishes upstream again, fail loudly instead of silently
+# breaking op-codegen-bucket.
+if ! grep -q RouteBucketTyped "$ROOT/vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract/src/codegen_spine.rs"; then
+  echo "!! RouteBucketTyped GONE from upstream spine — op-codegen-bucket will break; see codegen_spine.diff.retired-632" >&2
 fi
 
 # ── OGAR slice (the three vendored crates) ──

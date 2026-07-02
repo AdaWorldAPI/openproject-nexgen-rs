@@ -230,9 +230,15 @@ mod tests {
     #[test]
     fn classify_form_canon_high_native() {
         // NodeGuid post-flip constants — canon in the HIGH half, native.
-        assert_eq!(classify_form(NodeGuid::CLASSID_OSINT), ClassidForm::CanonHigh);
+        assert_eq!(
+            classify_form(NodeGuid::CLASSID_OSINT),
+            ClassidForm::CanonHigh
+        );
         assert_eq!(classify_form(NodeGuid::CLASSID_FMA), ClassidForm::CanonHigh);
-        assert_eq!(classify_form(NodeGuid::CLASSID_PROJECT), ClassidForm::CanonHigh);
+        assert_eq!(
+            classify_form(NodeGuid::CLASSID_PROJECT),
+            ClassidForm::CanonHigh
+        );
         assert_eq!(classify_form(NodeGuid::CLASSID_ERP), ClassidForm::CanonHigh);
 
         // Post-flip V3-marked forms: canon high, custom == 0x1000 — still
@@ -361,7 +367,11 @@ mod tests {
                 ClassidForm::LegacyV3MarkerHigh,
             ),
             (
-                compose_classid_with(ClassidOrder::CanonLow, concept, AppPrefix::Healthcare.prefix()),
+                compose_classid_with(
+                    ClassidOrder::CanonLow,
+                    concept,
+                    AppPrefix::Healthcare.prefix(),
+                ),
                 ClassidForm::LegacyRenderPrefixHigh,
             ),
         ];
@@ -406,7 +416,11 @@ mod tests {
         let ids = [
             NodeGuid::CLASSID_OSINT_LEGACY,
             compose_classid_with(ClassidOrder::CanonLow, concept, 0x1000),
-            compose_classid_with(ClassidOrder::CanonLow, concept, AppPrefix::Healthcare.prefix()),
+            compose_classid_with(
+                ClassidOrder::CanonLow,
+                concept,
+                AppPrefix::Healthcare.prefix(),
+            ),
         ];
         let counts = count_adoption(ids.into_iter());
         assert_eq!(
@@ -427,12 +441,16 @@ mod tests {
         // each legacy shape), 0 ambiguous — the mixed-corpus case.
         let concept = a_concept();
         let ids = [
-            NodeGuid::CLASSID_OSINT, // CanonHigh
+            NodeGuid::CLASSID_OSINT,                                        // CanonHigh
             compose_classid_with(ClassidOrder::CanonHigh, concept, 0x1000), // CanonHigh (V3-marked)
-            NodeGuid::CLASSID_DEFAULT, // CanonHigh (degenerate)
+            NodeGuid::CLASSID_DEFAULT,      // CanonHigh (degenerate)
             NodeGuid::CLASSID_OSINT_LEGACY, // LegacyZeroPrefixHigh
             compose_classid_with(ClassidOrder::CanonLow, concept, 0x1000), // LegacyV3MarkerHigh
-            compose_classid_with(ClassidOrder::CanonLow, concept, AppPrefix::Healthcare.prefix()), // LegacyRenderPrefixHigh
+            compose_classid_with(
+                ClassidOrder::CanonLow,
+                concept,
+                AppPrefix::Healthcare.prefix(),
+            ), // LegacyRenderPrefixHigh
         ];
         let counts = count_adoption(ids.into_iter());
         assert_eq!(
