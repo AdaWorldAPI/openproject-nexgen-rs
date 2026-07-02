@@ -15,23 +15,27 @@
 //!
 //! # The two halves of a classid (`APP-CLASS-CODEBOOK-LAYOUT.md`)
 //!
+//! Since the 2026-07-02 canon:custom half-order flip (lance-graph
+//! `classid-canon-custom-flip-v1` P1, OGAR flipped in lockstep) the CANON
+//! concept sits HIGH and the APP/render prefix LOW:
+//!
 //! ```text
-//! classid : u32  =  [ hi u16 : APP / render prefix ]  [ lo u16 : concept ]
-//!                     0x0001 (OpenProject)              0xDDCC (shared)
+//! classid : u32  =  [ hi u16 : concept ]  [ lo u16 : APP / render prefix ]
+//!                     0xDDCC (shared)       0x0001 (OpenProject)
 //! ```
 //!
-//! - **low u16 — the shared canonical concept.** What the object *is*: the
+//! - **high u16 — the shared canonical concept.** What the object *is*: the
 //!   RBAC + ontology + cross-app identity key. This is what the port pull
 //!   returns, and it is identical to the id Redmine's `Issue` pulls
 //!   (`project_work_item = 0x0102`). The shared currency.
-//! - **high u16 — OpenProject's render prefix [`APP_PREFIX`] (`0x0001`).**
+//! - **low u16 — OpenProject's render prefix [`APP_PREFIX`] (`0x0001`).**
 //!   *Whose* rendering: OpenProject's `ClassView` / template lens. Reserved
 //!   for OpenProject in `APP-CLASS-CODEBOOK-LAYOUT.md` §2; Redmine's twin is
-//!   `0x0007`. A full render classid is `0x0001_DDCC`.
+//!   `0x0007`. A full render classid is `0xDDCC_0001`.
 //!
 //! This module composes only OpenProject's `0x0001` render of the W0
 //! "two renders, one concept" pair; the cross-fork convergence itself (that
-//! OpenProject `WorkPackage` and Redmine `Issue` share the low half `0x0102`)
+//! OpenProject `WorkPackage` and Redmine `Issue` share the concept `0x0102`)
 //! is machine-checked **upstream** in OGAR's port tests
 //! (`openproject_and_redmine_converge_on_shared_concepts`), not here.
 //!
@@ -43,10 +47,10 @@
 //!   [`ogar_vocab::ports::OpenProjectPort::APP_PREFIX`] — the typed §2
 //!   allocation-table value, not a local literal.
 //! - [`render_classid`] re-exports `ogar_vocab::app::render_classid_for::<OpenProjectPort>`
-//!   — the central `(prefix << 16) | concept` composition; one place owns the
-//!   bit math.
+//!   — the central `((concept as u32) << 16) | prefix` composition; one place
+//!   owns the bit math.
 //! - [`app_of`] / [`concept_of`] re-export `ogar_vocab::app::{app_of, concept_of}`
-//!   — the inverse decomposition (`0x0001_DDCC` → prefix + concept), so a render
+//!   — the inverse decomposition (`0xDDCC_0001` → prefix + concept), so a render
 //!   classid round-trips entirely on this crate's surface without reaching into
 //!   `ogar_vocab::app`.
 //! - [`canonical_concept_name`] re-exports `ogar_vocab::canonical_concept_name`
@@ -59,9 +63,11 @@
 
 use ogar_vocab::ports::{OpenProjectPort, PortSpec};
 
-/// OpenProject's reserved **APP / render prefix** — the high u16 of a full
-/// `classid` (`APP-CLASS-CODEBOOK-LAYOUT.md` §2 allocation table). Pairs with
-/// Redmine's `0x0007`: same low-half concept, different render lens.
+/// OpenProject's reserved **APP / render prefix** — the CUSTOM (low, since
+/// the 2026-07-02 flip) u16 of a full `classid`
+/// (`APP-CLASS-CODEBOOK-LAYOUT.md` §2 allocation table; the VALUE is
+/// order-invariant). Pairs with Redmine's `0x0007`: same canon concept,
+/// different render lens.
 ///
 /// `pub const` re-export of [`ogar_vocab::ports::OpenProjectPort::APP_PREFIX`]
 /// (OGAR PR #97). Promoted from a local mirror to the typed upstream constant —
@@ -88,7 +94,7 @@ pub fn class_id_of(surface_name: &str) -> Option<u16> {
 }
 
 /// Compose the full 32-bit **render** classid for a shared `concept` under
-/// OpenProject's prefix: `0x0001_DDCC`.
+/// OpenProject's prefix: `0xDDCC_0001` (concept HIGH, prefix LOW).
 ///
 /// Re-export of `ogar_vocab::app::render_classid_for::<OpenProjectPort>(concept)`
 /// (OGAR PR #97) — the central composition, not local bit math. Pure stamp: it
@@ -98,7 +104,7 @@ pub fn class_id_of(surface_name: &str) -> Option<u16> {
 ///
 /// ```
 /// use op_canon::{app, class_ids};
-/// assert_eq!(app::render_classid(class_ids::PROJECT_WORK_ITEM), 0x0001_0102);
+/// assert_eq!(app::render_classid(class_ids::PROJECT_WORK_ITEM), 0x0102_0001);
 /// ```
 #[must_use]
 pub fn render_classid(concept: u16) -> u32 {
@@ -106,12 +112,12 @@ pub fn render_classid(concept: u16) -> u32 {
 }
 
 /// Pull + compose in one step: an OpenProject surface name → its full render
-/// classid `0x0001_DDCC`, via the OGAR port. `None` if the port does not carry
+/// classid `0xDDCC_0001`, via the OGAR port. `None` if the port does not carry
 /// the name.
 ///
 /// ```
 /// use op_canon::app;
-/// assert_eq!(app::render_classid_of("WorkPackage"), Some(0x0001_0102));
+/// assert_eq!(app::render_classid_of("WorkPackage"), Some(0x0102_0001));
 /// ```
 #[must_use]
 pub fn render_classid_of(surface_name: &str) -> Option<u32> {
@@ -119,7 +125,8 @@ pub fn render_classid_of(surface_name: &str) -> Option<u32> {
 }
 
 /// Decompose a 32-bit render classid into its **OpenProject render prefix**
-/// (the high u16) — the inverse of [`render_classid`]'s high half.
+/// (the low u16 since the flip) — the inverse of [`render_classid`]'s
+/// prefix half.
 ///
 /// Re-export of `ogar_vocab::app::app_of` (OGAR PR #97) — the central
 /// decomposition, not local bit math; paired with [`concept_of`]. For any
@@ -127,7 +134,7 @@ pub fn render_classid_of(surface_name: &str) -> Option<u32> {
 ///
 /// ```
 /// use op_canon::{app, class_ids};
-/// let cid = app::render_classid(class_ids::PROJECT_WORK_ITEM); // 0x0001_0102
+/// let cid = app::render_classid(class_ids::PROJECT_WORK_ITEM); // 0x0102_0001
 /// assert_eq!(app::app_of(cid), app::APP_PREFIX);               // 0x0001
 /// ```
 #[must_use]
@@ -135,9 +142,9 @@ pub fn app_of(classid: u32) -> u16 {
     ogar_vocab::app::app_of(classid)
 }
 
-/// Decompose a 32-bit render classid into its **shared concept** (the low
-/// u16) — the inverse of [`render_classid`]'s low half, recovering the
-/// cross-app currency a [`class_id_of`] pull returns.
+/// Decompose a 32-bit render classid into its **shared concept** (the CANON
+/// high u16 since the flip) — the inverse of [`render_classid`]'s concept
+/// half, recovering the cross-app currency a [`class_id_of`] pull returns.
 ///
 /// Re-export of `ogar_vocab::app::concept_of` (OGAR PR #97), paired with
 /// [`app_of`]. For any concept, `concept_of(render_classid(concept)) == concept`;
@@ -145,7 +152,7 @@ pub fn app_of(classid: u32) -> u16 {
 ///
 /// ```
 /// use op_canon::{app, class_ids};
-/// let cid = app::render_classid(class_ids::PROJECT_WORK_ITEM); // 0x0001_0102
+/// let cid = app::render_classid(class_ids::PROJECT_WORK_ITEM); // 0x0102_0001
 /// assert_eq!(app::concept_of(cid), class_ids::PROJECT_WORK_ITEM); // 0x0102
 /// ```
 #[must_use]
@@ -154,7 +161,7 @@ pub fn concept_of(classid: u32) -> u16 {
 }
 
 /// Reverse of [`class_id_of`] at the concept level: a shared canonical
-/// **concept id** (the low u16 / port-pull currency) → its canonical
+/// **concept id** (the canon-half / port-pull currency) → its canonical
 /// concept **name** (e.g. `project_work_item`). `None` for an id the
 /// codebook does not carry.
 ///
@@ -217,13 +224,13 @@ mod tests {
 
     #[test]
     fn render_classid_composes_openproject_prefix() {
-        // Full render classid = 0x0001_DDCC (W0 worked table).
-        assert_eq!(render_classid(class_ids::PROJECT_WORK_ITEM), 0x0001_0102);
-        assert_eq!(render_classid(class_ids::BILLABLE_WORK_ENTRY), 0x0001_0103);
-        assert_eq!(render_classid(class_ids::PROJECT_ROLE), 0x0001_0117);
+        // Full render classid = 0xDDCC_0001 (concept HIGH since the flip).
+        assert_eq!(render_classid(class_ids::PROJECT_WORK_ITEM), 0x0102_0001);
+        assert_eq!(render_classid(class_ids::BILLABLE_WORK_ENTRY), 0x0103_0001);
+        assert_eq!(render_classid(class_ids::PROJECT_ROLE), 0x0117_0001);
         // Pull + compose.
-        assert_eq!(render_classid_of("WorkPackage"), Some(0x0001_0102));
-        assert_eq!(render_classid_of("TimeEntry"), Some(0x0001_0103));
+        assert_eq!(render_classid_of("WorkPackage"), Some(0x0102_0001));
+        assert_eq!(render_classid_of("TimeEntry"), Some(0x0103_0001));
     }
 
     #[test]
@@ -245,10 +252,10 @@ mod tests {
     }
 
     #[test]
-    fn render_classid_keeps_concept_in_the_low_half() {
-        // The low half is the shared concept (== the port pull); the high
-        // half is OpenProject's render lens. Redmine's twin carries the SAME
-        // low half under prefix 0x0007 (pinned in OGAR's port tests).
+    fn render_classid_keeps_concept_in_the_canon_half() {
+        // The CANON (high) half is the shared concept (== the port pull); the
+        // low half is OpenProject's render lens. Redmine's twin carries the
+        // SAME canon half under prefix 0x0007 (pinned in OGAR's port tests).
         for &concept in &[
             class_ids::PROJECT_WORK_ITEM,
             class_ids::PROJECT,
@@ -261,12 +268,12 @@ mod tests {
             assert_eq!(
                 ogar_vocab::app::app_of(cid),
                 APP_PREFIX,
-                "high half = OpenProject lens",
+                "custom half = OpenProject lens",
             );
             assert_eq!(
                 ogar_vocab::app::concept_of(cid),
                 concept,
-                "low half = shared concept",
+                "canon half = shared concept",
             );
         }
     }
@@ -295,8 +302,9 @@ mod tests {
         let cid = render_classid(class_ids::PROJECT_WORK_ITEM);
         assert_eq!(app_of(cid), ogar_vocab::app::app_of(cid));
         assert_eq!(concept_of(cid), ogar_vocab::app::concept_of(cid));
-        // And the full decomposition reconstructs the classid bit-for-bit.
-        assert_eq!(((app_of(cid) as u32) << 16) | (concept_of(cid) as u32), cid,);
+        // And the full decomposition reconstructs the classid bit-for-bit
+        // (concept HIGH, prefix LOW since the flip).
+        assert_eq!(((concept_of(cid) as u32) << 16) | (app_of(cid) as u32), cid,);
     }
 
     #[test]
