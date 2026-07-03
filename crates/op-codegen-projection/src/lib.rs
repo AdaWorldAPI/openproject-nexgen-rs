@@ -57,6 +57,9 @@ use lance_graph_contract::codegen_spine::{Triple, TripletProjection};
 pub mod class_schema;
 pub use class_schema::{render_class_schema, render_classes_schema};
 
+pub mod class_view;
+pub use class_view::{render_masked, select_by_mask};
+
 // ---------------------------------------------------------------------------
 // The DDL IR
 // ---------------------------------------------------------------------------
