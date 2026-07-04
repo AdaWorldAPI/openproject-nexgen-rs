@@ -58,7 +58,7 @@ pub mod class_schema;
 pub use class_schema::{render_class_schema, render_classes_schema};
 
 pub mod class_view;
-pub use class_view::masked_attributes;
+pub use class_view::focus;
 
 // ---------------------------------------------------------------------------
 // The DDL IR
