@@ -1,5 +1,12 @@
 # CAPSTONE — the AR-shape convergence substrate (2026-07-05)
 
+> ⚠️ **The OGAR model below is STALE** (`vocab + render-askama + class-view`).
+> OGAR is now the **V3-shaped transpiler sink** (detect → address → lift →
+> propose → transpile); op-nexgen is a thin **consumer**, not a codegen. See
+> `2026-07-05-ogar-v3-consumer-migration-plan.md` for the corrected architecture
+> + crate-fate table. The AR-shape thesis + classid convergence still hold; the
+> "what op-nexgen builds" parts are superseded by that plan.
+
 > The single top-level plan. It **references** the sub-plans below; it does
 > not restate them. New here: the 2026-07-05 rebase delta (recent ruff
 > codegen + OGAR updates) and the operator **actions ruling** (actions are
