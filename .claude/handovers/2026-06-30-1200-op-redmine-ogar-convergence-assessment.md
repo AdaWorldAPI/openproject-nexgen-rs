@@ -1,4 +1,12 @@
 # Handover — OP + Redmine → OGAR convergence (assessment + increment plan)
+> **⚠ HISTORICAL CLASSID ORDER.** Every u32 classid example in this document
+> uses the PRE-FLIP order (`APP prefix HIGH / canon LOW`, e.g.
+> `0x0001_0102`). As of 2026-07-02 the canonical order is **canon HIGH /
+> prefix LOW** (`0x0102_0001`) — see
+> `2026-07-02-classid-canon-high-flip.md` and
+> `lance_graph_contract::ogar_codebook::ClassidOrder::CanonHigh`. Flip any
+> literal you copy from here, including the §"next step" test expectations.
+
 
 > 2026-06-30. Captures a grounded 6-agent assessment (1.04M tokens) of
 > converging OpenProject + Redmine onto the OGAR transpile / ClassView

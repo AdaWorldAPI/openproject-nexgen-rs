@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use op_cli::{CliError, USAGE, dispatch_codegen, run_codegen};
+use op_cli::{dispatch_codegen, run_codegen, CliError, USAGE};
 
 /// Absolute path to the shared `rails_mini` fixture (lives in
 /// `op-codegen-pipeline/tests/fixtures/rails_mini`). Re-using it
@@ -25,23 +25,46 @@ fn fixture_root() -> PathBuf {
 fn run_codegen_on_rails_mini_emits_expected_define_statements() {
     let text = run_codegen(&fixture_root()).expect("rails_mini fixture exists");
 
-    // Sample a representative cross-section of the C9..C14 emission:
-    // - DEFINE TABLE (C8)
-    // - DEFINE FIELD with required + Any (C10)
-    // - DEFINE FIELD with Int kind (C12)
-    // - DEFINE FIELD with Record kind (C13)
-    // - DEFINE INDEX on FK-shaped fields (C14)
+    // Sample a representative cross-section of the D-AR-3.5 typed
+    // emission ("compiled, not parsed" path via
+    // op_surreal_ast::from_triples):
+    // - DEFINE TABLE, with has_many surfaced as a COMMENT annotation
+    // - typed fields from the schema stratum (string/float/int/datetime)
+    // - column_not_null → bare kind; nullable → option<…>
+    // - belongs_to + null: false → bare record<Target> + companion index
+    // - validates presence → composed ASSERT
+    // - the conservation trailer (nothing drops silently)
     assert!(text.contains("DEFINE TABLE TimeEntry SCHEMAFULL;"));
-    assert!(text.contains("DEFINE TABLE WorkPackage SCHEMAFULL;"));
-    assert!(text.contains("DEFINE FIELD hours ON TABLE TimeEntry TYPE any;"));
-    assert!(text.contains("DEFINE FIELD subject ON TABLE WorkPackage TYPE any;"));
-    assert!(text.contains("DEFINE FIELD status_id ON TABLE WorkPackage TYPE option<int>;"));
     assert!(text.contains(
-        "DEFINE FIELD work_package_id ON TABLE TimeEntry TYPE option<record<WorkPackage>>;"
+        "DEFINE TABLE WorkPackage SCHEMAFULL COMMENT 'has_many:time_entries→TimeEntry';"
     ));
+    assert!(text.contains(
+        "DEFINE FIELD hours ON TABLE TimeEntry TYPE option<float> ASSERT $value != NONE;"
+    ));
+    assert!(text
+        .contains("DEFINE FIELD subject ON TABLE WorkPackage TYPE string ASSERT $value != NONE;"));
+    assert!(text.contains("DEFINE FIELD done_ratio ON TABLE WorkPackage TYPE option<int>;"));
+    assert!(text.contains("DEFINE FIELD id ON TABLE WorkPackage TYPE int;"));
+    assert!(
+        text.contains("DEFINE FIELD work_package_id ON TABLE TimeEntry TYPE record<WorkPackage>;")
+    );
     assert!(text.contains(
         "DEFINE INDEX idx_TimeEntry_work_package_id ON TABLE TimeEntry FIELDS work_package_id;"
     ));
+    assert!(text.contains(
+        "-- columns-from: baseline-only | tables seen: 2 matched: 2 unmatched: 0 skipped: 0"
+    ));
+    // P0 provenance stamp: self-consistent against the exported constant
+    // rather than a pinned sha, so the test survives every future commit.
+    assert!(text.contains(&format!(
+        "-- generated-by: op-codegen@{}",
+        op_cli::NEXGEN_GIT_SHA
+    )));
+    assert!(
+        text.trim_end()
+            .ends_with(&format!("op-codegen@{}", op_cli::NEXGEN_GIT_SHA)),
+        "provenance line must be the final trailer line"
+    );
 }
 
 #[test]
@@ -99,5 +122,7 @@ fn dispatch_codegen_with_valid_path_returns_ddl_text() {
     let text = dispatch_codegen(&args).expect("dispatcher should pass through to run_codegen");
     // One representative assertion — full set is in
     // `run_codegen_on_rails_mini_emits_expected_define_statements`.
-    assert!(text.contains("DEFINE TABLE WorkPackage SCHEMAFULL;"));
+    // (WorkPackage's DEFINE TABLE carries a has_many COMMENT now, so
+    // match the prefix, not the bare-terminated form.)
+    assert!(text.contains("DEFINE TABLE WorkPackage SCHEMAFULL"));
 }

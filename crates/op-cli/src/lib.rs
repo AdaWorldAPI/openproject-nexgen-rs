@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use op_codegen_pipeline::{extract_core_triples, render_surreal_from_ruff};
+use op_codegen_pipeline::render_typed_surreal;
 
 /// Errors that the CLI surface can return. Currently only one shape
 /// (missing / non-existent rails app path); future subcommands or
@@ -32,7 +32,9 @@ impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Usage(m) => write!(f, "{m}"),
-            Self::PathNotFound(p) => write!(f, "error: path does not exist or is not a directory: {p}"),
+            Self::PathNotFound(p) => {
+                write!(f, "error: path does not exist or is not a directory: {p}")
+            }
         }
     }
 }
@@ -46,12 +48,22 @@ pub const EXIT_IO: u8 = 1;
 /// Concise usage line for the `op-codegen` binary.
 pub const USAGE: &str = "usage: op-codegen <rails-app-path>";
 
-/// Run the codegen pipeline on a Rails app at `rails_root` and return
-/// the emitted SurrealQL DDL as a `String`. Composes the
-/// already-public [`extract_core_triples`] (filesystem walk + filter to
-/// `CORE_V3_RESOURCES`) and [`render_surreal_from_ruff`] (spine bridge
-/// + projection + emission); the CLI adds nothing semantic — it just
-/// exposes the pipeline at a stable entry point.
+/// This build's nexgen repo sha, baked in by `build.rs` (best-effort;
+/// `"unknown"` when git isn't available at build time). P0 provenance
+/// stamp: the emitted DDL should be able to answer "which build of
+/// op-codegen produced this artifact" without archaeology — the same
+/// discipline wishlist R5 asks of the ruff side, applied to our own CLI.
+pub const NEXGEN_GIT_SHA: &str = env!("NEXGEN_GIT_SHA");
+
+/// Run the codegen pipeline on a Rails app at `rails_root` and return the
+/// emitted SurrealQL DDL as a `String`, with a provenance trailer line
+/// identifying this build. Composes the already-public
+/// [`extract_core_triples`] (filesystem walk + filter to
+/// `CORE_V3_RESOURCES`) and [`render_surreal_from_ruff`] (spine bridge,
+/// projection, emission); the CLI adds nothing semantic to the DDL itself
+/// — only the provenance line, since [`NEXGEN_GIT_SHA`] is only visible
+/// at this crate's compile time (env vars set by a crate's own `build.rs`
+/// don't propagate to dependents' `env!()`).
 ///
 /// Returns `Err(CliError::PathNotFound)` if `rails_root` does not exist
 /// or is not a directory; the inner pipeline calls are expected to be
@@ -60,9 +72,9 @@ pub fn run_codegen(rails_root: &Path) -> Result<String, CliError> {
     if !rails_root.is_dir() {
         return Err(CliError::PathNotFound(rails_root.display().to_string()));
     }
-    let triples = extract_core_triples(rails_root);
-    let (_c, text) = render_surreal_from_ruff(&triples);
-    Ok(text)
+    let mut out = render_typed_surreal(rails_root);
+    out.push_str(&format!("-- generated-by: op-codegen@{NEXGEN_GIT_SHA}\n"));
+    Ok(out)
 }
 
 /// Dispatch an `argv`-shaped slice (NOT including the program name) to
@@ -77,9 +89,7 @@ pub fn run_codegen(rails_root: &Path) -> Result<String, CliError> {
 pub fn dispatch_codegen(args: &[String]) -> Result<String, CliError> {
     match args {
         [] => Err(CliError::Usage(USAGE.to_string())),
-        [first] if first == "-h" || first == "--help" => {
-            Err(CliError::Usage(USAGE.to_string()))
-        }
+        [first] if first == "-h" || first == "--help" => Err(CliError::Usage(USAGE.to_string())),
         [rails_root] => run_codegen(Path::new(rails_root)),
         _ => Err(CliError::Usage(format!(
             "{USAGE}\nerror: too many arguments ({} given)",

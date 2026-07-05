@@ -333,11 +333,7 @@ impl ToSql for TableDefinition {
         f.push_str(";\n");
         for field in &self.fields {
             field.fmt_sql(f, fmt);
-            for index in self
-                .indices
-                .iter()
-                .filter(|i| i.follows_field(&field.name))
-            {
+            for index in self.indices.iter().filter(|i| i.follows_field(&field.name)) {
                 index.fmt_sql(f, fmt);
             }
         }
@@ -433,11 +429,7 @@ pub struct IndexDefinition {
 
 impl IndexDefinition {
     #[must_use]
-    pub fn new(
-        name: impl Into<String>,
-        table: impl Into<String>,
-        fields: Vec<String>,
-    ) -> Self {
+    pub fn new(name: impl Into<String>, table: impl Into<String>, fields: Vec<String>) -> Self {
         Self {
             name: name.into(),
             table: table.into(),
@@ -599,8 +591,7 @@ mod tests {
 
     #[test]
     fn field_definition_renders_with_table_and_kind() {
-        let f =
-            FieldDefinition::new("hours", "TimeEntry", Kind::Any);
+        let f = FieldDefinition::new("hours", "TimeEntry", Kind::Any);
         assert_eq!(
             f.to_sql(),
             "DEFINE FIELD hours ON TABLE TimeEntry TYPE any;\n"
@@ -635,11 +626,7 @@ mod tests {
 
     #[test]
     fn index_definition_multi_field_renders_with_comma() {
-        let i = IndexDefinition::new(
-            "idx_a_b",
-            "Foo",
-            vec!["a".to_string(), "b".to_string()],
-        );
+        let i = IndexDefinition::new("idx_a_b", "Foo", vec!["a".to_string(), "b".to_string()]);
         assert_eq!(
             i.to_sql(),
             "DEFINE INDEX idx_a_b ON TABLE Foo FIELDS a, b;\n"
@@ -714,11 +701,7 @@ DEFINE TABLE B SCHEMAFULL;
         let schema = Schema::new()
             .with_table(
                 TableDefinition::new("TimeEntry")
-                    .with_field(FieldDefinition::new(
-                        "hours",
-                        "TimeEntry",
-                        Kind::Any,
-                    ))
+                    .with_field(FieldDefinition::new("hours", "TimeEntry", Kind::Any))
                     .with_field(FieldDefinition::new(
                         "work_package_id",
                         "TimeEntry",
@@ -742,11 +725,7 @@ DEFINE TABLE B SCHEMAFULL;
                         "WorkPackage",
                         vec!["status_id".to_string()],
                     ))
-                    .with_field(FieldDefinition::new(
-                        "subject",
-                        "WorkPackage",
-                        Kind::Any,
-                    )),
+                    .with_field(FieldDefinition::new("subject", "WorkPackage", Kind::Any)),
             );
         let expected = "\
 DEFINE TABLE TimeEntry SCHEMAFULL;

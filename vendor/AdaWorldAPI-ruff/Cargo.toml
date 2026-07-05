@@ -2,6 +2,17 @@
 #
 # Standalone workspace root for the vendored ruff crate slice.
 #
+# SNAPSHOT STATE (2026-07-02): ruff_ruby_spo + ruff_spo_triplet synced to
+# upstream `main` HEAD (raw-fetch reassembly; git relay 403s this repo) WITH
+# the D-AR-3.5 column-stratum patch applied on top — the full patch against
+# pristine main is `D-AR-3.5-column-stratum.diff` (this dir), ready for
+# upstream application. ruff_openproject remains at its older branch-era
+# snapshot; its locked-shape test (`extract_triples_produces_locked_shape`)
+# fails against main's ruby_spo body extraction EVEN WITHOUT the patch
+# (verified empirically 2026-07-02: pristine main + that test → same
+# failure, same line) — upstream main-vs-branch drift for the ruff session
+# to reconcile, not a defect of the sync or the patch.
+#
 # WHY THIS FILE EXISTS
 # Codex PR #6 P1: the three vendored crates (ruff_openproject, ruff_ruby_spo,
 # ruff_spo_triplet) each use `{ workspace = true }` for their deps and lints —

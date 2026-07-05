@@ -1,10 +1,10 @@
 [package]
 name = "ruff_ruby_spo"
-version = "0.2.0"
+version = "0.1.0"
 publish = false
 edition = "2024"
 rust-version = "1.86"
-description = "Ruby/Rails (OpenProject) frontend for ruff_spo_triplet. Walks an app/models tree and fills a language-agnostic ModelGraph, which expands to the same SPO triples as the Python/Odoo frontend. Sprint C17a: parser-driven class shape via lib-ruby-parser (pure-Rust typed AST); captures superclass + association options (class_name, through, source, as, polymorphic, dependent, optional, inverse_of, foreign_key) that the C4 line scanner could not see."
+description = "SCAFFOLD: Ruby/Rails (OpenProject) frontend for ruff_spo_triplet. Walks an app/models tree and fills a language-agnostic ModelGraph, which expands to the same SPO triples as the Python/Odoo frontend. Extraction points are todo!() stubs documented with the exact Rails construct to read; the target triple shape is already locked by a passing test."
 license = "MIT"
 
 [lib]
@@ -12,12 +12,13 @@ name = "ruff_ruby_spo"
 
 [dependencies]
 ruff_spo_triplet = { workspace = true }
-# Sprint C17a parser graduation. Pure-Rust typed AST, no Ruby runtime.
-# Replaces the C4 dependency-free line scanner inside `parse.rs` for class
-# shape + association options. `scan.rs` / `fields.rs` / `functions.rs`
-# remain line-scanner-based for `body_source` traversal (graduation roadmap
-# in `RUBY-FRONTEND.md`).
-lib-ruby-parser  = { workspace = true }
+
+# Pure-Rust Ruby parser (typed AST, no Ruby runtime). Operator-locked
+# direction for D-AR-3 (the real extractor): the AST gives us
+# class-body node access without the brittleness of line/regex scanning,
+# so the 67-name DSL routing dispatches on `Node` variants instead of
+# string prefixes.
+lib-ruby-parser = { version = "4.0", default-features = false }
 
 [lints]
 workspace = true

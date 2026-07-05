@@ -52,7 +52,10 @@ fn render_full_openproject_schema_from_triples() {
             c: w.c,
         })
         .collect();
-    eprintln!("loaded {} triples from /tmp/op_triples.ndjson", triples.len());
+    eprintln!(
+        "loaded {} triples from /tmp/op_triples.ndjson",
+        triples.len()
+    );
 
     let schema = triples_to_schema(&triples);
     let sql = schema.to_sql();
@@ -91,8 +94,7 @@ fn render_full_openproject_schema_from_triples() {
     eprintln!("  tables with comment:   {tables_with_comment}");
 
     // Top 10 fattest tables (by field count) with their comment.
-    let mut by_field: Vec<&op_surreal_ast::TableDefinition> =
-        schema.tables.iter().collect();
+    let mut by_field: Vec<&op_surreal_ast::TableDefinition> = schema.tables.iter().collect();
     by_field.sort_by_key(|t| std::cmp::Reverse(t.fields.len()));
     eprintln!("\n=== Top 10 tables by field count ===");
     for tbl in by_field.iter().take(10) {

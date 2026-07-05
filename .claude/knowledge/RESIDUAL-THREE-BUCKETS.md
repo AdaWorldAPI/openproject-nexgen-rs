@@ -1,0 +1,358 @@
+# Residual three-buckets doctrine — what the extractor can't determine, and where it lands
+
+> Operator decision (2026-07-01, this session): the ruff-AR extraction
+> determines **~72% of OpenProject's AR surface**. The remaining ~28% — the
+> residual — is **not one population**. It splits into **three buckets**, each
+> with its own handler. This doc pins the decision, maps it onto existing canon
+> (`RAILS-COVERAGE-KIT.md` §5–§6), and carries the **measured manifest** of the
+> current residual over the curated `CORE_V3_RESOURCES` set.
+>
+> Companion: `.claude/knowledge/RAILS-COVERAGE-KIT.md` (the function-side
+> triage this is the *field-shape* counterpart of) and the C9–C15 codegen
+> pipeline (`op-codegen-pipeline`, `op-codegen-projection`, `op-cli`).
+
+## 0. The decision
+
+The ~28% the extractor punts (emitted today as `TYPE option<any>`) is split:
+
+| Bucket | Name | Shape | Handler |
+|---|---|---|---|
+| **B1** | **Fuzzy-shaped** | Emits X reliably, but arrangement/order drifts run-to-run ("something that emits X but changes the order every time differently") | **Deterministic normalizer** — the `reorder`/canonicalize blade. No new modeling; stable-sort + canonical arrangement, then the value is B0 (determined). |
+| **B2** | **Anticipated-standard DO** | The recurring cross-domain objects every domain has — auth, session, account, ACL/permission, locale, subscription/watch, audit/revision chain | **Ontological landing zone** — write the DTO adapter **once**, label it against the OGIT/OGAR ontology so the AST *lands* in a known zone; from then on the codebook swiss-knife (`open`, `filter`, `reorder`, `apply mask`, …) operates on it generically. Amortizes to ~zero marginal cost per new domain. |
+| **B3** | **Irreducibly random** | Genuinely bespoke logic — no anticipated shape, no stable arrangement | **Manual rewrite**, partially **inventing new standard interfaces** in the process. |
+
+**The ratchet (why this converges):** B3 is a *feeder* for B2. Every bespoke
+hand-write that turns out to recur graduates into a labeled landing zone — the
+knife gains a blade, the ontology gains a concept id, and the residual shrinks
+monotonically. Doing OpenProject *and* Redmine matters for exactly this
+reason: the B2 zones proven on OpenProject (auth/ACL/session) are reused
+wholesale on Redmine, so the second consumer's residual is far smaller than
+its first-run 28%-equivalent.
+
+## 1. Mapping onto existing canon (no new machinery)
+
+This decision does **not** introduce a new triage — it names the field-shape
+face of what `RAILS-COVERAGE-KIT.md` already pins for function bodies:
+
+| This doc | RAILS-COVERAGE-KIT | Note |
+|---|---|---|
+| B1 fuzzy-shaped | §6 **coarse tier** — `(target, verb-class, order-signature)`; "random orders is the gate, not noise" | Incidental order (ops commute) → normalize → RECOVER. Significant order → it was never B1; it's B3 (PRESERVE + RFC). The arbiter is the same **round-trip-order-free parity check**. |
+| B2 landing zone | §5 **canonical-label doctrine** — content-addressable concept ids, label DTOs as skins; §6 landing zone = `lance-graph-contract::action` + `ogar-render-askama` artifact kinds + `ogar-vocab` | A B2 adapter is a `LabelDto` mapping onto an existing (or newly minted, RESERVE-DON'T-RECLAIM) concept id. The swiss-knife verbs are **already shipped, deterministic** (§6): `filter` = query engine, `project` = compute DAG, `map` = deterministic lookup, `reduce` = semirings, `apply mask` = the RBAC/visibility projection. Do NOT re-implement them per zone. |
+| B3 manual | §6 **essentially-foreign** — full escape, point-to-body | The "invent new standard interfaces" clause = §5 rule 2: a genuinely-new concept **mints** a new id (extends the ontology, never forks it). That mint is how B3 feeds B2. |
+
+**Bucket assignment is a gate sequence, not a judgment call:**
+
+```
+option<any> field
+  │
+  ├─ 1. round-trip-order-free parity PASSES? ──────────► B1 (normalize)
+  │
+  ├─ 2. lands on an existing/anticipatable ontology
+  │     concept (auth/session/acl/locale/audit/…)? ────► B2 (DTO adapter, once)
+  │
+  └─ 3. neither ────────────────────────────────────────► B3 (rewrite; mint iface
+                                                              → future B2)
+```
+
+Gate 1 before gate 2: a fuzzy-ordered *standard* object (e.g. a permission
+set with unstable ordering) is B1-then-B2 — normalize first, land second.
+
+## 2. Measured manifest — CORE_V3_RESOURCES residual, bucketed
+
+Source: `op-codegen /home/user/openproject` (C9 pipeline, extraction =
+`extract_core_triples`, i.e. `app/models` filtered to the 18 curated
+`CORE_V3_RESOURCES`), measured 2026-07-01. Every `TYPE option<any>` field the
+projection emitted is a residual entry; the emitted DDL carried 16 of the 18
+tables — `Activity` and `TimeEntry` produced no DDL (root causes probed and
+pinned in §4b). <!-- MANIFEST:BEGIN -->
+
+*(regenerate with: `cargo run -p op-cli -- <openproject-checkout>` — but see
+§4: the build needs the OGAR git deps reachable, which this session's network
+scope 403s)*
+
+| Model.field | Bucket | Disposition |
+|---|---|---|
+| `Project.allowed_actions` | **B2** | Authorization/ACL landing zone (OGIT-auth family). One adapter: permission-set DTO → concept id; `apply mask` consumes it. |
+| `Project.allowed_permissions` | **B2** | Same ACL zone/adapter as `allowed_actions` — one landing, two labels. |
+| `Role.allowed_actions` | **B2** | Same ACL zone. Role is the canonical carrier; Project's copy is the projected mask. |
+| `User.allowed_values` | **B1→B2** | Value-set with unstable arrangement: normalize (B1), then land on the ACL/preference zone. |
+| `User.time_zone` | **B2** | Locale/timezone landing zone — standard DO in every domain; adapter once. |
+| `Journal.predecessor` | **B2** | Audit/revision-chain zone — the temporal linked list is an anticipated standard (OGIT audit family). |
+| `Journal.successor` | **B2** | Same chain zone, forward pointer. |
+| `Query.available_columns` | **B1** | Set derivable, order/context isn't → stable-sort normalizer; passes order-free parity. |
+| `Query.available_columns_project` | **B1** | Same normalizer, project-scoped variant. |
+| `Query.for_all` | **B1** | Boolean-ish derived flag; normalizes to a determined projection. |
+| `WorkPackage.assignable_versions` | **B1** | Derived candidate set, unstable order → normalizer. |
+| `Type.pdf_export_templates` | **B1** | Template registry list, order-incidental → normalizer. |
+| `WorkPackage.derived_progress_hints` | **B3** | OpenProject-bespoke progress derivation. Hand-write; **mint `ProgressDerivation`** as the new standard interface (candidate future B2 zone — Redmine has `done_ratio`). |
+| `Version.estimated_hours` | **B3** | Computed rollup with OP semantics (sums over descendant work packages with derivation rules). |
+| `Version.estimated_average` | **B3** | Same rollup family. |
+| `Version.spent_hours` | **B3** | Rollup over TimeEntry — pairs with the `BILLABLE_WORK_ENTRY` (`0x0103`) convergence; may graduate to B2 once the rollup iface is minted. |
+| `Version.issues_progress` | **B3** | Progress aggregation — same `ProgressDerivation` candidate as WorkPackage's hints. |
+| `Version.issue_count` | **B1** | Trivial count — order-free parity passes; a `reduce` verb over a determined relation. |
+| `Version.open_issues_count` | **B1** | Same trivial-count normalizer. |
+| `Version.closed_issues_count` | **B1** | Same. |
+| `Version.wiki_page` | **B2** | Wiki/document-link landing zone (standard cross-domain document reference). |
+
+<!-- MANIFEST:END -->
+
+**Composition:** ~9× B1, ~8× B2 (behind ~4 adapters: ACL, locale, audit-chain,
+doc-link), ~5× B3 (behind ~2 interfaces: `ProgressDerivation`, version
+rollups). The residual is **B1/B2-heavy** — most of the 28% is *anticipated*,
+not random. The true B3 tail for OpenProject core is two interface mints.
+
+> **Machine-readable form:** `crates/op-codegen-residual` carries this
+> manifest as typed data (`RESIDUAL_MANIFEST` + `lookup`) plus the B1 blade
+> (`canonicalize`) and the membership gate (`order_free_eq`), with the §2
+> composition pinned by tests. It is a **standalone workspace** (dep-free) so
+> it builds even where the OGAR git deps 403 — build it from its own dir:
+> `cd crates/op-codegen-residual && cargo test`. Promote it to a workspace
+> member once OGAR is vendored.
+
+## 3. What each bucket costs (build order — revised 2026-07-02 after §4a–§4c)
+
+Upstream (ruff session; handover `2026-07-02-ruff-upstream-extraction-contract.md`):
+
+1. **Column-stratum extraction** (§4c — measured 90% yield; handover §6):
+   parse the `db/migrate/tables/*.rb` baseline DSL → typed `DEFINE FIELD`.
+   Combined with the already-shipped validation triples this covers ~100% of
+   model-struct shape. Outranks everything.
+2. **Determinism contract + conservation ledger + walk/list fixes**
+   (handover §1–§4): dissolves the pipeline-noise half of B1 at the source;
+   makes every drop accounted.
+
+op-nexgen side (this repo):
+
+1. **Vendor the three OGAR crates** (`ogar-vocab`, `ogar-render-askama`,
+   `ogar-class-view`) from a session with OGAR read access — the single
+   blocker for building/verifying anything in the main workspace (including
+   the five recorded §4c bugs, which stay open until then).
+2. **PolyRef substrate DTO** (§4a meta-find): the shared
+   `{target_class, target_id}` primitive five-plus zones compose. Dep-free,
+   buildable in `op-codegen-residual` now; concept-id grounding attaches at
+   OGAR lift, not here.
+3. **Verb conformance suite before adapters**: a contract each zone adapter
+   is tested against (`apply mask` respects ACL semantics, `reorder`
+   respects canonical form, `open`∘`filter` round-trips). This is what makes
+   adapters mechanical enough to delegate.
+4. **B2 adapters** (once each, amortize forever — now 9 registered zones,
+   all composing PolyRef): each a `LabelDto` mapping onto an ogar-vocab
+   concept id (mint per RESERVE-DON'T-RECLAIM if absent).
+5. **B1 normalizer in the projection** (demoted from #1: upstream
+   determinism makes most of it free; the blade + gate already live in
+   `op-codegen-residual` for whatever remains).
+6. **B3 rewrites** (bounded, feed the ontology): `ProgressDerivation`,
+   `VersionRollup` — each mints its interface as a *candidate* B2 zone for
+   the Redmine pass.
+
+## 4. Full-surface B2 survey (measured 2026-07-01, agent sweep)
+
+A sweep of the FULL model surface (`app/models` + `modules/*/app/models`)
+for landing-zone members — the widening §5-caveat anticipated. Result: the
+B2 amortization claim strengthens; **69 zone members** land behind a handful
+of adapters:
+
+| Zone | Members | Anchors |
+|---|---:|---|
+| Acl | 12 | `Role`+STI subtree, `RolePermission`, `Member`/`MemberRole`, `Capability` (tableless allowed-actions carrier), `Users::PermissionChecks` |
+| Locale | 3 | `UserPreference` (serialized settings hash + `method_missing` over `UserPreferences::Schema` — JSON-schema-driven, a *specification* for the DTO adapter) |
+| AuditChain | 17 | `Journal` (pred/succ over `version`), the whole `Journal::*Journal` per-entity family (11 core + 6 module-side), `Changeset`/`Change`, PaperTrail audits |
+| DocLink | 10 | `Attachment` (polymorphic container ref), `Wiki`/`WikiPage`/`WikiRedirect`, `Storages::FileLink` (external-doc ref), `Wikis::PageLink` family |
+| **Session/Token/AuthCredential** (new) | 17 | `Token::Base`/`HashedToken`/`ExpirableToken` STI framework (9 core token kinds + 2FA module tokens), `Sessions::*`, `OAuthClient(Token)`, `OpenIDConnect::UserToken`, `AuthProvider`/`UserAuthProviderLink`/`RemoteIdentity`, `ScimClient` |
+| **Subscription/Watch** (new) | 7 | `Watcher` (polymorphic watchable+user), `Notification` (reason enum), `NotificationSetting`, `Favorite` (same subject+subscriber shape), `ReminderNotification` |
+| **GroupMembership** (new) | 3 | `LdapGroups::Membership`, `LdapDepartments::Membership`, `OpenIDConnect::GroupMembership` — the "external directory group ↔ local user" sync record, distinct from Acl's `Member`/`MemberRole` (no role/permission payload) |
+
+Decisions taken on the survey:
+
+- **Session/Token/AuthCredential is accepted as a zone** — this is the
+  operator's original example ("OGIT auth emits the typical auth, session
+  etc, do it once as a dto adapter") and the measured largest family. The
+  `Token::` STI hierarchy is effectively a ready-made DTO spec.
+- **Subscription/Watch is accepted** — `Watcher`/`Favorite`/`Notification`
+  share one shape: polymorphic subject + subscribing principal +
+  reason/channel.
+- **GroupMembership is accepted as a candidate** (3 members, all
+  module-side) — kept separate from Acl because the payload differs (sync
+  provenance, not permission grant).
+- The zone registry lives in `op-codegen-residual::LandingZone`; the three
+  new zones are registered there with zero manifest rows for now (their
+  members are whole *models*, not core-18 residual fields — they enter the
+  manifest when the pipeline widens to `extract_app_with`).
+
+## 4a. Odoo convergence probe (measured 2026-07-02, agent sweep of odoo/odoo@17.0)
+
+The zone registry's validation step. OpenProject↔Redmine convergence proves
+only shared ancestry (OP is a Redmine fork); Odoo is an **independent
+lineage** — if the zones hold there, they're real cross-domain ontology.
+Verdict: **they hold.**
+
+| Zone | Verdict | Odoo carrier (LabelDto surfaces) |
+|---|---|---|
+| Acl | **converges** | `ir.model.access` (class-level CRUD grant: model×group + 4 perm bools) + `ir.rule` (row-level policy w/ `domain_force`) + `res.groups` M2M. Two-layer grant/policy split — richer than OP's, same concept. |
+| Locale | **converges** | `res.partner.lang/tz` (delegated into `res.users` via `_inherits`) + `res.lang` as a DB locale-definition registry. |
+| AuditChain | **converges** (nuance) | `mail.message` (polymorphic `model`/`res_id`, self-referential `parent_id` thread) + `mail.tracking.value` (**typed** `old_value_*`/`new_value_*` columns, not a serialized blob). No explicit `version` counter — ordering implicit by id/date. Adapter must not assume a linear version integer. |
+| DocLink | **converges** (cleanest) | `ir.attachment`: `res_model` + `res_id` (`Many2oneReference`) + optional `res_field`. |
+| Session/Token | **converges (token half)** | `res.users.apikeys` (hashed key + prefix index + scope) and `auth_totp.device` — which literally `_inherit`s the apikeys shape as a TTL'd trusted-device token with GC. HTTP *sessions* are filesystem-stored, no DB model — the SESSION concept exists in both consumers; the **carrier** differs per host. That is exactly the LabelDto doctrine: concept converges, skin differs. |
+| Subscription/Watch | **converges** (cleanest) | `mail.followers`: `res_model`/`res_id` + `partner_id` + `subtype_ids` channel filter (channel registry = `mail.message.subtype`). |
+| GroupMembership | **partial/absent** | Odoo LDAP is connection-config + provision-by-template-clone (`res.company.ldap`); no membership-sync records, no refresh-on-login. The zone's "sync record" shape did NOT recur — see the re-read below. |
+
+**Two new families the probe surfaced (registered as zones):**
+
+- **ScheduledReminder** — `mail.activity`: polymorphic subject + assignee +
+  `date_deadline` + state machine (`overdue/today/planned/done`), mixin-layered
+  onto virtually every Odoo business object. OP-side members already exist
+  (`Reminder`, `ReminderNotification` — the survey had parked the latter under
+  Subscription). Two independent lineages ⇒ real zone.
+- **ExternalRef** — `ir.model.data`: `(module, name)` external-identifier key →
+  polymorphic target, `noupdate` flag; in-source documented as the third-party
+  integration/idempotent-sync registry. OP-side members: `RemoteIdentity`
+  (polymorphic auth_source/integration + `origin_user_id`),
+  `Storages::FileLink.origin_*`, and — the re-read — the three
+  `*::Membership` sync records. **GroupMembership is likely a
+  *specialization* of ExternalRef** (external-key↔local-record sync), which
+  explains its weakness as a standalone zone. Per RESERVE-DON'T-RECLAIM the
+  GroupMembership registration stays; new adapters should target ExternalRef
+  and treat directory-group sync as its instance.
+
+**The meta-find (changes adapter design):** the polymorphic-reference idiom
+(`res_model` Char + `res_id` `Many2oneReference` — Odoo ships a dedicated ORM
+field type for it) recurs verbatim beneath five of the families
+(`ir.attachment`, `mail.followers`, `mail.activity`, `mail.message`,
+`ir.model.data`); Rails' `belongs_to polymorphic:` is the same primitive
+(`Watcher.watchable`, `Attachment.container`, `Favorite.favorited`,
+`Notification.resource`). So the ontology has a layer BELOW the zones: a
+shared **PolyRef substrate DTO** (`{target_class, target_id}` + concept-id
+grounding). Build the PolyRef primitive ONCE; zone adapters *compose* it with
+zone-specific payload (subscriber+channels, deadline+assignee, old/new
+values, external key). This means the seven-plus-two adapters share one
+foundation — the amortization compounds a second time.
+
+## 4b. Missing-DDL probe (measured 2026-07-01, agent diagnosis)
+
+Why 2 of the 18 curated `CORE_V3_RESOURCES` emitted no DDL — three distinct
+root causes, all verified against source with file:line evidence. Total
+absence of `DEFINE TABLE` is diagnostic of "no `Model` produced upstream":
+the expander unconditionally emits `rdf:type` per model
+(`ruff_spo_triplet/src/expand.rs:69-75`) and the projection unconditionally
+tables it (`op-codegen-projection/src/lib.rs:233-249`), so the projection
+layer never swallows a model.
+
+| Resource | Root cause | Fix category (owner) |
+|---|---|---|
+| `Activity` | **No AR class exists** — only `module Projects::Activity` (mixin), `Activities::Event` (a Struct), and `*ActivityProvider` classes. The curated entry names an API-v3 *aggregate resource*, not a model. | Curated-list rethink (ruff session): drop the entry or model the provider classes. |
+| `TimeEntry` | **Extractor-walk gap** — real class at `modules/costs/app/models/time_entry.rb:31`, but `ruff_ruby_spo::parse::parse_models` walks only `<root>/app/models` (`parse.rs:64-68`); engine model dirs (`modules/*/app/models`) are invisible. | Extractor-walk widening (ruff session) — the same gap hides ~half of OpenProject's domain (cf. coverage kit §3's `extract_app_with`). |
+| `Priority` | **Name mismatch in the current vendored filter** — the real class is `IssuePriority < Enumeration` (`app/models/issue_priority.rb:31`); `filter_to_core` exact-matches `"Priority"` (`ruff_openproject/src/lib.rs:100`), which silently drops it. NOTE: the measured 2026-07-01 run *did* emit `DEFINE TABLE Priority` — that run used the pre-recycle pipeline build, which evidently differed here; with the currently-vendored code the table count would be 15, not 16. | Curated-list rename `Priority` → `IssuePriority` (one string, `ruff_openproject/src/lib.rs:67`; upstream-owned, so recorded rather than patched in the vendor mirror). |
+
+Both actionable fixes are **upstream-owned** (`AdaWorldAPI/ruff`): patching
+the vendor mirror here would silently drift from the emitter session's
+source of truth, so they are pinned as the handoff instead.
+
+## 4c. Oracle diff — WorkPackage, first empirical residual measurement (2026-07-02)
+
+Method: diff the three representations — DB schema (ground truth), hand-written
+Rust, measured extraction — and the disagreement decomposes into extractor-gap
+/ true-residual / human-drift. First subject: WorkPackage.
+
+**Result: 90 / 10 / 0.** Schema = 35 columns (29 core + 6 module: backlogs,
+budgets; reconstructed from `db/migrate/tables/work_packages.rb` + later
+migrations — the checkout has NO `schema.rb`/`structure.sql`). Hand-written
+union (`WorkPackage` 18 + `WorkPackageRow` 20) = 20 field names. Every
+hand-written field maps to a real column (SET-2 empty — the humans were
+disciplined). **18/20 (90%) derivable from schema alone** (name + SQL type +
+nullability). The other 2 need model-file context: `description → Formattable`
+(an app/API rendering convention) and `done_ratio`'s `0..100` clamp (from
+`validates … inclusion: {in: 0..100}, allow_nil: true`). **0% human-only.**
+
+**The stratum insight (the day's biggest lever).** The extractor reads the
+*instance-method* stratum (its 2 WorkPackage emissions are methods, verified
+absent from all 35 columns); the struct-shape need is the *column* stratum,
+which lives in the **migration DSL** (`db/migrate/tables/*.rb` squashed
+baseline — standard Rails `t.column` calls, statically extractable). And the
+remaining 10% maps onto the **already-extracted validation triples**
+(`validates_constraint`/`validation_kind`/`validation_param` — done_ratio's
+clamp is literally a `GUARD_RANGE` recipe fact). So: **column stratum (new) +
+validation triples (already shipped) ≈ 100% of the WorkPackage struct
+derivable.** Handed off upstream (handover doc §6).
+
+**Bugs found (recorded, NOT fixed — the workspace doesn't build in this
+session (OGAR git deps), so any refactor here would be blind):**
+
+1. `done_ratio` "unset"≡"0%" collapse: schema + validator explicitly allow
+   NULL ("unset"); both Rust shapes force a concrete value. Fix spec:
+   `Option<DoneRatio>` end-to-end.
+2. `WorkPackage.description: Formattable` (non-Option) loses the NULL/empty
+   distinction (`WorkPackageRow.description: Option<String>` is correct).
+3. Intra-crate contradiction: op-db has TWO same-named `WorkPackageRow`
+   (`work_packages.rs` 20-field vs `query_executor.rs` 25-field) that
+   disagree on `author_id` nullability — schema says NOT NULL, so
+   `query_executor.rs`'s `Option<i64>` is wrong.
+4. **The struct zoo, measured in our own code:** ≥5 divergent hand-written
+   WorkPackage-shaped structs across crates (op-work-packages, op-db ×2,
+   op-models — a stale 13-field variant, op-api's 39-field view projection).
+   The doctrine's "extinct zoo" isn't hypothetical; it's in-repo. The
+   generated single-source-of-truth is the cure.
+5. **Upstream drift, silently:** `project_phase_definition_id` (Apr 2025),
+   `sequence_number` + `identifier` (Mar 2026) are absent from ALL five
+   structs — upstream moved, the port didn't notice. Exactly what the
+   conservation ledger + regeneration would flag automatically.
+
+**Verdict for the doctrine:** the oracle method works — one agent-run
+produced the empirical split, five concrete bugs, and re-prioritized the
+pipeline (column stratum first). Repeat per model; every hand-written crate
+is a test fixture.
+
+## 4d. OGIT key status per zone (inventory 2026-07-02, AdaWorldAPI/OGIT@master)
+
+The ontology-cache DTO layer keys zones on OGIT ids where stock ids exist and
+**mints** where they don't. Inventory verdicts (fork chain: arago → Almato AI
+→ AdaWorldAPI, which grafts a Rust crate embedding ~1500 TTLs as const data —
+`build.rs` names `lance-graph-contract` as its codegen consumer, so the
+"ontology cached as DTOs" pattern already has in-family precedent):
+
+| Zone | OGIT key | Status |
+|---|---|---|
+| GroupMembership | `ogit.Auth:isMemberOf` (verb, stock arago 2018) | **CONFIRMED** — exercised in `Account.ttl`'s allowed edges vs `Organization`/`Team` |
+| Acl | `ogit.Auth:assumes → ogit.Auth:Role` | probable stock id, **unverified** (Role definition file not located this pass) |
+| Subscription | `ogit:Subscription` | **attested, unlocated** — referenced by `Account.ttl` (`ogit:manages`), definition path 404'd |
+| AuditChain | `ogit:Timeseries` | **attested, unlocated** — referenced by `JournalEntry.ttl` (`ogit:reports`/`generates`) |
+| Session, DocLink, Locale, ScheduledReminder, ExternalRef | — | **no stock hits** → mint per the in-repo precedent: `NTO/Accounting/entities/JournalEntry.ttl` was minted wholesale by an AI session (lance-graph 3-hop optim, 2026-05-28) in the exact stock schema shape (`rdfs:Class`/`subClassOf`/`scope`/`parent`/attribute tiers/`allowed` edges) |
+
+DTO-layer design constraints the inventory surfaced:
+
+- **Branch on TtlKind**: entities carry `scope`+`parent`+attribute tiers+
+  `allowed` edges; verbs carry only `rdfs:subPropertyOf ogit:Verb` (no
+  scope/parent). A DTO keyed on `parent` must branch Entity/Verb/Attribute.
+- **Depend on, don't duplicate**: the OGIT crate's `build.rs` already ships
+  `by_branch`/`by_kind` iterators over `ALL_TTLS` — the canonical index. OGAR
+  consumes it; a second lookup copy is the drift its own docstring warns of.
+- **The mint doctrine carries a bonus**: `JournalEntry.ttl` documents the
+  3-hop optimisation (promote hot leaf attributes onto the entity, keep the
+  shortcut verb, cohere via EdgeColumn ComputeRecompute cascade) — the mint
+  template for the five missing zones.
+- `SGO core Node` mandatory `ogit:_*` system fields (`_id`, `_type`,
+  `_owner`, `_version`, …) are the substrate every entity DTO inherits.
+
+## 5. Caveats (record honestly)
+
+- The manifest covers the **curated 18-resource core** (`CORE_V3_RESOURCES`,
+  `app/models` only). OpenProject keeps ~half its domain in `modules/*` —
+  `extract_app_with` widens the surface and WILL add residual rows; the
+  bucketing gates (§1) apply unchanged.
+- The ~72%/28% split is the operator-reported figure from the emitter-session
+  extractor; the vendored pipeline here reproduces the *shape* of the residual
+  (which fields punt to `option<any>`), which is what the manifest keys on.
+- **Regeneration is blocked in the current session:** `op-codegen-projection`
+  (and `op-canon`, `op-surreal-ast`) git-dep on `AdaWorldAPI/OGAR` +
+  `AdaWorldAPI/lance-graph`, and the session network scope 403s both, so
+  `cargo build -p op-cli` dies fetching `ogar-vocab`. `ruff_*` and
+  `lance-graph-contract` are already **path-vendored** (`vendor/AdaWorldAPI-*`);
+  the same fix pattern applies — vendor the three OGAR crates (`ogar-vocab`,
+  `ogar-render-askama`, `ogar-class-view`) when a session with OGAR read
+  access next touches this repo. The measurement above predates the recycle
+  and is preserved verbatim; the C12 type-inference sprint may since have
+  moved some B1 rows to determined — re-run when unblocked and re-bucket.
+- Bucket labels for B2 name ontology *families* (OGIT-auth, locale, audit).
+  The exact `ogar-vocab` concept ids are minted OGAR-side; this repo's
+  adapters carry the `LabelDto` surface only. Until the mint lands, B2
+  adapters are staged per-consumer (the §5 "zoo" caveat applies — temporary
+  by design).

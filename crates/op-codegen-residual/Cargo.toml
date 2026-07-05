@@ -1,0 +1,21 @@
+# Promoted to a root-workspace member (2026-07-02) once the OGAR +
+# lance-graph crates were path-vendored and the workspace resolved
+# offline — the standalone-[workspace] era is over.
+[package]
+name = "op-codegen-residual"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "OpenProject codegen residual — the three-buckets doctrine (B1 fuzzy / B2 landing-zone / B3 manual) as typed data + the B1 canonicalize blade. Machine-readable counterpart of .claude/knowledge/RESIDUAL-THREE-BUCKETS.md; dependency-free so it builds without the OGAR git deps."
+
+[lib]
+name = "op_codegen_residual"
+
+[dependencies]
+# Deliberately empty. This crate is the one piece of the codegen stack that
+# must build in sessions whose network scope cannot reach the OGAR /
+# lance-graph git deps (see RESIDUAL-THREE-BUCKETS.md §4). The projection
+# consumes it; it consumes nothing.

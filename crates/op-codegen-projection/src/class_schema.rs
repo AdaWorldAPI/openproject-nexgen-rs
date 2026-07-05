@@ -203,4 +203,69 @@ mod tests {
         let b = render_class_schema(&class).unwrap();
         assert_eq!(a, b, "render_class_schema must be deterministic");
     }
+
+    /// PILOT FALSIFIER (2026-07-03) — the same canonical WorkPackage
+    /// `Class` that renders as a `SurrealqlTable` (DDL skin, above) also
+    /// renders through the ERB-shaped HTML skins (`HtmlForm` /
+    /// `HtmlListView` / `HtmlDetailView`) — "same skull, HTML body".
+    ///
+    /// This is op-nexgen's consumer-side proof of the **render leg**:
+    /// consuming an `ogar_vocab::Class` through the kit IS this repo's
+    /// job; the **lift** that populates the Class from real extraction
+    /// (`ogar_from_ruff::lift_model_graph`) is upstream and deliberately
+    /// NOT here (see the `op-canon` crate header — snapshot, not live
+    /// extraction). Uses only vendored crates; invents nothing.
+    ///
+    /// FINDING: the render leg is structurally complete — every skin
+    /// emits its ClassView container carrying `data-class-id="0x0102"`
+    /// + `data-concept="project_work_item"`. The field *contents* are
+    /// empty here ONLY because `project_work_item()` is a thin
+    /// identity-only exemplar; a populated Class (from the upstream
+    /// lift) fills the `<input>`s / list columns / detail `<dl>`. The
+    /// gap this pilot surfaces is upstream (Class population), not in
+    /// the render leg. `--nocapture` to eyeball the shape.
+    #[test]
+    fn workpackage_class_renders_through_the_erb_html_skins() {
+        use ogar_render_askama::{render, ArtifactKind};
+        let class = project_work_item();
+
+        // Each skin emits its ERB/ClassView container, tagged with the
+        // canonical identity — the "australopithecine skull" the same
+        // skull wears regardless of body (DDL vs HTML).
+        let form = render(&class, ArtifactKind::HtmlForm).expect("HtmlForm render");
+        assert!(form.contains("class=\"ogar-form\""), "form skin:\n{form}");
+        assert!(
+            form.contains("data-class-id=\"0x0102\""),
+            "form carries classid:\n{form}"
+        );
+        assert!(
+            form.contains("data-concept=\"project_work_item\""),
+            "form carries concept:\n{form}"
+        );
+
+        let list = render(&class, ArtifactKind::HtmlListView).expect("HtmlListView render");
+        assert!(list.contains("class=\"ogar-list\""), "list skin:\n{list}");
+        assert!(
+            list.contains("data-concept=\"project_work_item\""),
+            "list concept:\n{list}"
+        );
+
+        let detail = render(&class, ArtifactKind::HtmlDetailView).expect("HtmlDetailView render");
+        assert!(
+            detail.contains("class=\"ogar-detail\""),
+            "detail skin:\n{detail}"
+        );
+        assert!(
+            detail.contains("data-concept=\"project_work_item\""),
+            "detail concept:\n{detail}"
+        );
+
+        for (kind, html) in [
+            ("HtmlForm", &form),
+            ("HtmlListView", &list),
+            ("HtmlDetailView", &detail),
+        ] {
+            eprintln!("\n───── {kind} ─────\n{html}\n");
+        }
+    }
 }

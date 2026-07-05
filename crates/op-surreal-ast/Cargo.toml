@@ -30,7 +30,7 @@ default = []
 cli = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
-lance-graph-contract = { path = "../../vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" }
+lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
 # Canonical vocabulary — the source of the typed `Class` shape that
 # `from_class::class_to_table` consumes. Northstar plan §3 C3: the third
 # path that feeds the same byte-identical typed AST as `from_triples`,

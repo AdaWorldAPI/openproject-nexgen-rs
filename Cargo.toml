@@ -19,6 +19,7 @@ members = [
     "crates/op-cli",
     "crates/op-server",
     "crates/op-codegen-bucket",
+    "crates/op-codegen-residual",
     "crates/op-codegen-projection",
     "crates/op-codegen-pipeline",
     "crates/op-surreal-ast",
@@ -32,7 +33,6 @@ members = [
 # normally; they bypass workspace-member discovery.
 exclude = [
     "vendor/AdaWorldAPI-ruff",
-    "vendor/AdaWorldAPI-lance-graph",
 ]
 
 [workspace.package]

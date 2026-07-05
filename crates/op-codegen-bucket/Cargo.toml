@@ -11,7 +11,6 @@ description = "OpenProject codegen bucket — HandlerKind enum + RouteBucketType
 name = "op_codegen_bucket"
 
 [dependencies]
-# Vendor partial-mirror of upstream `lance-graph-contract`. Path-dep (no
-# `workspace = true`) so it resolves through either nexgen's workspace or
-# the standalone vendor workspace, transparently.
-lance-graph-contract = { path = "../../vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" }
+# Upstream `lance-graph-contract` — a trait-only, zero-dep leaf crate.
+# Plain git dep (Cargo fetches it); NOT vendored, no local checkout needed.
+lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }

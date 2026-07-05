@@ -11,7 +11,7 @@ description = "OpenProject SurrealQL schema projection — impls TripletProjecti
 name = "op_codegen_projection"
 
 [dependencies]
-lance-graph-contract = { path = "../../vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" }
+lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
 op-surreal-ast       = { path = "../op-surreal-ast" }
 # Canonical class layer + askama rendering kit. Northstar plan §3 C1:
 # op-codegen-projection adopts the OGAR render-askama kit as a sibling
