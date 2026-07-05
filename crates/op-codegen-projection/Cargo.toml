@@ -20,8 +20,12 @@ op-surreal-ast       = { path = "../op-surreal-ast" }
 # `ogar_vocab::Class` directly and produces DDL via the canonical
 # template — same shape redmine-canon + every other port renders
 # through.
-ogar-vocab          = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
-ogar-render-askama  = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+# All OGAR deps ride the convergence branch `claude/odoo-rs-transcode-lf8ya5`
+# for single-source coherence until the convergence branches merge, per the
+# operator ruling that rev pins are retired and drift protection is the
+# fuse tests, not pins.
+ogar-vocab          = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "claude/odoo-rs-transcode-lf8ya5" }
+ogar-render-askama  = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "claude/odoo-rs-transcode-lf8ya5" }
 # Direct askama dep — `class_schema::render_class_schema` exposes
 # `askama::Error` in its public signature (codex P1 on PR #53).
 # Transitive deps via `ogar-render-askama` aren't available as extern

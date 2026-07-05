@@ -12,8 +12,14 @@ name = "op_codegen_pipeline"
 
 [dependencies]
 ruff_openproject       = { path = "../ruff_openproject" }
-ruff_spo_triplet       = { git = "https://github.com/AdaWorldAPI/ruff", rev = "c514b96d38d764bb16ac070fb2fdbd13477f41bc" }
-ruff_ruby_spo          = { git = "https://github.com/AdaWorldAPI/ruff", rev = "c514b96d38d764bb16ac070fb2fdbd13477f41bc" }
+# Operator ruling: rev pins on AdaWorldAPI-internal git deps are retired —
+# they were "out of desperation to lock what hadn't converged in transpiler
+# sink-in yet." Drift protection is the fuse tests, not pins. Floats on the
+# convergence branch `claude/odoo-rs-transcode-lf8ya5`. Flips to
+# `branch = "main"` once the convergence branches merge. Cargo.lock still
+# locks a concrete rev for reproducibility.
+ruff_spo_triplet       = { git = "https://github.com/AdaWorldAPI/ruff", branch = "claude/odoo-rs-transcode-lf8ya5" }
+ruff_ruby_spo          = { git = "https://github.com/AdaWorldAPI/ruff", branch = "claude/odoo-rs-transcode-lf8ya5" }
 op-codegen-projection  = { path = "../op-codegen-projection" }
 op-surreal-ast         = { path = "../op-surreal-ast" }
 lance-graph-contract   = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
