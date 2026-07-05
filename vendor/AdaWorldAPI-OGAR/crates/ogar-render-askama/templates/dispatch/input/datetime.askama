@@ -1,2 +1,0 @@
-{# DateTime picker (browser-local; value is ISO-8601 without timezone). #}
-<input type="datetime-local" name="{{ name }}" id="field-{{ name }}" value="{{ value }}"{% if required %} required{% endif %}>

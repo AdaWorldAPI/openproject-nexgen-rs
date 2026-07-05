@@ -1,6 +1,0 @@
-{# User-list cell — Redmine `:watcher_users` / assignees. #}
-<ul class="user-list">
-{%- for u in users %}
-  <li><a href="{{ u.href }}" class="user">{{ u.name }}</a></li>
-{%- endfor %}
-</ul>

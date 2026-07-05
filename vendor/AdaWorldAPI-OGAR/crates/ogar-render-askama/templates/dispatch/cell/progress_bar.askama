@@ -1,5 +1,0 @@
-{# Progress-bar cell — Redmine `:done_ratio`. #}
-<div class="progress" role="progressbar" aria-valuenow="{{ pct }}" aria-valuemin="0" aria-valuemax="100">
-  <div class="progress-bar" style="width: {{ pct }}%"></div>
-  <span class="progress-label">{{ pct }}%</span>
-</div>

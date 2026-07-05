@@ -21,27 +21,26 @@
 # real (`git diff --stat` showed 0 lines for the 4, 193 for the 2).
 #
 # Recorded deviations (re-applied after sync, in this order):
-#   1. UN-VENDORED — lance-graph is no longer vendored at all. Consumers use a
-#      plain Cargo git dep; Cargo fetches + lock-pins the commit. The trait-only
-#      zero-dep contract leaf + a reachable `git clone` made 47k LOC of vendored
-#      source pointless. Nothing to sync.
-#   2. RETIRED — the ogar-{class-view,render-askama} lance-graph-contract
-#      git→path redirect (former D2/D4). OGAR now carries the upstream git dep
-#      verbatim (git is reachable); no post-sweep re-apply.
-#   3. ruff D-AR-3.5-column-stratum.diff (pending upstream: wishlist R1)
+#   1. UN-VENDORED — lance-graph AND OGAR are no longer vendored at all.
+#      Consumers use plain Cargo git deps; Cargo fetches + lock-pins the commits.
+#      A reachable `git clone` + (for lance-graph) a trait-only zero-dep leaf
+#      made ~61k LOC of vendored source pointless. Nothing to sync for either.
+#   2. RETIRED — the former D2/D4 lance-graph-contract git→path redirect, along
+#      with the whole OGAR vendored slice it lived in.
+#   3. ruff D-AR-3.5-column-stratum.diff (D3) — the ONLY remaining reason this
+#      tool exists; ruff stays vendored until the patch lands upstream (R1).
 #
 # Usage: .claude/tools/vendor-sync.sh   (from anywhere; resolves ROOT itself)
 set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-# lance-graph is NO LONGER vendored — consumers use a plain Cargo git dep
-# ({ git = ".../lance-graph", branch = "main" }); Cargo fetches + lock-pins it.
-# Only OGAR + ruff remain as vendored partial mirrors swept from raw.
+# lance-graph AND OGAR are NO LONGER vendored — consumers use plain Cargo git
+# deps ({ git = ".../lance-graph" }, { git = ".../OGAR" }); Cargo fetches +
+# lock-pins them. Only RUFF is still swept-from-raw, because it carries the
+# local D-AR-3.5 patch (D3) that hasn't landed upstream yet (wishlist R1).
+# Once R1 merges, ruff becomes a git dep too and this whole tool retires.
 VENDOR_DIRS=(
-  vendor/AdaWorldAPI-OGAR/crates/ogar-vocab
-  vendor/AdaWorldAPI-OGAR/crates/ogar-render-askama
-  vendor/AdaWorldAPI-OGAR/crates/ogar-class-view
   vendor/AdaWorldAPI-ruff/crates/ruff_ruby_spo
   vendor/AdaWorldAPI-ruff/crates/ruff_spo_triplet
 )
@@ -103,20 +102,13 @@ sweep() {
   done
 }
 
-# ── lance-graph: UN-VENDORED (2026-07-05) ──
-# No longer swept or mirrored. lance-graph-contract is a trait-only zero-dep
-# leaf and the repo is reachable via plain `git clone` over the proxy, so the
-# consuming crates (op-nexgen's + OGAR's) just declare a normal Cargo git dep
-# (`{ git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }`).
-# Cargo fetches it and pins the commit in Cargo.lock — nothing to sync here.
-
-# ── OGAR slice (the three vendored crates) ──
-# These carry the upstream lance-graph-contract git dep verbatim (git is
-# reachable), so the old D2/D4 git→path redirect is GONE — the raw sweep keeps
-# the git dep as-is and it resolves fine. No post-sweep re-apply needed.
-for c in ogar-vocab ogar-render-askama ogar-class-view; do
-  sweep "vendor/AdaWorldAPI-OGAR/crates/$c" "AdaWorldAPI/OGAR" "crates/$c"
-done
+# ── lance-graph + OGAR: UN-VENDORED (2026-07-05) ──
+# Neither is swept or mirrored any more. Both are reachable via `git clone`
+# over the proxy, so consumers declare plain Cargo git deps and Cargo pins the
+# commits in Cargo.lock — nothing to sync here. (lance-graph-contract is a
+# trait-only zero-dep leaf; the OGAR crates depend only on each other +
+# lance-graph-contract + crates.io askama — no ruff — so no collision with the
+# still-vendored, patched ruff below.)
 
 # ── ruff slice ──
 for c in ruff_ruby_spo ruff_spo_triplet; do

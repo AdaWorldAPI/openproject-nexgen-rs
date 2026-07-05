@@ -1,6 +1,0 @@
-{# Attachment-list cell — Redmine `:attachments`. #}
-<ul class="attachment-list">
-{%- for a in attachments %}
-  <li><a href="{{ a.href }}" class="attachment">{{ a.filename }}</a></li>
-{%- endfor %}
-</ul>

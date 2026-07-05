@@ -1,6 +1,0 @@
-{# Hours cell — Redmine `:estimated_hours` / `:spent_hours` arms. #}
-{% if href.len() > 0 -%}
-<a href="{{ href }}" class="hours">{{ hours }}</a>
-{%- else -%}
-<span class="hours">{{ hours }}</span>
-{%- endif %}

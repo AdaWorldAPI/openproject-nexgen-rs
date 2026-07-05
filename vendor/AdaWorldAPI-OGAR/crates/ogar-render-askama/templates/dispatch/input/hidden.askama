@@ -1,2 +1,0 @@
-{# Hidden — id / round-trip slot. #}
-<input type="hidden" name="{{ name }}" value="{{ value }}">

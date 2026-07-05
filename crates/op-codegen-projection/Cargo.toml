@@ -20,8 +20,8 @@ op-surreal-ast       = { path = "../op-surreal-ast" }
 # `ogar_vocab::Class` directly and produces DDL via the canonical
 # template — same shape redmine-canon + every other port renders
 # through.
-ogar-vocab          = { path = "../../vendor/AdaWorldAPI-OGAR/crates/ogar-vocab" }
-ogar-render-askama  = { path = "../../vendor/AdaWorldAPI-OGAR/crates/ogar-render-askama" }
+ogar-vocab          = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+ogar-render-askama  = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 # Direct askama dep — `class_schema::render_class_schema` exposes
 # `askama::Error` in its public signature (codex P1 on PR #53).
 # Transitive deps via `ogar-render-askama` aren't available as extern

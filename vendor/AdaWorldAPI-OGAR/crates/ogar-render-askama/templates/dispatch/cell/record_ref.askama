@@ -1,6 +1,0 @@
-{# Record-ref cell — Redmine `:parent` arm. Family-edge link to target. #}
-{% if href.len() > 0 -%}
-<a href="{{ href }}" class="record-ref" title="{{ target_concept }}">{{ label }}</a>
-{%- else -%}
-<span class="record-ref muted">{{ label }}</span>
-{%- endif %}

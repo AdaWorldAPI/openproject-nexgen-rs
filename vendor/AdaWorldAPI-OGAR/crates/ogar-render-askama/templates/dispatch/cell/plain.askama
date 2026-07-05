@@ -1,2 +1,0 @@
-{# Plain cell — fallback formatter, Redmine's `format_object`. #}
-{{ value }}

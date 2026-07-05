@@ -1,2 +1,0 @@
-{# Id cell — Redmine `:id` arm. #}
-<a href="{{ href }}" class="record-id">#{{ id }}</a>

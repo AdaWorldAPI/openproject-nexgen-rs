@@ -1,3 +1,0 @@
-{# Range slider — percent / ratio. #}
-<input type="range" name="{{ name }}" id="field-{{ name }}" min="{{ min }}" max="{{ max }}" step="{{ step }}" value="{{ value }}">
-<output for="field-{{ name }}">{{ value }}{% if !suffix.is_empty() %}{{ suffix }}{% endif %}</output>

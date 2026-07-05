@@ -36,7 +36,7 @@ lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", bra
 # path that feeds the same byte-identical typed AST as `from_triples`,
 # but reading the calcified canonical layer directly instead of a
 # triple stream. ogar-vocab is a tiny zero-runtime-dep crate.
-ogar-vocab = { path = "../../vendor/AdaWorldAPI-OGAR/crates/ogar-vocab" }
+ogar-vocab = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 

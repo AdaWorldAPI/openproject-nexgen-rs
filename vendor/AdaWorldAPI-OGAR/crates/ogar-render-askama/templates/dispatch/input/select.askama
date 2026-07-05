@@ -1,9 +1,0 @@
-{# Select dropdown — for RecordRef / enumerated targets. #}
-<select name="{{ name }}" id="field-{{ name }}"{% if required %} required{% endif %}>
-  {%- if !required %}
-  <option value=""{% if value.is_empty() %} selected{% endif %}>—</option>
-  {%- endif %}
-  {%- for opt in options %}
-  <option value="{{ opt.value }}"{% if opt.value == value %} selected{% endif %}>{{ opt.label }}</option>
-  {%- endfor %}
-</select>

@@ -1500,6 +1500,7 @@ dependencies = [
 [[package]]
 name = "ogar-class-view"
 version = "0.1.0"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#76dcb27fec14aa5416c26ea48814f43394b7f053"
 dependencies = [
  "lance-graph-contract",
  "ogar-vocab",
@@ -1508,6 +1509,7 @@ dependencies = [
 [[package]]
 name = "ogar-render-askama"
 version = "0.1.0"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#76dcb27fec14aa5416c26ea48814f43394b7f053"
 dependencies = [
  "askama",
  "lance-graph-contract",
@@ -1517,6 +1519,7 @@ dependencies = [
 [[package]]
 name = "ogar-vocab"
 version = "0.1.0"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#76dcb27fec14aa5416c26ea48814f43394b7f053"
 
 [[package]]
 name = "once_cell"

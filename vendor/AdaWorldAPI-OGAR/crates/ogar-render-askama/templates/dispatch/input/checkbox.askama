@@ -1,4 +1,0 @@
-{# Boolean checkbox. A hidden 0 field is emitted first so an unchecked #}
-{# box still POSTs `0` for the field (the Rails idiom).                  #}
-<input type="hidden" name="{{ name }}" value="0">
-<input type="checkbox" name="{{ name }}" id="field-{{ name }}" value="1"{% if checked %} checked{% endif %}>
