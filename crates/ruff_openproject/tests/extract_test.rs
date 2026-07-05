@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use ruff_openproject::{
     CORE_V3_RESOURCES, NAMESPACE, extract_core_triples, extract_graph, extract_triples,
-    filter_to_core,
+    extract_triples_with_schema, filter_to_core,
 };
 
 fn fixture_tree() -> PathBuf {
@@ -29,9 +29,18 @@ fn extract_graph_returns_known_models() {
 
 #[test]
 fn extract_triples_produces_locked_shape() {
-    let triples = extract_triples(&fixture_tree());
+    // Schema-aware entry point: `total_hours` only exists as a Field once the
+    // baseline DB columns (db/migrate/tables/work_packages.rb) are merged in
+    // — the model-stratum-only `extract_triples` never populates fields
+    // (D-AR-3 stub, by doctrine: AR models carry no fields on their own).
+    let (triples, report) = extract_triples_with_schema(&fixture_tree());
     let has =
         |s: &str, p: &str, o: &str| triples.iter().any(|t| t.s == s && t.p == p && t.o == o);
+
+    assert_eq!(report.columns_from, "baseline-only");
+    assert_eq!(report.tables_seen, 2, "work_packages.rb + time_entries.rb");
+    assert_eq!(report.tables_matched, 2);
+    assert!(report.unmatched_tables.is_empty());
 
     // Spot-check the locked shape (same assertions as the integration test in
     // ruff_ruby_spo, here exercised through the OP entry point).
@@ -41,6 +50,11 @@ fn extract_triples_produces_locked_shape() {
         "raises",
         "exc:ActiveRecord::RecordInvalid"
     ));
+    // The compute-linkage pass (ruff_ruby_spo::schema::link_computed_fields):
+    // the schema stratum contributes the `total_hours` field
+    // (db/migrate/tables/work_packages.rb's `t.float :total_hours`), and the
+    // linkage pass sets its `emitted_by` because `compute_total_hours` exists
+    // on the same model.
     assert!(has(
         "openproject:WorkPackage.total_hours",
         "emitted_by",

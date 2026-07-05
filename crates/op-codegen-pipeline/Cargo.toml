@@ -12,8 +12,8 @@ name = "op_codegen_pipeline"
 
 [dependencies]
 ruff_openproject       = { path = "../ruff_openproject" }
-ruff_spo_triplet       = { git = "https://github.com/AdaWorldAPI/ruff", rev = "8d6c31b0ece3485075b591e8ead819f2a7ddf813" }
-ruff_ruby_spo          = { git = "https://github.com/AdaWorldAPI/ruff", rev = "8d6c31b0ece3485075b591e8ead819f2a7ddf813" }
+ruff_spo_triplet       = { git = "https://github.com/AdaWorldAPI/ruff", rev = "c514b96d38d764bb16ac070fb2fdbd13477f41bc" }
+ruff_ruby_spo          = { git = "https://github.com/AdaWorldAPI/ruff", rev = "c514b96d38d764bb16ac070fb2fdbd13477f41bc" }
 op-codegen-projection  = { path = "../op-codegen-projection" }
 op-surreal-ast         = { path = "../op-surreal-ast" }
 lance-graph-contract   = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
