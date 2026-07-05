@@ -96,6 +96,8 @@ pub mod manifest;
 pub mod mul;
 pub mod nan_projection;
 pub mod nars;
+/// LSTM `Network` layer-graph structure — base-header parse + `FacetCascade` sink.
+pub mod network;
 pub mod ocr;
 /// D-OVC-1 — OGAR concept codebook (`0xDDCC` domain layout), wire-compat mirror.
 pub mod ogar_codebook;
@@ -133,6 +135,7 @@ pub mod tax;
 pub mod tenant_counter;
 pub mod thinking;
 pub mod unichar;
+pub mod unicharcompress;
 pub mod unicharset;
 pub mod unicharset_adapter;
 pub mod view_angle;

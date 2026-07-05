@@ -7,4 +7,9 @@ description = "Build-time askama codegen harness over the canonical layer — on
 
 [dependencies]
 ogar-vocab = { path = "../ogar-vocab" }
+lance-graph-contract = { path = "../../../AdaWorldAPI-lance-graph/crates/lance-graph-contract" } # vendored-path deviation (D4); upstream: git AdaWorldAPI/lance-graph@main
 askama = "0.12"
+
+[dev-dependencies]
+# harvest driver for examples/render_osm.rs (Rails app/models → Class → Rust)
+ogar-from-rails = { path = "../ogar-from-rails" }

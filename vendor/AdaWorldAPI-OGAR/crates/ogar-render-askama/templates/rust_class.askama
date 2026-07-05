@@ -1,0 +1,40 @@
+{# Render one canonical class as a Rust struct (ClassView × FieldMask #}
+{# projection) + a struct-of-methods constructor (OGAR ActionDef DO-arm). #}
+{# DO NOT EDIT BY HAND. Re-render via #}
+{# `ogar_render_askama::render_class_with_methods`. #}
+//! `{{ name }}` — canonical class generated from `ogar_vocab::{{ concept_fn }}()`.
+//! Fields are the ClassView × FieldMask projection; methods are the OGAR
+//! `ActionDef` DO-arm (behaviour is Rust, never SurrealQL DDL).
+//! DO NOT EDIT BY HAND. Re-render via `ogar-render-askama`.
+
+/// Canonical concept name as in the OGAR codebook.
+pub const CANONICAL_CONCEPT: &str = "{{ canonical_concept }}";
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct {{ name }} {
+{%- for f in fields %}
+    /// {{ f.origin }} `{{ f.snake_name }}`.
+    pub {{ f.snake_name }}: {{ f.rust_type }},
+{%- endfor %}
+}
+
+impl {{ name }} {
+{%- if class_id_hex.len() > 0 %}
+    /// Canonical codebook id for this class.
+    pub const CLASS_ID: u16 = {{ class_id_hex }};
+{%- endif %}
+
+    /// Struct-of-methods constructor over the ClassView × FieldMask field set.
+    pub fn new({{ ctor_params }}) -> Self {
+        Self { {{ ctor_inits }} }
+    }
+{% for m in methods %}
+    /// OGAR action `{{ m.predicate }}` (DO-arm).
+{%- if m.doc.len() > 0 %}
+    /// {{ m.doc }}
+{%- endif %}
+    pub fn {{ m.fn_name }}(&{% if m.mutates %}mut {% endif %}self) {
+        {{ m.body_comment }}
+    }
+{% endfor -%}
+}

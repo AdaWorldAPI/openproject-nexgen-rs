@@ -12,6 +12,7 @@
 |---|---|---|---|---|---|
 | D2 | `vendor/AdaWorldAPI-OGAR/crates/ogar-class-view/Cargo.toml` | `lance-graph-contract` git dep redirected to the sibling vendor path (offline resolution) | 2026-07-02 | **permanent by design** | never — this is how the vendor slice stays self-contained |
 | D3 | `vendor/AdaWorldAPI-ruff/{ruff_ruby_spo,ruff_spo_triplet}` | D-AR-3.5 column-stratum patch, local-first (`D-AR-3.5-column-stratum.diff`), re-applied every sweep if upstream overwrites its targets | 2026-07-02 | active, ~1 re-apply/day observed | ruff session merges wishlist **R1** (`.claude/handovers/2026-07-02-ruff-upstream-extraction-contract.md` §6) |
+| D4 | `vendor/AdaWorldAPI-OGAR/crates/ogar-render-askama/Cargo.toml` | `lance-graph-contract` git dep redirected to the sibling vendor path — NEW at the 2026-07-05 rebase: upstream `ogar-render-askama` gained this dep for `rust_class.rs` (the ClassView×FieldMask→struct transpiler). Same shape as D2. | 2026-07-05 | **permanent by design** | never — offline slice self-containment |
 
 ## Retired deviations
 
@@ -26,3 +27,5 @@
 - 2026-07-02T20:55Z — sweep: clean, 0 files changed
 
 - 2026-07-02T20:57Z — sweep: clean, 0 files changed
+
+- 2026-07-05T05:53Z — sweep: clean, 0 files changed

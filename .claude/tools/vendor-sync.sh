@@ -113,12 +113,19 @@ fi
 for c in ogar-vocab ogar-render-askama ogar-class-view; do
   sweep "vendor/AdaWorldAPI-OGAR/crates/$c" "AdaWorldAPI/OGAR" "crates/$c"
 done
-# deviation 2: class-view path redirect (sync may restore the git dep)
-CV="$ROOT/vendor/AdaWorldAPI-OGAR/crates/ogar-class-view/Cargo.toml"
-if grep -q 'lance-graph-contract = { git' "$CV"; then
-  sed -i 's#lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }#lance-graph-contract = { path = "../../../AdaWorldAPI-lance-graph/crates/lance-graph-contract" } # vendored-path deviation; upstream: git AdaWorldAPI/lance-graph@main#' "$CV"
-  echo "class-view path deviation re-applied"
-fi
+# deviation 2 + 4: redirect the lance-graph-contract git dep to our
+# vendored path in BOTH crates that carry it — ogar-class-view (D2) and,
+# since the 2026-07-05 rebase, ogar-render-askama (D4, needed by the new
+# rust_class.rs = ClassView×FieldMask→struct transpiler). A raw fetch
+# restores the upstream git dep; redirect it or the offline slice can't
+# resolve. `#` in the replacement forbids sed's `s#...#`, so use perl.
+for cv in ogar-class-view ogar-render-askama; do
+  CV="$ROOT/vendor/AdaWorldAPI-OGAR/crates/$cv/Cargo.toml"
+  if grep -q 'lance-graph-contract = { git' "$CV" 2>/dev/null; then
+    perl -0pi -e 's{lance-graph-contract = \{ git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" \}}{lance-graph-contract = { path = "../../../AdaWorldAPI-lance-graph/crates/lance-graph-contract" } # vendored-path deviation; upstream: git AdaWorldAPI/lance-graph\@main}' "$CV"
+    echo "$cv lance-graph-contract path deviation re-applied"
+  fi
+done
 
 # ── ruff slice ──
 for c in ruff_ruby_spo ruff_spo_triplet; do
@@ -140,42 +147,30 @@ if [ ! -f crates/ruff_ruby_spo/src/schema.rs ] || ! grep -q column_not_null crat
   fi
 fi
 
-# ── final truth: snapshot-diff report (post fetch + deviation re-apply) ──
+# ── final truth: GIT is the ground truth for what changed. ──
+# The prior hand-rolled sha256 snapshot-diff report LIED: on 2026-07-05 it
+# printed "clean / 0 files changed" for a sweep that git showed moving 12
+# files across all three mirrors (+ new files + a D-AR-3.5 patch-fuzz
+# .orig). An instrument that can silently under-report is worse than none —
+# so the report is now `git status`, which cannot misrepresent the working
+# tree. (This is the "instruments must not lie" rule, applied to the tool
+# that broke it.)
 cd "$ROOT"
-snapshot "$AFTER_SNAP"
-echo "── vendor-sync report (final committed-byte diff) ──"
-TOTAL_CHANGED=0
-LOG_SUMMARY=""
-for d in "${VENDOR_DIRS[@]}"; do
-  mirror_changed=""
-  for f in $(grep -oE "$ROOT/$d/[^ ]+\.rs" "$BEFORE_SNAP" "$AFTER_SNAP" | sort -u); do
-    before=$(grep -F "  $f" "$BEFORE_SNAP" | awk '{print $1}')
-    after=$(grep -F "  $f" "$AFTER_SNAP" | awk '{print $1}')
-    if [ "$before" != "$after" ]; then
-      rel="${f#$ROOT/$d/}"
-      [ -z "$before" ] && rel="$rel(new)"
-      mirror_changed="$mirror_changed $rel"
-      TOTAL_CHANGED=$((TOTAL_CHANGED + 1))
-    fi
-  done
-  if [ -n "$mirror_changed" ]; then
-    echo "CHANGED $d:$mirror_changed"
-    LOG_SUMMARY="$LOG_SUMMARY $d:$mirror_changed"
-  else
-    echo "clean   $d"
-  fi
-done
-echo "── done: $TOTAL_CHANGED file(s) actually changed (post-deviation-reapply truth). Now: cargo test --workspace, review, commit."
+echo "── vendor-sync report (git working-tree truth) ──"
+CHANGED_LINES="$(git status --porcelain -- "${VENDOR_DIRS[@]}" 2>/dev/null)"
+TOTAL_CHANGED=$(printf '%s\n' "$CHANGED_LINES" | grep -c .)
+if [ "$TOTAL_CHANGED" -eq 0 ]; then
+  echo "clean — 0 files changed across all mirrors"
+else
+  printf '%s\n' "$CHANGED_LINES"
+  echo "── $TOTAL_CHANGED path(s) changed (git truth). Watch for .rej/.orig (patch fuzz), then: cargo test --workspace, review, commit."
+fi
 
 # ── VENDOR-STATE.md telemetry (P0: deviation expiry tracking) ──
 STATE_LOG="$ROOT/.claude/VENDOR-STATE.md"
 if [ -f "$STATE_LOG" ]; then
   {
     echo ""
-    if [ "$TOTAL_CHANGED" -eq 0 ]; then
-      echo "- $(date -u +%Y-%m-%dT%H:%MZ) — sweep: clean, 0 files changed"
-    else
-      echo "- $(date -u +%Y-%m-%dT%H:%MZ) — sweep: $TOTAL_CHANGED file(s) changed —$LOG_SUMMARY"
-    fi
+    echo "- $(date -u +%Y-%m-%dT%H:%MZ) — sweep: $TOTAL_CHANGED path(s) changed (git truth)"
   } >> "$STATE_LOG"
 fi

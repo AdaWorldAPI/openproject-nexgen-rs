@@ -97,6 +97,17 @@ use ogar_vocab::{
     mars_resource,
     mars_software,
     medication,
+    network_layer,
+    osm_changeset,
+    osm_element_tag,
+    osm_gpx_trace,
+    osm_node,
+    osm_note,
+    osm_relation,
+    osm_relation_member,
+    osm_user,
+    osm_way,
+    osm_way_node,
     patient,
     payment_record,
     pricelist,
@@ -188,6 +199,7 @@ fn all_canonical_classes() -> Vec<(&'static str, Class)> {
         ("unicharset", unicharset()),
         ("recoder", recoder()),
         ("charset", charset()),
+        ("network_layer", network_layer()),
         // ── 0x09XX — health (OGIT Healthcare) ──
         ("patient", patient()),
         ("diagnosis", diagnosis()),
@@ -221,6 +233,17 @@ fn all_canonical_classes() -> Vec<(&'static str, Class)> {
         ("action_handler", action_handler()),
         ("action_applicability", action_applicability()),
         ("automation_trigger", automation_trigger()),
+        // ── 0x0FXX — Geo (OpenStreetMap geodata reference ontology) ──
+        ("osm_node", osm_node()),
+        ("osm_way", osm_way()),
+        ("osm_relation", osm_relation()),
+        ("osm_changeset", osm_changeset()),
+        ("osm_element_tag", osm_element_tag()),
+        ("osm_relation_member", osm_relation_member()),
+        ("osm_way_node", osm_way_node()),
+        ("osm_note", osm_note()),
+        ("osm_gpx_trace", osm_gpx_trace()),
+        ("osm_user", osm_user()),
     ]
 }
 

@@ -116,7 +116,7 @@ impl ArtifactEmitter for RustStructEmitter {
 /// 2024 strict + reserved-future); a `&str` slot from the canonical layer
 /// can never need a non-identifier escape since names are sourced from
 /// Rails / Odoo identifiers.
-fn escape_rust_ident(name: &str) -> String {
+pub(crate) fn escape_rust_ident(name: &str) -> String {
     const RESERVED: &[&str] = &[
         // Rust 2015+ strict keywords:
         "as", "break", "const", "continue", "crate", "else", "enum", "extern",
@@ -142,7 +142,7 @@ fn escape_rust_ident(name: &str) -> String {
 /// today. Each `op-*` / `rm-*` consumer is free to specialise (e.g.
 /// `Decimal` vs `f64` for monetary slots) downstream. The point is the
 /// canonical contract round-trips; precision is a per-consumer concern.
-fn rails_to_rust_type(t: Option<&str>) -> String {
+pub(crate) fn rails_to_rust_type(t: Option<&str>) -> String {
     match t {
         Some("string") | Some("text") => "String".into(),
         Some("integer") | Some("big_integer") | Some("bigint") => "i64".into(),
@@ -155,7 +155,7 @@ fn rails_to_rust_type(t: Option<&str>) -> String {
     }
 }
 
-fn edge_rust_type(a: &ogar_vocab::Association) -> String {
+pub(crate) fn edge_rust_type(a: &ogar_vocab::Association) -> String {
     // Coarse: `belongs_to` / `has_one` → `Option<u64>` (FK id),
     // `has_many` / `habtm` → `Vec<u64>`. The concrete `op-*` / `rm-*`
     // consumer can swap these for typed references downstream.

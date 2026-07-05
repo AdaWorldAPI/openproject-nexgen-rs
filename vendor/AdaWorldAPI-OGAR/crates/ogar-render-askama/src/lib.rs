@@ -71,6 +71,7 @@
 pub mod artifact_kinds;
 pub mod form_view;
 pub mod list_view;
+pub mod rust_class;
 pub mod spec;
 
 pub use artifact_kinds::{
@@ -80,6 +81,7 @@ pub use artifact_kinds::{
 };
 pub use form_view::{default_input_kind_for, InputKind};
 pub use list_view::{default_kind_for, ColumnKind, RenderColumn, SortOrder};
+pub use rust_class::render_class_with_methods;
 pub use spec::{ArtifactKind, ArtifactSpec};
 
 use ogar_vocab::Class;
@@ -329,8 +331,15 @@ mod tests {
             }],
             block: vec![],
         };
-        let src = render_list("By status", 0x0102, "project_work_item", &[col.clone()], &[], &[row])
-            .unwrap();
+        let src = render_list(
+            "By status",
+            0x0102,
+            "project_work_item",
+            std::slice::from_ref(&col),
+            &[],
+            &[row],
+        )
+        .unwrap();
         assert!(src.contains("class=\"group open\""), "{src}");
         assert!(src.contains("<span class=\"name\">Open</span>"), "{src}");
         assert!(src.contains("<span class=\"badge\">5</span>"), "{src}");

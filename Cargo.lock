@@ -1509,6 +1509,7 @@ name = "ogar-render-askama"
 version = "0.1.0"
 dependencies = [
  "askama",
+ "lance-graph-contract",
  "ogar-vocab",
 ]
 

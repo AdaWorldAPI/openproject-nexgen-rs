@@ -80,7 +80,13 @@ pub enum ConceptDomain {
     /// `ogar_vocab::ConceptDomain::Genetics` — OGAR catches up under the drift
     /// guard (the parity tests pin `0x0E00 → Genetics`).
     Genetics,
-    /// Any high-byte slot not yet assigned a domain (`0x03XX`–`0x06XX`, `0x0FXX`+).
+    /// `0x0FXX` — Geo (OpenStreetMap geodata: node / way / relation / changeset /
+    /// element-tag / member / note / GPX trace / user). Public spatial reference
+    /// data; the Geo domain binds the HHTL tier axes to literal (x, y) tiles
+    /// (OGAR canon "256×256 centroid tile", D-BOTHCASC). Mirrors OGAR
+    /// `ogar_vocab::ConceptDomain::Geo`; the parity tests pin `0x0F00 → Geo`.
+    Geo,
+    /// Any high-byte slot not yet assigned a domain (`0x03XX`–`0x06XX`, `0x10XX`+).
     Unassigned,
 }
 
@@ -102,6 +108,7 @@ pub fn canonical_concept_domain(id: u16) -> ConceptDomain {
         0x0C => ConceptDomain::Automation,
         0x0D => ConceptDomain::HR,
         0x0E => ConceptDomain::Genetics,
+        0x0F => ConceptDomain::Geo,
         _ => ConceptDomain::Unassigned,
     }
 }
@@ -486,6 +493,12 @@ pub const CODEBOOK: &[(&str, u16)] = &[
     ("unicharset", 0x0801),
     ("recoder", 0x0802),
     ("charset", 0x0803),
+    // `network_layer` = the KIND "a Tesseract recognizer network layer" (Series /
+    // LSTM / Convolve / …). ONE container slot: the specific subclass is the
+    // classid's custom-low half (the `NetworkType` ordinal, `network::NETWORK_LAYER`),
+    // not 27 slots — the layer graph sinks onto `FacetCascade` tenants (the
+    // ruff→OGAR network harvest lands here).
+    ("network_layer", 0x0804),
     // ── 0x09XX — Health domain (MedCare; OGIT NTO/Healthcare promotion) ──
     ("patient", 0x0901),
     ("diagnosis", 0x0902),
@@ -527,6 +540,20 @@ pub const CODEBOOK: &[(&str, u16)] = &[
     ("action_handler", 0x0C07),
     ("action_applicability", 0x0C08),
     ("automation_trigger", 0x0C09),
+    // ── 0x0FXX — Geo domain (OpenStreetMap geodata; OGAR OSM harvest, PR #152).
+    // The core OSM graph — node / way / relation / changeset — plus element tags,
+    // relation members, way nodes, notes, GPX traces, and the user. `Old*`
+    // versioned rows ground to the same concept (temporal axis, not a new id). ──
+    ("osm_node", 0x0F01),
+    ("osm_way", 0x0F02),
+    ("osm_relation", 0x0F03),
+    ("osm_changeset", 0x0F04),
+    ("osm_element_tag", 0x0F05),
+    ("osm_relation_member", 0x0F06),
+    ("osm_way_node", 0x0F07),
+    ("osm_note", 0x0F08),
+    ("osm_gpx_trace", 0x0F09),
+    ("osm_user", 0x0F0A),
 ];
 
 /// Resolve a **canonical-concept** string to its stable `u16` codebook id via
@@ -607,7 +634,9 @@ mod tests {
         assert_eq!(canonical_concept_domain(0x0500), ConceptDomain::Unassigned);
         // Genetics (0x0E) operator-allocated 2026-06-26 for CPIC-V3 (was Unassigned).
         assert_eq!(canonical_concept_domain(0x0E00), ConceptDomain::Genetics);
-        assert_eq!(canonical_concept_domain(0x0F00), ConceptDomain::Unassigned);
+        // Geo (0x0F) allocated with the OSM harvest (OGAR #152; was Unassigned).
+        assert_eq!(canonical_concept_domain(0x0F00), ConceptDomain::Geo);
+        assert_eq!(canonical_concept_domain(0x1000), ConceptDomain::Unassigned);
     }
 
     #[test]
