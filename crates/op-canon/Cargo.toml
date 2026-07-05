@@ -18,4 +18,4 @@ ogar-vocab = { path = "../../vendor/AdaWorldAPI-OGAR/crates/ogar-vocab" }
 ogar-class-view = { path = "../../vendor/AdaWorldAPI-OGAR/crates/ogar-class-view" }
 # Run-time ClassView trait + FieldMask + RenderRow. Re-exported so
 # downstream `op-*` crates have one import for the projection contract.
-lance-graph-contract = { path = "../../vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" }
+lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }

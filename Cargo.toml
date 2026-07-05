@@ -33,7 +33,6 @@ members = [
 # normally; they bypass workspace-member discovery.
 exclude = [
     "vendor/AdaWorldAPI-ruff",
-    "vendor/AdaWorldAPI-lance-graph",
     "vendor/AdaWorldAPI-OGAR",
 ]
 

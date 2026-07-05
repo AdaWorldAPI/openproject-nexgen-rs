@@ -7,4 +7,4 @@ description = "Bridge crate: lifts `ogar_vocab::Class` (canonical AR shape, code
 
 [dependencies]
 ogar-vocab = { path = "../ogar-vocab" }
-lance-graph-contract = { path = "../../../AdaWorldAPI-lance-graph/crates/lance-graph-contract" } # vendored-path deviation; upstream: git AdaWorldAPI/lance-graph@main
+lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }

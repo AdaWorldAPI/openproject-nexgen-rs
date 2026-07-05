@@ -16,4 +16,4 @@ ruff_spo_triplet       = { path = "../../vendor/AdaWorldAPI-ruff/crates/ruff_spo
 ruff_ruby_spo          = { path = "../../vendor/AdaWorldAPI-ruff/crates/ruff_ruby_spo" }
 op-codegen-projection  = { path = "../op-codegen-projection" }
 op-surreal-ast         = { path = "../op-surreal-ast" }
-lance-graph-contract   = { path = "../../vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" }
+lance-graph-contract   = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }

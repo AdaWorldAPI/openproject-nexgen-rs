@@ -21,10 +21,13 @@
 # real (`git diff --stat` showed 0 lines for the 4, 193 for the 2).
 #
 # Recorded deviations (re-applied after sync, in this order):
-#   1. RETIRED — lance-graph-contract/src/codegen_spine.rs
-#      (C6 RouteBucketTyped merged upstream in lance-graph #632; guard
-#      only, no patch step — see the check below)
-#   2. ogar-class-view/Cargo.toml lance-graph-contract git→path redirect
+#   1. UN-VENDORED — lance-graph is no longer vendored at all. Consumers use a
+#      plain Cargo git dep; Cargo fetches + lock-pins the commit. The trait-only
+#      zero-dep contract leaf + a reachable `git clone` made 47k LOC of vendored
+#      source pointless. Nothing to sync.
+#   2. RETIRED — the ogar-{class-view,render-askama} lance-graph-contract
+#      git→path redirect (former D2/D4). OGAR now carries the upstream git dep
+#      verbatim (git is reachable); no post-sweep re-apply.
 #   3. ruff D-AR-3.5-column-stratum.diff (pending upstream: wishlist R1)
 #
 # Usage: .claude/tools/vendor-sync.sh   (from anywhere; resolves ROOT itself)
@@ -32,8 +35,10 @@ set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
+# lance-graph is NO LONGER vendored — consumers use a plain Cargo git dep
+# ({ git = ".../lance-graph", branch = "main" }); Cargo fetches + lock-pins it.
+# Only OGAR + ruff remain as vendored partial mirrors swept from raw.
 VENDOR_DIRS=(
-  vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract
   vendor/AdaWorldAPI-OGAR/crates/ogar-vocab
   vendor/AdaWorldAPI-OGAR/crates/ogar-render-askama
   vendor/AdaWorldAPI-OGAR/crates/ogar-class-view
@@ -98,33 +103,19 @@ sweep() {
   done
 }
 
-# ── lance-graph-contract ──
-sweep "vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract" \
-      "AdaWorldAPI/lance-graph" "crates/lance-graph-contract"
-# deviation 1 RETIRED (lance-graph #632 merged RouteBucketTyped upstream;
-# diff archived as codegen_spine.diff.retired-632). Guard remains: if the
-# symbol ever vanishes upstream again, fail loudly instead of silently
-# breaking op-codegen-bucket.
-if ! grep -q RouteBucketTyped "$ROOT/vendor/AdaWorldAPI-lance-graph/crates/lance-graph-contract/src/codegen_spine.rs"; then
-  echo "!! RouteBucketTyped GONE from upstream spine — op-codegen-bucket will break; see codegen_spine.diff.retired-632" >&2
-fi
+# ── lance-graph: UN-VENDORED (2026-07-05) ──
+# No longer swept or mirrored. lance-graph-contract is a trait-only zero-dep
+# leaf and the repo is reachable via plain `git clone` over the proxy, so the
+# consuming crates (op-nexgen's + OGAR's) just declare a normal Cargo git dep
+# (`{ git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }`).
+# Cargo fetches it and pins the commit in Cargo.lock — nothing to sync here.
 
 # ── OGAR slice (the three vendored crates) ──
+# These carry the upstream lance-graph-contract git dep verbatim (git is
+# reachable), so the old D2/D4 git→path redirect is GONE — the raw sweep keeps
+# the git dep as-is and it resolves fine. No post-sweep re-apply needed.
 for c in ogar-vocab ogar-render-askama ogar-class-view; do
   sweep "vendor/AdaWorldAPI-OGAR/crates/$c" "AdaWorldAPI/OGAR" "crates/$c"
-done
-# deviation 2 + 4: redirect the lance-graph-contract git dep to our
-# vendored path in BOTH crates that carry it — ogar-class-view (D2) and,
-# since the 2026-07-05 rebase, ogar-render-askama (D4, needed by the new
-# rust_class.rs = ClassView×FieldMask→struct transpiler). A raw fetch
-# restores the upstream git dep; redirect it or the offline slice can't
-# resolve. `#` in the replacement forbids sed's `s#...#`, so use perl.
-for cv in ogar-class-view ogar-render-askama; do
-  CV="$ROOT/vendor/AdaWorldAPI-OGAR/crates/$cv/Cargo.toml"
-  if grep -q 'lance-graph-contract = { git' "$CV" 2>/dev/null; then
-    perl -0pi -e 's{lance-graph-contract = \{ git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" \}}{lance-graph-contract = { path = "../../../AdaWorldAPI-lance-graph/crates/lance-graph-contract" } # vendored-path deviation; upstream: git AdaWorldAPI/lance-graph\@main}' "$CV"
-    echo "$cv lance-graph-contract path deviation re-applied"
-  fi
 done
 
 # ── ruff slice ──
