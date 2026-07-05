@@ -41,6 +41,13 @@ use lance_graph_contract::codegen_spine::Triple as SpineTriple;
 use op_codegen_projection::{surreal_text, OpSurrealConst, OpSurrealProjection};
 use ruff_spo_triplet::Triple as RuffTriple;
 
+/// The ogar-emit consumer path (§5 steps 4-5): source -> ruff -> OGAR
+/// lift/mint -> adapter emit, wired alongside (not replacing) the native
+/// ruff -> op-surreal-ast -> SurrealQL path in this crate. Feature-gated
+/// so the native path's dependency graph is untouched by default.
+#[cfg(feature = "ogar-emit")]
+pub mod ogar_consumer;
+
 // `lance_graph_contract::codegen_spine::TripletProjection` is implemented
 // on the projection type — we don't reference the trait directly here, only
 // its associated method, which keeps the import surface narrow.

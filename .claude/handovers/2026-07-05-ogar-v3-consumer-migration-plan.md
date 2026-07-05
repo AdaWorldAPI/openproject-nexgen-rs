@@ -92,14 +92,29 @@ vendored ruff. It becomes **resolver config (data)** in `.claude/harvest/`:
 ## 5. Sequenced migration (execute after this PR; token-walled here)
 
 1. **[DONE]** un-vendor lance-graph + OGAR → git deps (this PR).
-2. Stand up `.claude/harvest/` — the ORM→AR back-projection resolver config
-   (data) + README. *(additive, zero-risk — the correct first step)*
-3. Un-vendor ruff → git dep: retire the D-AR-3.5 patch; the back-projection
-   moves to §4; cross-ref rows → ruff spec. `vendor/` retires entirely.
-4. Add op-nexgen deps: `ogar-from-ruff`, `ogar-adapter-surrealql`, `ogar-emitter`
-   (git deps, same as ogar-vocab today).
-5. Rewire `op-codegen-pipeline` → consumer: `ogar-from-ruff` → Class →
-   `ogar-adapter-surrealql::emit_surrealql_ddl`. Port the pipeline tests.
+2. **[DONE]** Stand up `.claude/harvest/` — the ORM→AR back-projection resolver
+   config (data) + README. *(landed 4102eb0)*
+3. **[DONE]** Un-vendor ruff → git dep: retire the D-AR-3.5 patch; the
+   back-projection moves to §4; cross-ref rows → ruff spec. `vendor/` retires
+   entirely. *(this commit; upstream-first landed as ruff 8d6c31b — schema
+   stratum, visibility filtering, tree harvest, ColumnNotNull/inherits; the
+   D-AR-3.5 mechanism lives in ruff, the guess-rules live in .claude/harvest)*
+4. **[DONE]** Add op-nexgen deps: `ogar-from-ruff`, `ogar-adapter-surrealql`
+   (git deps, same as ogar-vocab today; `ogar-adapter-surrealql` pulled with
+   default features only — its `surrealdb-parser` feature stays off).
+   *(landed in `op-codegen-pipeline`'s `ogar-emit` optional feature; `ogar-emitter`
+   deliberately deferred — it targets V3 triples, not the DDL shape this step
+   needs. `ogar-adapter-surrealql::emit_surrealql_ddl` is the DDL path used
+   instead.)*
+5. **[DONE — additive]** Rewire `op-codegen-pipeline` → consumer: `ogar-from-ruff`
+   → Class → `ogar-adapter-surrealql::emit_surrealql_ddl`. Port the pipeline tests.
+   *(landed as `op_codegen_pipeline::ogar_consumer`, feature-gated behind
+   `ogar-emit` and wired alongside — not replacing — the native
+   `op-surreal-ast` path; `compile_op` / `emit_surreal_via_ogar` /
+   `render_surreal_via_ogar` / `render_classid_of` cover the source → ruff →
+   OGAR lift/mint → Class → adapter-emit chain, plus the convergence-pin and
+   `tests/ogar_consumer_fixture.rs` fixture tests. Full test-porting off the
+   native path — i.e. retiring `op-surreal-ast` — is step 6, not yet done.)*
 6. Retire `op-surreal-ast`, `op-codegen-projection`, `op-codegen-residual`
    (fold their oracle/falsifier tests into the consumer + `.claude/harvest`).
 7. Keep `op-canon` + the app crates; decide `op-codegen-bucket`.

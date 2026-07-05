@@ -1,0 +1,212 @@
+# ORM -> ActiveRecord back-projection resolver config.
+#
+# The one training wheel op-nexgen owns (migration plan sec.4 + sec.5 step 2).
+# Data, not code: each [[rule]] maps an ORM/DB shape (a Rails migration DSL
+# line or a harvested column/table shape) to a guessed AR declaration.
+#
+# See README.md in this directory for the doctrine, the field schema, the
+# kind/validation legends, and the sec.4-vs-schema.rs discrepancy log.
+#
+# Provenance keys used in `source`:
+#   plan sec.4 rowN   = the row of the sec.4 table in
+#                       .claude/handovers/2026-07-05-ogar-v3-consumer-migration-plan.md
+#   schema.rs LxxxLyy = vendor/AdaWorldAPI-ruff/crates/ruff_ruby_spo/src/schema.rs
+#                       (the D-AR-3.5 harvest)
+#
+# NOTHING here is oracle-validated yet: every rule is validation = "unmeasured"
+# pending the AR-oracle pass (the 90/10 oracle-diff discipline, plan sec.4c).
+
+[meta]
+schema_version = 1
+purpose = "ORM/DB shape -> guessed ActiveRecord declaration (back-projection)"
+data_not_code = "config is data; where data is insufficient, make ruff smarter (spec it, don't fake it here)"
+measure_dont_claim = "every guess is validated against the AR oracle; no shipped coverage that wasn't measured"
+kinds = ["direct", "guess", "weak"]
+validation_states = ["unmeasured", "confirmed", "corrected", "retired"]
+# All rules start unmeasured; the AR-oracle pass moves each to a measured state.
+default_validation = "unmeasured"
+# The closed column-type vocabulary the harvest recognises (schema.rs L81-L99).
+column_types = [
+  "string", "text", "integer", "bigint", "boolean", "datetime", "date",
+  "float", "decimal", "jsonb", "json", "uuid", "interval", "tsvector",
+  "tstzrange", "binary", "timestamp",
+]
+
+# ---------------------------------------------------------------------------
+# DIRECT rules -- the ORM shape determines the output; no inference.
+# ---------------------------------------------------------------------------
+
+[[rule]]
+id = "typed_column"
+input_name = "typed column"
+input_pattern = "migration DSL line `t.<type> :name, opts` where <type> is in meta.column_types"
+input_regex = '^t\.(string|text|integer|bigint|boolean|datetime|date|float|decimal|jsonb|json|uuid|interval|tsvector|tstzrange|binary|timestamp)\s+:(?P<name>\w+)'
+guessed_output = 'Field { name = "<name>", field_type = "<type>" }'
+kind = "direct"
+validation = "unmeasured"
+source = "plan sec.4 row1; schema.rs L234-L238 (COLUMN_TYPES L81-L99)"
+notes = "field_type carries the DSL method name verbatim; consumers own the SQL/SurrealQL mapping."
+
+[[rule]]
+id = "explicit_column"
+input_name = "explicit column form"
+input_pattern = "migration DSL line `t.column :name, :type, opts` (the explicit two-symbol form)"
+input_regex = '^t\.column\s+:(?P<name>\w+)\s*,\s*:(?P<type>\w+)'
+guessed_output = 'Field { name = "<name>", field_type = "<type>" }'
+kind = "direct"
+validation = "unmeasured"
+source = "schema.rs L225-L232 (variant of plan sec.4 row1; sec.4 table omits the explicit form)"
+notes = "Same output shape as typed_column; distinct input syntax."
+
+[[rule]]
+id = "implicit_pk"
+input_name = "implicit primary key"
+input_pattern = "a `create_table` / `create_unlogged_table` call WITHOUT `id: false`"
+input_regex = '^create_(?:unlogged_)?table\b(?!.*id:\s*false)'
+guessed_output = 'Field { name = "id", field_type = "bigint", not_null = true }'
+kind = "direct"
+validation = "unmeasured"
+source = "schema.rs L184-L187 (plan sec.4 table omits it)"
+notes = "Rails adds an implicit bigint PK unless the create_table opts out via `id: false`."
+
+[[rule]]
+id = "id_false_suppresses_pk"
+input_name = "id: false modifier"
+input_pattern = "`create_table ..., id: false` -- suppresses the implicit primary key"
+input_regex = '^create_(?:unlogged_)?table\b.*id:\s*false'
+guessed_output = "no implicit `id` column emitted (modifier on implicit_pk)"
+kind = "direct"
+validation = "unmeasured"
+source = "schema.rs L185 (guard on implicit_pk)"
+notes = "Modifier, not a standalone association. Common on 2-FK HABTM join tables (see habtm_join_table)."
+
+[[rule]]
+id = "timestamps_pair"
+input_name = "timestamps pair"
+input_pattern = "migration DSL line `t.timestamps [precision: nil,] [null: <bool>]`"
+input_regex = '^t\.timestamps\b'
+guessed_output = 'Field { name = "created_at", field_type = "datetime" } + Field { name = "updated_at", field_type = "datetime" }'
+kind = "direct"
+validation = "unmeasured"
+source = "schema.rs L207-L211 (plan sec.4 table omits it)"
+notes = "not_null on both follows the line's `null:` option (default nullable). Pairs with AR's automatic timestamp maintenance."
+
+[[rule]]
+id = "references_belongs_to"
+input_name = "declared belongs_to (DSL)"
+input_pattern = "migration DSL line `t.references :x` / `t.belongs_to :x` (alias), no `polymorphic: true`"
+input_regex = '^t\.(?:references|belongs_to)\s+:(?P<assoc>\w+)(?!.*polymorphic:\s*true)'
+guessed_output = 'belongs_to :<assoc>  +  Field { name = "<assoc>_id", field_type = "bigint" }'
+kind = "direct"
+validation = "unmeasured"
+source = "schema.rs L215-L223 (plan sec.4 table has only the name-pattern GUESS, foreign_key_name)"
+notes = "DISCREPANCY 1: the DSL DECLARES the association -> direct. schema.rs emits only the _id column today; the belongs_to declaration is the back-projection this config adds. Fires before foreign_key_name; the guess is the fallback for a bare <x>_id with no covering t.references."
+
+[[rule]]
+id = "references_polymorphic"
+input_name = "declared polymorphic belongs_to (DSL)"
+input_pattern = "migration DSL line `t.references :x, polymorphic: true` (alias `t.belongs_to`)"
+input_regex = '^t\.(?:references|belongs_to)\s+:(?P<assoc>\w+).*polymorphic:\s*true'
+guessed_output = 'belongs_to :<assoc>, polymorphic: true  +  Field "<assoc>_id" bigint  +  Field "<assoc>_type" string'
+kind = "direct"
+validation = "unmeasured"
+source = "schema.rs L218-L221 (plan sec.4 table has only the name-pattern GUESS, polymorphic_pair)"
+notes = "DISCREPANCY 1: DSL states polymorphic -> direct. schema.rs emits the _id/_type columns; the polymorphic belongs_to declaration is the added back-projection."
+
+# ---------------------------------------------------------------------------
+# GUESS rules -- name/shape heuristics; usually right, not stated by source.
+#               Must clear the AR oracle before they are trusted.
+# ---------------------------------------------------------------------------
+
+[[rule]]
+id = "null_false_presence"
+input_name = "not-null -> presence validation"
+input_pattern = "any column line carrying `null: false` (harvested Field.not_null == true)"
+input_regex = 'null:\s*false'
+guessed_output = 'required column  +  validates :<column>, presence: true'
+kind = "guess"
+validation = "unmeasured"
+source = "plan sec.4 row2 (marked 'direct -> guess'); schema.rs L269-L271 (parse_not_null)"
+notes = "The not_null COLUMN fact is direct (harvested); the `validates presence` back-projection is a GUESS -- a DB NOT NULL is not necessarily an AR presence validation. Confirm against actual AR code (a 'make ruff smarter' candidate)."
+
+[[rule]]
+id = "foreign_key_name"
+input_name = "foreign-key name -> belongs_to"
+input_pattern = "harvested integer/bigint Field named `<x>_id`, with NO covering t.references DSL and NO sibling `<x>_type`"
+input_regex = '^(?P<assoc>\w+)_id$'
+guessed_output = "belongs_to :<assoc>"
+kind = "guess"
+validation = "unmeasured"
+source = "plan sec.4 row3"
+notes = "Fallback for a bare <x>_id column. Suppressed when references_belongs_to already fired for <x>, or when polymorphic_pair matches (a <x>_type sibling exists). Do not emit if the association is already AR-declared -- ruff owns that check."
+
+[[rule]]
+id = "polymorphic_pair"
+input_name = "id+type pair -> polymorphic belongs_to"
+input_pattern = "harvested Fields `<x>_id` AND `<x>_type` on the same model, with no covering polymorphic DSL"
+input_regex = '^(?P<assoc>\w+)_id$   &&   ^(?P<assoc>\w+)_type$'
+guessed_output = "belongs_to :<assoc>, polymorphic: true"
+kind = "guess"
+validation = "unmeasured"
+source = "plan sec.4 row4"
+notes = "The <x>_id + <x>_type name pair is the PolyRef substrate declaring itself (RESIDUAL-THREE-BUCKETS.md sec.4a). Fallback for when references_polymorphic did not fire."
+
+[[rule]]
+id = "unique_index"
+input_name = "unique index -> uniqueness validation"
+input_pattern = "an `add_index ..., unique: true` or `t.index ..., unique: true` targeting column(s) c"
+input_regex = '(?:add_index|t\.index)\b.*unique:\s*true'
+guessed_output = "validates :<c>, uniqueness: true"
+kind = "guess"
+validation = "unmeasured"
+source = "plan sec.4 row5"
+notes = "DISCREPANCY 3+4: schema.rs SKIPS index lines (L204-L205, docstring L32-L34) and is baseline-only (L27-L29), so unique-index facts are NOT harvested yet. This rule has no backing harvest until ruff lifts index facts / replays incremental migrations -- a 'make ruff smarter' upstream item, not a heuristic to fake here."
+
+[[rule]]
+id = "habtm_join_table"
+input_name = "2-FK join table -> HABTM both sides"
+input_pattern = "a table named `a_b` with exactly two `<x>_id` FK columns and no matching AR model (lands in SchemaReport.unmatched_tables)"
+input_regex = ""
+guessed_output = "has_and_belongs_to_many on both referenced models (A <-> B)"
+kind = "guess"
+validation = "unmeasured"
+source = "plan sec.4 row6"
+notes = "DISCREPANCY 6: schema.rs records the join table in unmatched_tables (L31, L127-L129) but emits no HABTM. Often id: false (see id_false_suppresses_pk). The both-sides HABTM declaration is the back-projection this config adds."
+
+[[rule]]
+id = "counter_cache"
+input_name = "counter column -> counter_cache"
+input_pattern = "harvested integer Field named `<assoc>_count`, where <assoc> matches a belongs_to on the model"
+input_regex = '^(?P<assoc>\w+)_count$'
+guessed_output = "belongs_to :<assoc>, counter_cache: true"
+kind = "guess"
+validation = "unmeasured"
+source = "plan sec.4 row7"
+notes = "DISCREPANCY 6: schema.rs harvests <assoc>_count as a plain integer column; the counter_cache back-projection onto the belongs_to is added here. Guess only fires when a corresponding association is present."
+
+# ---------------------------------------------------------------------------
+# WEAK rules -- low-confidence structural hints. Never shipped without an
+#               oracle confirmation and (usually) corroborating AR code.
+# ---------------------------------------------------------------------------
+
+[[rule]]
+id = "nested_set"
+input_name = "lft/rgt -> nested set"
+input_pattern = "harvested Fields include BOTH `lft` and `rgt` (optionally a `depth`) on one model"
+input_regex = '^(?:lft|rgt)$'
+guessed_output = "nested-set tree (acts_as_nested_set / awesome_nested_set)"
+kind = "weak"
+validation = "unmeasured"
+source = "plan sec.4 row8 (split: nested-set half)"
+notes = "DISCREPANCY 5: sec.4 collapses lft/rgt | parent_id into one row; split here into nested_set vs adjacency_tree. schema.rs harvests lft/rgt as plain integer columns -- no special handling. Weak: confirm against AR code before trusting."
+
+[[rule]]
+id = "adjacency_tree"
+input_name = "parent_id -> tree"
+input_pattern = "harvested self-referential Field `parent_id` (references the same table)"
+input_regex = '^parent_id$'
+guessed_output = "adjacency-list tree (acts_as_tree; belongs_to :parent / has_many :children, self-referential)"
+kind = "weak"
+validation = "unmeasured"
+source = "plan sec.4 row8 (split: tree half)"
+notes = "DISCREPANCY 5: the tree half of the collapsed sec.4 row8. `parent_id` also matches foreign_key_name; the tree reading is the weaker, self-referential interpretation and must be corroborated (self-reference + child collection) before shipping."

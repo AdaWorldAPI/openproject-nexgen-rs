@@ -1,0 +1,21 @@
+[package]
+name = "ruff_openproject"
+version = "0.1.0"
+publish = false
+edition = "2024"
+rust-version = "1.86"
+description = "OpenProject high-level extraction: Ruby/Rails app/models + db/schema.rb -> SPO triples. Thin orchestrator over `ruff_ruby_spo` (Rails frontend) and `ruff_spo_triplet` (IR + expand). Adds OpenProject-specific curation (core v3 resources, namespace constant) without modifying the upstream-neutral crates."
+license = "MIT"
+
+[lib]
+name = "ruff_openproject"
+
+[dependencies]
+# Operator ruling: rev pins on AdaWorldAPI-internal git deps are retired —
+# they were "out of desperation to lock what hadn't converged in transpiler
+# sink-in yet." Drift protection is the fuse tests, not pins. Floats on the
+# convergence branch `claude/odoo-rs-transcode-lf8ya5`. Flips to
+# `branch = "main"` once the convergence branches merge. Cargo.lock still
+# locks a concrete rev for reproducibility.
+ruff_ruby_spo    = { git = "https://github.com/AdaWorldAPI/ruff", branch = "claude/odoo-rs-transcode-lf8ya5" }
+ruff_spo_triplet = { git = "https://github.com/AdaWorldAPI/ruff", branch = "claude/odoo-rs-transcode-lf8ya5" }

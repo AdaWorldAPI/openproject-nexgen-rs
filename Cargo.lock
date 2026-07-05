@@ -1498,18 +1498,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "ogar-adapter-surrealql"
+version = "0.1.0"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#dee6e50dc1bd81d377db311a9d7795b78602ab38"
+dependencies = [
+ "ogar-vocab",
+]
+
+[[package]]
 name = "ogar-class-view"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#76dcb27fec14aa5416c26ea48814f43394b7f053"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#dee6e50dc1bd81d377db311a9d7795b78602ab38"
 dependencies = [
  "lance-graph-contract",
  "ogar-vocab",
 ]
 
 [[package]]
+name = "ogar-from-ruff"
+version = "0.1.0"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#dee6e50dc1bd81d377db311a9d7795b78602ab38"
+dependencies = [
+ "ogar-vocab",
+ "ruff_spo_address",
+ "ruff_spo_triplet",
+]
+
+[[package]]
 name = "ogar-render-askama"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#76dcb27fec14aa5416c26ea48814f43394b7f053"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#dee6e50dc1bd81d377db311a9d7795b78602ab38"
 dependencies = [
  "askama",
  "lance-graph-contract",
@@ -1519,7 +1537,7 @@ dependencies = [
 [[package]]
 name = "ogar-vocab"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#76dcb27fec14aa5416c26ea48814f43394b7f053"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#dee6e50dc1bd81d377db311a9d7795b78602ab38"
 
 [[package]]
 name = "once_cell"
@@ -1623,6 +1641,9 @@ name = "op-codegen-pipeline"
 version = "0.1.0"
 dependencies = [
  "lance-graph-contract",
+ "ogar-adapter-surrealql",
+ "ogar-from-ruff",
+ "ogar-vocab",
  "op-codegen-projection",
  "op-surreal-ast",
  "ruff_openproject",
@@ -2278,14 +2299,24 @@ dependencies = [
 [[package]]
 name = "ruff_ruby_spo"
 version = "0.1.0"
+source = "git+https://github.com/AdaWorldAPI/ruff?branch=claude%2Fodoo-rs-transcode-lf8ya5#c514b96d38d764bb16ac070fb2fdbd13477f41bc"
 dependencies = [
  "lib-ruby-parser",
  "ruff_spo_triplet",
 ]
 
 [[package]]
+name = "ruff_spo_address"
+version = "0.1.0"
+source = "git+https://github.com/AdaWorldAPI/ruff?branch=claude%2Fodoo-rs-transcode-lf8ya5#c514b96d38d764bb16ac070fb2fdbd13477f41bc"
+dependencies = [
+ "ruff_spo_triplet",
+]
+
+[[package]]
 name = "ruff_spo_triplet"
 version = "0.1.0"
+source = "git+https://github.com/AdaWorldAPI/ruff?branch=claude%2Fodoo-rs-transcode-lf8ya5#c514b96d38d764bb16ac070fb2fdbd13477f41bc"
 dependencies = [
  "serde",
  "serde_json",

@@ -19,6 +19,11 @@
 //!   extraction to the "core" surface before downstream processing.
 //! - [`extract_graph`] / [`extract_triples`] — single-call wrappers.
 //! - [`extract_core_triples`] — extracts and filters to [`CORE_V3_RESOURCES`].
+//! - [`extract_graph_with_schema`] / [`extract_triples_with_schema`] —
+//!   schema-aware siblings: baseline DB columns (`db/migrate/tables/*.rb`)
+//!   merged into `fields`, plus the compute-linkage pass (`compute_<x>` +
+//!   schema field `<x>` ⇒ `emitted_by`). Additive — the plain entry points
+//!   above are unchanged.
 //!
 //! Zero runtime deps beyond the two siblings — additive in the spirit of the
 //! ruff workspace (no edits to existing crates; new functionality lives in
@@ -38,6 +43,8 @@
 use std::path::Path;
 
 use ruff_spo_triplet::{ModelGraph, Triple, expand};
+
+pub use ruff_ruby_spo::SchemaReport;
 
 /// The IRI namespace prefix used for OpenProject subjects/objects
 /// (e.g. `openproject:WorkPackage.subject`). Re-exported from
@@ -89,6 +96,29 @@ pub fn extract_graph(rails_root: &Path) -> ModelGraph {
 #[must_use]
 pub fn extract_triples(rails_root: &Path) -> Vec<Triple> {
     expand(&extract_graph(rails_root))
+}
+
+/// Extract an OpenProject Rails source tree into a [`ModelGraph`] **including
+/// the schema stratum** — baseline DB columns from `db/migrate/tables/*.rb`
+/// merged into each model's `fields`, plus the compute-linkage pass
+/// (`def compute_<x>` + schema field `<x>` ⇒ `emitted_by`). Thin wrapper
+/// around [`ruff_ruby_spo::extract_app_with_schema`]; see that fn for the
+/// column-merge + linkage mapping and the [`SchemaReport`] conservation
+/// ledger it returns alongside the graph.
+///
+/// Sibling of [`extract_graph`], which stays model-stratum-only (no schema
+/// merge, no linkage) for backward compatibility with existing callers.
+#[must_use]
+pub fn extract_graph_with_schema(rails_root: &Path) -> (ModelGraph, SchemaReport) {
+    ruff_ruby_spo::extract_app_with_schema(rails_root, NAMESPACE)
+}
+
+/// Extract and expand to SPO [`Triple`]s in one call, via
+/// [`extract_graph_with_schema`]. Sibling of [`extract_triples`].
+#[must_use]
+pub fn extract_triples_with_schema(rails_root: &Path) -> (Vec<Triple>, SchemaReport) {
+    let (graph, report) = extract_graph_with_schema(rails_root);
+    (expand(&graph), report)
 }
 
 /// Filter a [`ModelGraph`] in place to keep only [`CORE_V3_RESOURCES`].
