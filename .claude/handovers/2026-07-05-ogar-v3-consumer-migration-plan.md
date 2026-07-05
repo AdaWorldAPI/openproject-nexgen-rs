@@ -92,10 +92,13 @@ vendored ruff. It becomes **resolver config (data)** in `.claude/harvest/`:
 ## 5. Sequenced migration (execute after this PR; token-walled here)
 
 1. **[DONE]** un-vendor lance-graph + OGAR → git deps (this PR).
-2. Stand up `.claude/harvest/` — the ORM→AR back-projection resolver config
-   (data) + README. *(additive, zero-risk — the correct first step)*
-3. Un-vendor ruff → git dep: retire the D-AR-3.5 patch; the back-projection
-   moves to §4; cross-ref rows → ruff spec. `vendor/` retires entirely.
+2. **[DONE]** Stand up `.claude/harvest/` — the ORM→AR back-projection resolver
+   config (data) + README. *(landed 4102eb0)*
+3. **[DONE]** Un-vendor ruff → git dep: retire the D-AR-3.5 patch; the
+   back-projection moves to §4; cross-ref rows → ruff spec. `vendor/` retires
+   entirely. *(this commit; upstream-first landed as ruff 8d6c31b — schema
+   stratum, visibility filtering, tree harvest, ColumnNotNull/inherits; the
+   D-AR-3.5 mechanism lives in ruff, the guess-rules live in .claude/harvest)*
 4. Add op-nexgen deps: `ogar-from-ruff`, `ogar-adapter-surrealql`, `ogar-emitter`
    (git deps, same as ogar-vocab today).
 5. Rewire `op-codegen-pipeline` → consumer: `ogar-from-ruff` → Class →

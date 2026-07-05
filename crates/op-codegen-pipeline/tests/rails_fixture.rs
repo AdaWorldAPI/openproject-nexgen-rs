@@ -5,9 +5,11 @@
 //!
 //! The fixture lives at `tests/fixtures/rails_mini/` — minimal,
 //! hermetic, version-controlled. It is NOT a copy of the
-//! `vendor/AdaWorldAPI-ruff/.../tests/fixtures/openproject` fixture:
-//! upstream may evolve that one; this one is owned by this crate so its
-//! contents pin exactly the cases we want to demonstrate end-to-end:
+//! `ruff_openproject/tests/fixtures/openproject` fixture (itself a
+//! crate-local copy of the upstream ruff fixture, since 2026-07-05's
+//! un-vendor): upstream may evolve that one; this one is owned by this
+//! crate so its contents pin exactly the cases we want to demonstrate
+//! end-to-end:
 //!
 //!   - 2 core models (WorkPackage, TimeEntry) — both in
 //!     `CORE_V3_RESOURCES`, exercising the core-filter path

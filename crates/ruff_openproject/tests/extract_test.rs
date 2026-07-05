@@ -1,6 +1,5 @@
-//! End-to-end test: drive `ruff_openproject::extract_*` over the shared
-//! Rails fixture (reused from `ruff_ruby_spo`'s test tree to avoid
-//! duplication) and assert the OpenProject-shaped output.
+//! End-to-end test: drive `ruff_openproject::extract_*` over the OpenProject
+//! Rails fixture and assert the OpenProject-shaped output.
 
 use std::path::PathBuf;
 
@@ -10,11 +9,11 @@ use ruff_openproject::{
 };
 
 fn fixture_tree() -> PathBuf {
-    // Reuse the existing fixture under ruff_ruby_spo (one tree, two test
-    // suites — no copy, no drift).
+    // Crate-local copy of the fixture originally shared with ruff_ruby_spo's
+    // test tree (unvendored 2026-07-05 — ruff_ruby_spo now resolves via a
+    // pinned git dep, so its test fixtures are no longer reachable by
+    // relative path; the fixture is duplicated here instead of drifting).
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("ruff_ruby_spo")
         .join("tests")
         .join("fixtures")
         .join("openproject")

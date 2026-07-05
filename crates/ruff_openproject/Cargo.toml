@@ -11,8 +11,5 @@ license = "MIT"
 name = "ruff_openproject"
 
 [dependencies]
-ruff_ruby_spo    = { workspace = true }
-ruff_spo_triplet = { workspace = true }
-
-[lints]
-workspace = true
+ruff_ruby_spo    = { git = "https://github.com/AdaWorldAPI/ruff", rev = "8d6c31b0ece3485075b591e8ead819f2a7ddf813" }
+ruff_spo_triplet = { git = "https://github.com/AdaWorldAPI/ruff", rev = "8d6c31b0ece3485075b591e8ead819f2a7ddf813" }

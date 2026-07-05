@@ -11,9 +11,9 @@ description = "OpenProject end-to-end codegen pipeline: Rails IR → ruff SPO tr
 name = "op_codegen_pipeline"
 
 [dependencies]
-ruff_openproject       = { path = "../../vendor/AdaWorldAPI-ruff/crates/ruff_openproject" }
-ruff_spo_triplet       = { path = "../../vendor/AdaWorldAPI-ruff/crates/ruff_spo_triplet" }
-ruff_ruby_spo          = { path = "../../vendor/AdaWorldAPI-ruff/crates/ruff_ruby_spo" }
+ruff_openproject       = { path = "../ruff_openproject" }
+ruff_spo_triplet       = { git = "https://github.com/AdaWorldAPI/ruff", rev = "8d6c31b0ece3485075b591e8ead819f2a7ddf813" }
+ruff_ruby_spo          = { git = "https://github.com/AdaWorldAPI/ruff", rev = "8d6c31b0ece3485075b591e8ead819f2a7ddf813" }
 op-codegen-projection  = { path = "../op-codegen-projection" }
 op-surreal-ast         = { path = "../op-surreal-ast" }
 lance-graph-contract   = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
