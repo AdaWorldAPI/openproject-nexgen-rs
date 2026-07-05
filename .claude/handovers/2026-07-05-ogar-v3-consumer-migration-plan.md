@@ -62,6 +62,15 @@ Consumer path: `OpenProject source → ruff_ruby_spo::extract_app_with →
 ModelGraph → ogar-from-ruff::lift_model_graph → ogar_vocab::Class →
 { ogar-proposal | ogar-adapter-surrealql::emit_surrealql_ddl | ogar-emitter }`.
 
+> **2026-07-05 note (route-kind stratum):** `crates/ruff_python_dto_check/`
+> (not in the table — never a workspace member) is PARKED as the
+> un-upstreamed sqlx-target delta against live ruff's
+> `ruff_python_dto_check`; see its README + OGAR
+> `E-ROUTE-KIND-VERB-STRATA` (council-rejected SoC rhyme; surviving
+> carve + kind A/B probe). `op-codegen-bucket`'s "evaluate" fate gains
+> one input: its `OpHandlerKind` mirrors the parked taxonomy's sqlx
+> subset and is the typed-spine consumer the kind A/B would use.
+
 ## 4. The one training wheel — ORM→AR back-projection (`.claude/harvest/`)
 
 ruff is smart for AR/Rails/Ruby. The **only** gap: mapping **ORM-shaped** source

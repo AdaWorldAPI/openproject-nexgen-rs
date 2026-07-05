@@ -14,6 +14,37 @@
 
 ## Entries (newest first)
 
+## 2026-07-05 — Route-kind dedup ⇄ SoC synergy: council-rejected rhyme; ruff_python_dto_check parked as the un-upstreamed sqlx delta
+**Status:** FINDING
+**Scope:** `crates/ruff_python_dto_check/` × `crates/op-codegen-bucket/` × OGAR board × ruff `ruff_spo_address::soc`
+
+The proposed synergy "route deduplication is the DO-arm mirror of ruff's
+SoC lint" went through OGAR's 5+3 hardening council (5 research savants +
+3 brutally-honest reviewers, all passes recorded) and was **REJECTED at
+`[S]` mere-rhyme** — grounds: detect≠curate (ruff harvests no route
+discriminant facts; no classifier exists), discard≠retain (soc reclaims
+duplicate rows; bucketing retains every skin — DRY templating, not
+deduplication), and the vacuity trap ("N siblings → K representatives +
+residual" is the workspace's universal quotient primitive; soc's
+distinctive content — harvested relation + byte-cap + `law_holds` — does
+not transfer). Canonical verdict entry with receipts (16/16 CODED), the
+verb ≠ route-recipe carve, the pre-registered OP⇄Redmine kind A/B probe,
+and the mint fence: OGAR `.claude/board/EPIPHANIES.md`
+**E-ROUTE-KIND-VERB-STRATA** (+ `docs/DISCOVERY-MAP.md` twin
+D-ROUTE-KIND-VERB-STRATA).
+
+Local consequences landed with this entry:
+
+- `crates/ruff_python_dto_check/` is **PARKED** via its new README: it is
+  the un-upstreamed **sqlx-target delta** against live ruff's
+  `ruff_python_dto_check` (upstream has `contract.rs` + seaorm codegen,
+  no `sqlx_emit/`); no `Cargo.toml`, deliberately not a workspace member.
+  Retirement path: upstream the sqlx arm to ruff (E-VENDOR-DELTA
+  pattern), recipes to `ogar-adapter-*`, then the directory retires.
+- The route-kind A/B is a **DISTINCT measurement** from the capstone C5
+  verb A/B (route-recipe stratum vs verb stratum) — dated notes added to
+  the capstone and the migration plan §3.
+
 ## 2026-06-03 — Rails-to-SPO triples is structurally the same write shape as Lance + Raft
 **Status:** CONJECTURE
 **Scope:** `crates/op-codegen-pipeline/` × `vendor/AdaWorldAPI-lance-graph/codegen_spine` × upstream `AdaWorldAPI/lance-graph#452`

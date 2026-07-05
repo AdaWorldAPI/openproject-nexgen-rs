@@ -102,3 +102,14 @@ by the rename table (§3 of the convergence plan: `tracker→type`,
 - This repo (op-nexgen) owns **C4** (the rename table) and **consuming**
   `rust_class`; the lift (C1/O3), the codebook, and `ActionDef` are
   upstream; `redmine-canon` is the sibling.
+
+---
+
+**2026-07-05 addendum (route-kind stratum):** the route-kind A/B named in
+OGAR `E-ROUTE-KIND-VERB-STRATA` measures the **route-recipe stratum**
+(`HandlerKind` = verb × transport × persistence-shape) and is DISTINCT
+from C5's verb A/B (`(classid, is_a verb)`); neither stands in for the
+other. The C5 measurement discipline ("measured before trusted", §
+Boundaries) applies to both independently. Also note: this file's C3 row
+reads "asserted" — the verb/kind side may not cite it as a *measured*
+precedent (only the WorkPackage oracle-diff row is measured).
