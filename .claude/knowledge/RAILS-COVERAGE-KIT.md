@@ -263,3 +263,15 @@ FAIL-rate = the order-dependent / foreign tail. Control = Odoo `_compute_*`
 single, bounded thing to add — a classifier + a parity gate, not a Ruby
 decompiler. (A name-only proxy — classify by method-name shape — is possible
 sooner but is weak; the real triage needs the write/call capture.)
+
+> **2026-07-05 verification note (the prerequisite is DONE — the paragraph
+> above is stale, kept for the record):** verified in code on the consumed
+> branch — `Function::{writes, calls}` exist
+> (`ruff_spo_triplet/src/ir.rs:264-284`), the Ruby walker populates them
+> (`ruff_ruby_spo/src/functions.rs`, op-assign/memoization excluded, tested),
+> and `expand()` emits `writes_field` / `calls` triples with truth values
+> (`expand.rs:271/:282`). F17 is unblocked on the fact side. The remaining
+> Action-kind discriminant gap is the **`routes.rb` stratum** (HTTP verb,
+> member/collection, return shape); the controller DO-arm harvest itself is
+> live (`extract_tree_with`, ruff #42/#43 → `lift_actions` → `ActionDef`).
+> Cross-ref: OGAR `E-F17-PREREQ-VERIFIED`.

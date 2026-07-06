@@ -14,6 +14,24 @@
 
 ## Entries (newest first)
 
+## 2026-07-05 — Gap ledger verified in code: F17 writes/calls prerequisite is DONE; remaining gaps = routes.rb stratum + recipe codebook
+**Status:** FINDING (mirrors OGAR `E-F17-PREREQ-VERIFIED`; corrects gap item (a) in the entry below, which propagated a stale RAILS-COVERAGE-KIT §6 claim)
+**Scope:** ruff `ruff_spo_triplet`/`ruff_ruby_spo` × OGAR `ogar-from-ruff`/`ogar-vocab` × `.claude/knowledge/RAILS-COVERAGE-KIT.md` §6
+
+Verified on the consumed branch: **(a) CLOSED** — `Function::{writes,
+calls}` shipped (`ir.rs:264-284`), populated by the Ruby walker
+(`functions.rs`), emitted as `writes_field`/`calls` triples with truth
+values; the controller DO-arm harvest is live (`extract_tree_with`,
+ruff #42/#43 → `lift_actions` → `ActionDef`, facts-only). **(b) OPEN**
+— the `routes.rb` stratum (HTTP verb / member-collection / return
+shape), the one missing Action-kind fact source. **(c) OPEN** — the
+OGAR recipe-concept codebook unminted (`LifecycleTrigger{event:String}`
+still surface-string). Dated staleness note added in place at
+RAILS-COVERAGE-KIT §6; the fragment README's gap ledger updated.
+Consequence: the Action-kind classifier's inputs are mostly harvestable
+TODAY; next levers are upstream — ruff routes-stratum + the OGAR §5
+codebook mint (serialized-allocation train).
+
 ## 2026-07-05 (correction) — The reunion is an ORDER; route/action dedup IS SoC + the recipe codebook (operator canon). Corrects the entry below.
 **Status:** FINDING (operator ruling 2026-07-05 — mirrors OGAR `E-RECIPE-REUNION-ORDER`)
 **Scope:** `crates/ruff_python_dto_check/` × `.claude/knowledge/{CLASSVIEW-FIELDVIEW-ASKAMA-BITMASK(OGAR), RAILS-COVERAGE-KIT, TWO-SHAPES-COMPILED-NOT-PARSED}` × `2026-07-05-redmine-op-ar-shape-convergence-plan.md`

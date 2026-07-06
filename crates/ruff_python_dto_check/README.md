@@ -62,19 +62,25 @@ op-nexgen consumes. Compiling a route-transpiler op-side would recreate
 the parallel-model anti-pattern. So the crate stays a non-member — the
 migration is upstream-ward, not into this workspace.
 
-## The queued implementation gap (honest ledger)
+## The queued implementation gap (honest ledger — code-verified 2026-07-05, OGAR `E-F17-PREREQ-VERIFIED`)
 
 The convergence is an operator order (`[G]`); its coverage is unmeasured
-(`[H]`) and these are the blockers, upstream:
+(`[H]`). Verified gap status, upstream:
 
-- ruff does not yet capture **writes/calls** per function — the F17
-  prerequisite for lifting hook bodies to `(verb, criteria)`
-  (RAILS-COVERAGE-KIT §6). HTTP-verb / return-shape route discriminants
-  aren't harvested either.
-- The OGAR **recipe-concept codebook** (the four families as
-  `RecipeConceptId`s) isn't minted — *"until that lands, the bitmask is
+- **CLOSED** — writes/calls capture (the F17 fact prerequisite):
+  `Function::{writes, calls}` live in `ruff_spo_triplet` (ir.rs:264-284),
+  populated by the Ruby walker, emitted as `writes_field`/`calls`
+  triples. The controller DO-arm harvest is also live
+  (`extract_tree_with` → public actions → `lift_actions` → `ActionDef`).
+- **OPEN** — the `routes.rb` stratum: HTTP verb, member/collection
+  routes, return-shape (collection|item) — the one remaining fact source
+  for Action-kind classification.
+- **OPEN** — the OGAR **recipe-concept codebook** (the four families as
+  `RecipeConceptId`s) isn't minted; `KausalSpec::LifecycleTrigger` still
+  carries the raw surface string — *"until that lands, the bitmask is
   per-consumer (the zoo)"* (RAILS-COVERAGE-KIT §5). `OpHandlerKind` is
-  the per-consumer enum awaiting that codebook.
+  the per-consumer enum awaiting that codebook. Mint rides the
+  serialized-allocation train.
 - Coverage gate: the OP⇄Redmine action A/B (redmine-op plan C5) + the
   F17 body-triage falsifier measure the coverage %; don't ship claimed
   coverage unmeasured. (This measures a *canonized* convergence's
