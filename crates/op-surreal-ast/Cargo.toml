@@ -36,13 +36,14 @@ lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", bra
 # path that feeds the same byte-identical typed AST as `from_triples`,
 # but reading the calcified canonical layer directly instead of a
 # triple stream. ogar-vocab is a tiny zero-runtime-dep crate.
-# All OGAR deps ride the convergence branch `claude/odoo-rs-transcode-lf8ya5`
-# for single-source coherence until the convergence branches merge, per the
-# operator ruling that rev pins are retired and drift protection is the
-# fuse tests, not pins. (op-canon / op-codegen-projection carry the same
-# flip; this dep must match theirs or `cargo tree -i ogar-vocab` resolves
-# two ambiguous git sources.)
-ogar-vocab = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "claude/odoo-rs-transcode-lf8ya5" }
+# All OGAR deps ride `main` — flipped 2026-07-06 per the everything-on-main
+# ruling (ruff #44 / OGAR #158 + #159 O-2 de-pin); the convergence branch
+# `claude/odoo-rs-transcode-lf8ya5` is retired. Rev pins stay retired per
+# the operator ruling; drift protection is the fuse tests, not pins.
+# (op-canon / op-codegen-projection carry the same source; this dep must
+# match theirs or `cargo tree -i ogar-vocab` resolves two ambiguous git
+# sources.)
+ogar-vocab = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 
