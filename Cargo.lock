@@ -1643,6 +1643,7 @@ dependencies = [
  "lance-graph-contract",
  "ogar-adapter-surrealql",
  "ogar-from-ruff",
+ "ogar-render-askama",
  "ogar-vocab",
  "op-codegen-projection",
  "op-surreal-ast",
