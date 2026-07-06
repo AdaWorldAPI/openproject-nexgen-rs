@@ -1206,7 +1206,7 @@ dependencies = [
 [[package]]
 name = "lance-graph-contract"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/lance-graph?branch=main#eda867bd8da31d2d056818c47ca145ee4e629140"
+source = "git+https://github.com/AdaWorldAPI/lance-graph?branch=main#d6ab4885c9545d5417b8cf56f9da11833bb09d40"
 dependencies = [
  "glob",
  "serde",
@@ -1500,7 +1500,7 @@ dependencies = [
 [[package]]
 name = "ogar-adapter-surrealql"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#dee6e50dc1bd81d377db311a9d7795b78602ab38"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#9e49ba42f1187bd92129f825b220aab0364fa901"
 dependencies = [
  "ogar-vocab",
 ]
@@ -1508,7 +1508,7 @@ dependencies = [
 [[package]]
 name = "ogar-class-view"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#dee6e50dc1bd81d377db311a9d7795b78602ab38"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#9e49ba42f1187bd92129f825b220aab0364fa901"
 dependencies = [
  "lance-graph-contract",
  "ogar-vocab",
@@ -1517,7 +1517,7 @@ dependencies = [
 [[package]]
 name = "ogar-from-ruff"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#dee6e50dc1bd81d377db311a9d7795b78602ab38"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#9e49ba42f1187bd92129f825b220aab0364fa901"
 dependencies = [
  "ogar-vocab",
  "ruff_spo_address",
@@ -1527,7 +1527,7 @@ dependencies = [
 [[package]]
 name = "ogar-render-askama"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#dee6e50dc1bd81d377db311a9d7795b78602ab38"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#9e49ba42f1187bd92129f825b220aab0364fa901"
 dependencies = [
  "askama",
  "lance-graph-contract",
@@ -1537,7 +1537,7 @@ dependencies = [
 [[package]]
 name = "ogar-vocab"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#dee6e50dc1bd81d377db311a9d7795b78602ab38"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=claude%2Fodoo-rs-transcode-lf8ya5#9e49ba42f1187bd92129f825b220aab0364fa901"
 
 [[package]]
 name = "once_cell"
@@ -2299,7 +2299,7 @@ dependencies = [
 [[package]]
 name = "ruff_ruby_spo"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/ruff?branch=claude%2Fodoo-rs-transcode-lf8ya5#c514b96d38d764bb16ac070fb2fdbd13477f41bc"
+source = "git+https://github.com/AdaWorldAPI/ruff?branch=claude%2Fodoo-rs-transcode-lf8ya5#684ba99d55dbc1036aab9cb1e4af0626d3bc569c"
 dependencies = [
  "lib-ruby-parser",
  "ruff_spo_triplet",
@@ -2308,7 +2308,7 @@ dependencies = [
 [[package]]
 name = "ruff_spo_address"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/ruff?branch=claude%2Fodoo-rs-transcode-lf8ya5#c514b96d38d764bb16ac070fb2fdbd13477f41bc"
+source = "git+https://github.com/AdaWorldAPI/ruff?branch=claude%2Fodoo-rs-transcode-lf8ya5#684ba99d55dbc1036aab9cb1e4af0626d3bc569c"
 dependencies = [
  "ruff_spo_triplet",
 ]
@@ -2316,7 +2316,7 @@ dependencies = [
 [[package]]
 name = "ruff_spo_triplet"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/ruff?branch=claude%2Fodoo-rs-transcode-lf8ya5#c514b96d38d764bb16ac070fb2fdbd13477f41bc"
+source = "git+https://github.com/AdaWorldAPI/ruff?branch=claude%2Fodoo-rs-transcode-lf8ya5#684ba99d55dbc1036aab9cb1e4af0626d3bc569c"
 dependencies = [
  "serde",
  "serde_json",
