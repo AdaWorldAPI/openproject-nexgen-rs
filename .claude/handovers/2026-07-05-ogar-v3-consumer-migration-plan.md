@@ -62,14 +62,19 @@ Consumer path: `OpenProject source → ruff_ruby_spo::extract_app_with →
 ModelGraph → ogar-from-ruff::lift_model_graph → ogar_vocab::Class →
 { ogar-proposal | ogar-adapter-surrealql::emit_surrealql_ddl | ogar-emitter }`.
 
-> **2026-07-05 note (route-kind stratum):** `crates/ruff_python_dto_check/`
-> (not in the table — never a workspace member) is PARKED as the
-> un-upstreamed sqlx-target delta against live ruff's
-> `ruff_python_dto_check`; see its README + OGAR
-> `E-ROUTE-KIND-VERB-STRATA` (council-rejected SoC rhyme; surviving
-> carve + kind A/B probe). `op-codegen-bucket`'s "evaluate" fate gains
-> one input: its `OpHandlerKind` mirrors the parked taxonomy's sqlx
-> subset and is the typed-spine consumer the kind A/B would use.
+> **2026-07-05 note (recipe reunion — operator ruling; supersedes an
+> earlier note here):** `crates/ruff_python_dto_check/` (not in the table
+> — never a workspace member) is the un-upstreamed **ERB-fieldview →
+> askama render + Action-kind `HandlerKind` recipe corpus** against live
+> ruff's `ruff_python_dto_check`; see its README + OGAR
+> `E-RECIPE-REUNION-ORDER`. The reunion (Redmine ⇄ OP at the AR shape) is
+> an ORDER; route/fieldview dedup IS the SoC doctrine
+> (`FIELD_MASK_CAP = MAX_SIBLINGS_PER_TIER`, one cap) and `HandlerKind`
+> is the canon Action-kind recipe family → `RecipeConceptId`
+> (RAILS-COVERAGE-KIT §5). An earlier note here called this a
+> "council-rejected SoC rhyme"; that rejection was wrong and is
+> SUPERSEDED. `op-codegen-bucket`'s `OpHandlerKind` is the per-consumer
+> enum awaiting the OGAR recipe-concept codebook.
 
 ## 4. The one training wheel — ORM→AR back-projection (`.claude/harvest/`)
 

@@ -1,63 +1,91 @@
-# ruff_python_dto_check — PARKED (un-upstreamed sqlx-target delta, not a compiled crate)
+# ruff_python_dto_check — the un-upstreamed ERB-fieldview → askama render + Action-kind recipe corpus
 
-> **Status: PARKED, 2026-07-05** (council-reviewed — OGAR
-> `E-ROUTE-KIND-VERB-STRATA`, 5+3 pass). This directory is a **spec
-> fragment**, not a workspace member: it has no `Cargo.toml`, and its
-> modules reference `crate::contract::{HandlerKind, RouteContract}` which
-> live in **upstream ruff's `crates/ruff_python_dto_check/`** (that crate
-> has `contract.rs` + the seaorm codegen arm — but **no `sqlx_emit/`**).
-> This fragment is precisely the **un-upstreamed sqlx-target delta**
-> against that live crate. It is deliberately NOT wired into this
-> workspace and MUST NOT be — see "where this goes" below.
+> **Status: teaching corpus, upstream-ward migration** (operator ruling
+> 2026-07-05; OGAR `E-RECIPE-REUNION-ORDER`). This directory is a **spec
+> fragment**, not a workspace member: no `Cargo.toml`, and its modules
+> reference `crate::contract::{HandlerKind, RouteContract}` which live in
+> **upstream ruff's `crates/ruff_python_dto_check/`** (that crate has
+> `contract.rs` + the seaorm codegen arm — but **no `sqlx_emit/`**). This
+> fragment is the **un-upstreamed sqlx-target delta** against that live
+> crate. It stays a non-member — but its CONTENT is doctrine input, not
+> dead weight. (An earlier README framed it as a "parked parallel-model
+> to retire"; that framing was corrected — see below.)
 
-## What this is
+## What this is — and why it matters
 
-Six sqlx emit recipes (`list_for_tenant`, `detail_for_tenant`,
-`soft_delete`, `toggle_bool_field`, `ajax_json`,
-`csrf_form_post_engine_call`) with eight golden files (ajax_json and
-csrf_form_post each carry a with-model + stub branch pair), plus
-`SQLX-TARGET.md` — the spec for the axum+sqlx+HAL target matching this
-repo's `op-db`/`op-api` idioms. The six are the sqlx-emitted subset of
-the 13-kind `HandlerKind` taxonomy (the other 7 are seaorm-only).
+Two things the reunion (Redmine ⇄ OpenProject at the AR/Rails shape)
+needs, captured on real source:
 
-Shape knowledge encoded here that must not be lost (it exists nowhere
-else as golden-tested **sqlx** recipes): the HAL envelope conventions
+1. **ERB-fieldview → askama render recipes.** Six sqlx emit recipes with
+   eight golden files (ajax_json + csrf_form_post each carry a with-model
+   + stub branch). These are the compiled, JSON-free port of Redmine's
+   ERB field partials — the render leg the operator named: *"ERB redmine
+   fieldview teaches us to translate into askama classview fieldmask."*
+   They seed the `ogar-render-askama` classview × fieldmask kit
+   (OGAR `docs/CLASSVIEW-FIELDVIEW-ASKAMA-BITMASK.md`).
+2. **The Action-kind `HandlerKind` corpus.** The 13-kind taxonomy
+   (`list_for_tenant`, `detail_for_tenant`, `soft_delete`,
+   `toggle_bool_field`, `ajax_json`, `csrf_form_post_engine_call`, … —
+   6 sqlx-emitted, 7 seaorm-only) is the concrete **Action-kind recipe
+   family** — one of the four families (Lifecycle / Guard / Relation /
+   **Action**) that RAILS-COVERAGE-KIT §5 mints as content-addressable
+   `RecipeConceptId`s. It converges cross-consumer exactly like class
+   concepts: canonical id + per-language `LabelDto` skin.
+
+Shape knowledge encoded here (golden-tested; exists nowhere else as
+**sqlx** recipes): HAL envelope conventions
 (`_type`/`_embedded`/`_links.self.href`), tenant scoping as
 `WHERE <tenant_col> = $N`, bind-placeholder contiguity from `$1`, the
 two-branch with-model/stub pattern, and the never-`todo!()` guardrail
 (PR #102).
 
-## Why parked, not wired
+## Route dedup IS SoC (not a rhyme — operator canon)
+
+The route dedup this corpus embodies is an INSTANCE of the SoC doctrine,
+not an analogy to it:
+
+- *"N routes that are the same record, different visible fields are ONE
+  templated ClassView render with N masks — route proliferation is
+  usually an un-applied mask"* (CLASSVIEW-FIELDVIEW-ASKAMA-BITMASK,
+  operator 2026-06-29).
+- `< 256` fields → maskable by one ClassView; `≥ 256` → the god-object
+  split — **"the same SoC the `ruff_spo_address::soc` lint flags"**. The
+  field-view mask cap and the soc sibling cap are the SAME constant:
+  `FIELD_MASK_CAP = MAX_SIBLINGS_PER_TIER`.
+
+## Why not wired into the workspace
 
 Per `.claude/handovers/2026-07-05-ogar-v3-consumer-migration-plan.md` §6:
 **intelligence lives in ruff** (detect / address / propose) and **recipes
-live in OGAR adapters**; op-nexgen consumes. Compiling a route-transpiler
-here would recreate the parallel-model anti-pattern the migration retires.
+live in OGAR** (`ogar-render-askama` + the recipe-concept codebook);
+op-nexgen consumes. Compiling a route-transpiler op-side would recreate
+the parallel-model anti-pattern. So the crate stays a non-member — the
+migration is upstream-ward, not into this workspace.
 
-## The council verdict (keep the eye honest)
+## The queued implementation gap (honest ledger)
 
-The proposed synergy "route deduplication is the DO-arm mirror of ruff's
-SoC lint" was **REJECTED** as mere-rhyme by OGAR's 5+3 hardening council —
-see OGAR `.claude/board/EPIPHANIES.md` `E-ROUTE-KIND-VERB-STRATA` (+
-DISCOVERY-MAP twin) for the grounds. What survives and what this
-directory feeds:
+The convergence is an operator order (`[G]`); its coverage is unmeasured
+(`[H]`) and these are the blockers, upstream:
 
-- **The carve:** a `HandlerKind` is **verb × transport ×
-  persistence-shape** — a route RECIPE, not a verb. The verb projected
-  OUT OF a kind (`soft_delete` → `is_a` update) is the only
-  verb-codebook candidate; the recipe itself is adapter-side
-  (`ogar-adapter-*` / the render kit), never a vocab row.
-- **The probe:** the six kinds are fuel for the **OP⇄Redmine
-  route-surface kind A/B** (pre-registered KILL threshold required) —
-  an independent convergence probe, DISTINCT from the capstone C5 verb
-  A/B. No verb-codebook row is minted until it runs green.
+- ruff does not yet capture **writes/calls** per function — the F17
+  prerequisite for lifting hook bodies to `(verb, criteria)`
+  (RAILS-COVERAGE-KIT §6). HTTP-verb / return-shape route discriminants
+  aren't harvested either.
+- The OGAR **recipe-concept codebook** (the four families as
+  `RecipeConceptId`s) isn't minted — *"until that lands, the bitmask is
+  per-consumer (the zoo)"* (RAILS-COVERAGE-KIT §5). `OpHandlerKind` is
+  the per-consumer enum awaiting that codebook.
+- Coverage gate: the OP⇄Redmine action A/B (redmine-op plan C5) + the
+  F17 body-triage falsifier measure the coverage %; don't ship claimed
+  coverage unmeasured. (This measures a *canonized* convergence's
+  coverage — it is not a test of whether the convergence is real.)
 
-## Where this goes (retirement path)
+## Retirement path
 
-1. The sqlx arm upstreams to ruff's `ruff_python_dto_check` (the
+1. Upstream the sqlx arm into ruff's `ruff_python_dto_check` (the
    E-VENDOR-DELTA pattern: spec the delta upstream, don't fork here).
-2. Emit recipes migrate to `ogar-adapter-*` as render-kit lowering
-   passes.
+2. Render recipes migrate to `ogar-render-askama`; the Action-kind
+   taxonomy mints as `RecipeConceptId`s in the OGAR recipe codebook.
 3. This directory then retires — conditional on 1–2 landing and the
    goldens migrating with them.
 

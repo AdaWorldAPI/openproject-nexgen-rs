@@ -14,8 +14,42 @@
 
 ## Entries (newest first)
 
-## 2026-07-05 — Route-kind dedup ⇄ SoC synergy: council-rejected rhyme; ruff_python_dto_check parked as the un-upstreamed sqlx delta
-**Status:** FINDING
+## 2026-07-05 (correction) — The reunion is an ORDER; route/action dedup IS SoC + the recipe codebook (operator canon). Corrects the entry below.
+**Status:** FINDING (operator ruling 2026-07-05 — mirrors OGAR `E-RECIPE-REUNION-ORDER`)
+**Scope:** `crates/ruff_python_dto_check/` × `.claude/knowledge/{CLASSVIEW-FIELDVIEW-ASKAMA-BITMASK(OGAR), RAILS-COVERAGE-KIT, TWO-SHAPES-COMPILED-NOT-PARSED}` × `2026-07-05-redmine-op-ar-shape-convergence-plan.md`
+
+The entry below (my prior FINDING) recorded a council that REJECTED the
+route-dedup ⇄ SoC unification as `[S]` mere-rhyme. That was WRONG — the
+unification was already operator-canon before the council ran, and the
+council was mis-framed (pointed only at `soc.rs` + `op-codegen-bucket`,
+never at the rulings). Operator, verbatim: *"The reunion is an order. We
+only use ORM for Schema and actions. We keep AR and rails/ruby. Redmine
+teaches us the ancestry. ERB redmine fieldview teaches us to translate
+into askama classview fieldmask."* The five clauses each have a canon
+home (see OGAR `E-RECIPE-REUNION-ORDER` for the full mapping):
+
+1. reunion = order — Redmine ⇄ OP at the AR shape (`WorkPackage ≡ Issue ≡
+   0x0102`); fork lineage. `2026-07-05-redmine-op-ar-shape-convergence-plan.md` §0.
+2. ORM only for Schema + actions (D-AR-3.5 stratum + `(verb,criteria)`
+   body triage). `TWO-SHAPES` §2, RAILS-COVERAGE-KIT §6.
+3. keep AR/Rails/Ruby (the class-body AST = the wings). `TWO-SHAPES` §2.
+4. Redmine teaches ancestry — STI collapse IS coverage (Redmine 53.8% /
+   OP 71.7%). RAILS-COVERAGE-KIT §0.
+5. ERB fieldview → askama classview fieldmask — route dedup IS SoC:
+   `FIELD_MASK_CAP = MAX_SIBLINGS_PER_TIER`, one cap (OGAR
+   `CLASSVIEW-FIELDVIEW-ASKAMA-BITMASK`, operator 2026-06-29);
+   `HandlerKind` is the canon Action-kind recipe family →
+   `RecipeConceptId` (RAILS-COVERAGE-KIT §5).
+
+Consequences landed this commit: `crates/ruff_python_dto_check/README.md`
+re-framed from "parked, retire" to the ERB-fieldview → askama render +
+Action-kind recipe corpus (teaching material seeding `ogar-render-askama`
++ the recipe codebook). What survives from the council: only the factual
+gap ledger (ruff lacks writes/calls capture per F17; the recipe-concept
+codebook unminted) — queued upstream, never op-side.
+
+## 2026-07-05 [SUPERSEDED] — Route-kind dedup ⇄ SoC synergy: council-rejected rhyme; ruff_python_dto_check parked as the un-upstreamed sqlx delta
+**Status:** SUPERSEDED (2026-07-05, same day — by the correction entry above, on operator ruling. The `[S]` rejection contradicted operator canon; the council was mis-framed. Kept append-only as the cautionary record.)
 **Scope:** `crates/ruff_python_dto_check/` × `crates/op-codegen-bucket/` × OGAR board × ruff `ruff_spo_address::soc`
 
 The proposed synergy "route deduplication is the DO-arm mirror of ruff's

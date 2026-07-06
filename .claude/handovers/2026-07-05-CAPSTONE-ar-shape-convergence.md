@@ -105,11 +105,16 @@ by the rename table (§3 of the convergence plan: `tracker→type`,
 
 ---
 
-**2026-07-05 addendum (route-kind stratum):** the route-kind A/B named in
-OGAR `E-ROUTE-KIND-VERB-STRATA` measures the **route-recipe stratum**
-(`HandlerKind` = verb × transport × persistence-shape) and is DISTINCT
-from C5's verb A/B (`(classid, is_a verb)`); neither stands in for the
-other. The C5 measurement discipline ("measured before trusted", §
-Boundaries) applies to both independently. Also note: this file's C3 row
-reads "asserted" — the verb/kind side may not cite it as a *measured*
-precedent (only the WorkPackage oracle-diff row is measured).
+**2026-07-05 addendum (recipe reunion — operator ruling; supersedes an
+earlier addendum here):** the reunion (Redmine ⇄ OpenProject at the AR
+shape) is an ORDER, not a conjecture (OGAR `E-RECIPE-REUNION-ORDER`).
+`HandlerKind` is the canon **Action-kind recipe family** (RAILS-COVERAGE-
+KIT §5 — mint as `RecipeConceptId`, converges like class concepts), and
+route/fieldview dedup IS the SoC doctrine (`FIELD_MASK_CAP =
+MAX_SIBLINGS_PER_TIER`, one cap; CLASSVIEW-FIELDVIEW-ASKAMA-BITMASK,
+operator 2026-06-29). An earlier addendum here framed the route-kind A/B
+as testing a "distinct stratum" against a "council-rejected rhyme"; that
+framing is SUPERSEDED — the A/B measures the *coverage %* of a canonized
+convergence, alongside C5's action A/B. The measurement discipline still
+holds: C3's 26/26 is **asserted**, not measured (only the WorkPackage
+oracle-diff row is measured), so no coverage may be claimed unmeasured.
