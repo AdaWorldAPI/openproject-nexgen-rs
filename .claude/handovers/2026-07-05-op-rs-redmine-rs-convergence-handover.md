@@ -56,8 +56,9 @@ already rejected settled canon once — see §9.1).
   OpenProject, with identical ids"* (`crates/op-canon/src/lib.rs`).
   **Asserted, not measured** — the sibling `redmine-canon` snapshot pins
   the Redmine half; C3's shared test is what makes it a pin.
-- **Verb side (behavioral):** `ogar_vocab::recipe` Phase 1 is SHIPPED
-  (OGAR branch `claude/openproject-nexgen-ogar-review-mkjtpq`):
+- **Verb side (behavioral):** `ogar_vocab::recipe` Phase 1 is SHIPPED —
+  **on OGAR `main` since 2026-07-06** (#157, merged via the #158 criticals
+  wave; originally authored on `claude/openproject-nexgen-ogar-review-mkjtpq`):
   `RecipeConceptId(u16)` newtype, `RecipeFamily`
   (Lifecycle/Guard/Relation/Action; Scope/Concern reserved-unminted,
   mint-on-emit), 27 concepts in `recipe_ids::*`, and
@@ -113,16 +114,30 @@ Same move lands in redmine-rs against its handler kinds. Per consumer
 doctrine: **pull** ids from `ogar_vocab::recipe`; never copy the codebook
 into a consumer, never wrap it in a bridge.
 
-## 7. ⚠ The branch blocker (operator decision — flag, don't resolve)
+## 7. ⚠ The branch blocker — **RESOLVED by operator ruling (2026-07-06)**
 
-All recipe work lives on OGAR branch
-`claude/openproject-nexgen-ogar-review-mkjtpq`, but consumers (this repo
-included) dep OGAR via **`branch = "claude/odoo-rs-transcode-lf8ya5"`**.
-`ogar_vocab::recipe` is therefore unreachable by any consumer until the
-work lands on the convergence branch OR the dep is repointed. That is the
-**operator's** branch/merge-strategy call — do not unilaterally repoint.
-C4 (§4) and the OGAR-side Phase 2 are fully doable regardless; §6 is what
-waits.
+> **Original blocker (kept for the record):** recipe work lived on OGAR
+> branch `claude/openproject-nexgen-ogar-review-mkjtpq` while consumers
+> dep OGAR via `branch = "claude/odoo-rs-transcode-lf8ya5"`, making
+> `ogar_vocab::recipe` unreachable pending an operator branch call.
+
+**The call landed (ruff PR #44 + OGAR PR #158, both merged 2026-07-06):**
+*"everything on main / consumers need agnostic solutions"* — the
+`claude/odoo-rs-transcode-lf8ya5` convergence branch is **retired as a
+dependency source**, and the recipe codebook is on **OGAR `main`**
+(#157 via #158). What remains is the mechanical repoint work, now
+sanctioned but NOT yet done:
+
+- **OGAR side (O-2 de-pin):** OGAR's own ruff deps
+  (`ogar-from-ruff`/`ogar-from-rails`/`ogar-action-handler` et al.) still
+  pin the convergence branch → flip to `branch = "main"` (the schema
+  stratum + `ruff_sqlalchemy_spo` are on ruff main via #44).
+- **This repo:** the OGAR deps in `op-canon`, `op-codegen-pipeline`,
+  `op-codegen-projection` still pin the convergence branch → flip to
+  `branch = "main"`, then `cargo check`/test the ogar-emit feature path
+  against the ~8k-line #157+#158 delta before trusting it.
+
+§6 (consumer adoption) is therefore **unblocked** once these repoints land.
 
 ## 8. redmine-rs coordination
 
@@ -182,10 +197,12 @@ To touch the Redmine half, add the sibling repo via add_repo
 before asserting convergence state. redmine-rs is read-only unless
 explicitly asked to push there.
 
-FLAG, don't resolve: consumers dep OGAR via
-`claude/odoo-rs-transcode-lf8ya5`; the recipe codebook lives on
-`claude/openproject-nexgen-ogar-review-mkjtpq`. Consumer adoption (§6)
-waits on the operator's branch decision (§7).
+Branch situation (§7, RESOLVED 2026-07-06): the operator ruled
+"everything on main" (ruff #44 / OGAR #158); the recipe codebook is on
+OGAR main. If not yet done when you start: flip this repo's OGAR deps
+(op-canon, op-codegen-pipeline, op-codegen-projection) from
+`branch = "claude/odoo-rs-transcode-lf8ya5"` to `branch = "main"` and
+verify the build before the §6 adoption work.
 
 Scope cargo to `-p <crate>`. Commit small + push. Do NOT open a PR
 unless asked.
