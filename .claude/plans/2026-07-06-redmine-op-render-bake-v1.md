@@ -146,3 +146,49 @@ silently dropped.
     (field_order.ndjson 61 models · masks.ndjson 342 rows · 5 samples).
   - Wide classes (>64 fields) recorded + render-skipped until OGAR #163's
     `render_class_with_methods_wide` is wired (OP work_packages leg).
+- **Leg 2 (2026-07-06, op-corpus @ `46c1fda2`, OGAR post-#163 main): GREEN —
+  L2-E1 partial, L2-E2 exact, CONV-1 partial.** Probe:
+  `crates/op-codegen-pipeline/tests/render_bake_leg2_probe.rs`.
+  - **L2-E1 = 0.429 median** over 52 mapped representer rows (104 files with
+    declarations; 52 unmapped counted, never dropped) → **partial band
+    [0.30, 0.60)**, and per the pre-reg note this IS the expected finding:
+    representers declare a thick computed/link surface with no column
+    (`derivedStartDate`, link rels, form helpers) — the uncovered census is
+    the render-side jitter codebook, published in the artifact. Notably
+    BELOW the ERB leg's 0.667: the "declarative" APIv3 surface projects
+    *less* directly onto columns than 20-year-old ERB does.
+  - **L2-E2 = 36/36** askama == bit-walk oracle, jinja witnessed OK (mask
+    passed as hex string, `int(x,16)` — bigint-ready for the wide leg).
+  - **WIDE SURPRISE:** zero wide rows — `WorkPackage` measured **40 fields**,
+    not the expected ~109. Cause: the OP-layout schema reader consumes the
+    `db/migrate/tables/*.rb` BASELINE only; post-baseline `add_column`
+    migrations are not replayed. The wide path (`WideFieldMask` +
+    `render_class_with_methods_wide`) is wired + property-verified (narrow
+    hex degeneration) but not yet runtime-exercised on real wide data.
+    Follow-up: teach the OP-layout path migration-replay (sibling of the
+    classic fallback, ruff #48) — expected to push WorkPackage past 64 and
+    light the wide leg for real.
+  - **CONV-1 = 0.464 Jaccard → partial [0.25, 0.50): the disjoint census is
+    the deliverable.** Intersection (13): author, category, created_at,
+    description, done_ratio, due_date, id, priority, project, start_date,
+    status, subject, updated_at. redmine_only (5): assigned_to,
+    fixed_version, is_private, tracker, transition_warning. op_only (10):
+    derived_done_ratio, duration, ignore_non_working_days, lock_version,
+    project_phase_definition, responsible, schedule_manually, time_entries,
+    type, version. Only 2/4 seeded renames applied — leg 1 stores
+    association NAMES, so the `*_id` column renames never matched; **the
+    census itself surfaces the association-level C4 v1 pairs
+    (`tracker→type`, `fixed_version→version`)** — exactly the "C4 gap list
+    IS the deliverable" outcome the pre-reg named. Informational only (NOT
+    the pre-reg verdict): applying those two census-identified pairs would
+    give ≈0.58 — a v1 CONV run may claim that ONLY under a fresh
+    pre-registration; never retrofitted here.
+  - Drift fuses pinned (corpus-signature-guarded, 104 decl-files +
+    ns=openproject): shape (52, 36, 0 wide), L2-E1 band [0.30, 0.60),
+    CONV-1 band [0.40, 0.55). Artifact parked at
+    `.claude/harvest/op-representer-bake/` (field_order, masks, conv1.json,
+    5 samples, README).
+  - Verdict for the thesis: **"routes are skins" now measured on BOTH
+    sides** (leg 1 E3 0.48 mask-reuse; leg 2 CONV-1 0.464 cross-app field
+    convergence with the rename gap census in hand). The convergence claim
+    is real but C4-gated — the full rename table is the next brick.
