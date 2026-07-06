@@ -69,3 +69,16 @@ histogram is published with the bake.
   order source, artifact schema) → `bake-design.md`.
 - Orchestrator — assembles the probe in `crates/ruff_openproject/tests/`,
   runs leg 1, pins drift fuses, parks the bake, PRs.
+
+## Run log
+
+- **Run 1 (2026-07-06): VOID — harvest-layout gap, not a KILL.** The E1 gate
+  fired at median 0.000 because `extract_app_with_schema` reads only the
+  OP-layout baseline (`db/migrate/tables/*.rb`); Redmine ships classic
+  migrations, so `Model.fields` came back empty and the basis carried no DB
+  columns — the measurement was views-vs-a-columnless-basis, i.e. invalid,
+  and the KILL assert did exactly its job (loud on a broken join). The
+  pre-registered thresholds stand unchanged for run 2. Fix in flight: a
+  classic-migration fallback in the ruff schema reader (create_table blocks +
+  add_column applied in file order; renames/removals COUNTED in SchemaReport,
+  not applied — an honestly-Inferred basis).
