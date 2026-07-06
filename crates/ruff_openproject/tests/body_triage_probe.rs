@@ -313,7 +313,7 @@ fn rails_test_leg_body_triage() {
 // MEASURED 2026-07-06 (Redmine, fixed walker) — arm 62:
 //   Cascade 46 · Compute 13 · SelfMap 2 · Compensate 1
 //   recoverable 61/62 = 98.4% (upper) — the coarse FAIL 4 rolls to
-//   {SelfMap 2 + Compute 1 recovered} + {Compensate 1 essential}.
+//   {Default 2 + Normalize 1 + Compute 1 recovered} + {Compensate 1 essential}.
 //   Authoritative-only lower bound (drop the Inferred-`calls` Cascade bucket
 //   from num+denom): 15/16 = 93.75%. Irreducible = 1 Compensate in BOTH.
 //
@@ -335,8 +335,9 @@ enum Recipe {
     Cascade,
     Guard,
     WriteRaise,
+    Default,
     Compute,
-    SelfMap,
+    Normalize,
     Observe,
     Empty,
 }
@@ -344,6 +345,7 @@ enum Recipe {
 fn recipe_of(f: &ruff_spo_triplet::Function) -> Recipe {
     let r: BTreeSet<&str> = f.reads.iter().map(String::as_str).collect();
     let w: BTreeSet<&str> = f.writes.iter().map(String::as_str).collect();
+    let g: BTreeSet<&str> = f.guarded_writes.iter().map(String::as_str).collect();
     let (hw, hr, hx, hc) = (
         !w.is_empty(),
         !r.is_empty(),
@@ -352,6 +354,10 @@ fn recipe_of(f: &ruff_spo_triplet::Function) -> Recipe {
     );
     let w_sub_r = hw && w.iter().all(|x| r.contains(x));
     let w_fresh = w.iter().any(|x| !r.contains(x));
+    // J1: every write is guarded (write-if-blank) ⇒ Default — checked BEFORE
+    // Compute/Normalize, because a `??=`/`x = v if x.blank?` default may be
+    // read-less (fresh) or self-reading, and is a Default either way.
+    let all_guarded = hw && w.iter().all(|x| g.contains(x));
     if hc && hx {
         Recipe::Compensate
     } else if hc {
@@ -360,10 +366,12 @@ fn recipe_of(f: &ruff_spo_triplet::Function) -> Recipe {
         Recipe::Guard
     } else if hx && hw {
         Recipe::WriteRaise
+    } else if all_guarded {
+        Recipe::Default
     } else if w_fresh {
         Recipe::Compute
     } else if w_sub_r {
-        Recipe::SelfMap
+        Recipe::Normalize
     } else if hr {
         Recipe::Observe
     } else {
@@ -399,8 +407,9 @@ fn rails_recipe_codebook_correlation() {
                 Recipe::Cascade => "Cascade",
                 Recipe::Guard => "Guard",
                 Recipe::WriteRaise => "WriteRaise",
+                Recipe::Default => "Default",
                 Recipe::Compute => "Compute",
-                Recipe::SelfMap => "SelfMap",
+                Recipe::Normalize => "Normalize",
                 Recipe::Observe => "Observe",
                 Recipe::Empty => "Empty",
             };
@@ -409,7 +418,8 @@ fn rails_recipe_codebook_correlation() {
     }
     let n = |k: &str| *hist.get(k).unwrap_or(&0);
     // Behavioural arm = everything with facts except pure Observe/Empty.
-    let arm = n("Cascade") + n("Compute") + n("SelfMap") + n("Guard")
+    // J1 split the old `SelfMap` bucket into `Default` + `Normalize`.
+    let arm = n("Cascade") + n("Compute") + n("Default") + n("Normalize") + n("Guard")
         + n("Compensate") + n("WriteRaise");
     let essential = n("Compensate") + n("WriteRaise");
     let recoverable = arm - essential;
@@ -438,11 +448,14 @@ fn rails_recipe_codebook_correlation() {
          shape appeared (finding, not noise — characterize it)"
     );
 
-    // Drift fuse — pinned from the MEASURED 2026-07-06 Redmine run.
+    // Drift fuse — pinned from the MEASURED 2026-07-06 Redmine run, WITH J1
+    // (writes_if_blank): the old `SelfMap 2` split into `Default` + `Normalize`,
+    // and one guarded fresh-write moved Compute 13 → 12, Default → 2.
     if ns == "redmine" && arm == 62 {
         assert_eq!(n("Cascade"), 46, "Cascade bucket moved");
-        assert_eq!(n("Compute"), 13, "Compute bucket moved");
-        assert_eq!(n("SelfMap"), 2, "SelfMap bucket moved");
+        assert_eq!(n("Compute"), 12, "Compute bucket moved");
+        assert_eq!(n("Default"), 2, "J1 Default bucket moved");
+        assert_eq!(n("Normalize"), 1, "J1 Normalize bucket moved");
         assert_eq!(n("Compensate"), 1, "essential Compensate moved");
         assert_eq!(n("WriteRaise"), 0, "WriteRaise bucket moved");
     }
