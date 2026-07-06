@@ -70,6 +70,43 @@ histogram is published with the bake.
 - Orchestrator — assembles the probe in `crates/ruff_openproject/tests/`,
   runs leg 1, pins drift fuses, parks the bake, PRs.
 
+## PRE-REGISTERED — leg 2 (OP representers) + CONV-1 (2026-07-06, before any leg-2 run)
+
+Unblocked by: OGAR #163 merged (`render_class_with_methods_wide` — the
+born use-case is `work_packages` at >64 columns) + ruff #46 merged
+(`extract_representer_field_sets`). Corpus: `/tmp/op-corpus` (OpenProject,
+228 `*_representer.rb` under `lib/api/v3`, OP-layout `db/migrate/tables/`).
+
+- **L2-E1 representer coverage** — per representer: |resolved fields| /
+  |declared properties| against the harvested model basis (same honest
+  denominator as leg 1). Same bars for comparability: median ≥ 0.60 stands ·
+  0.30–0.60 partial (uncovered census ships as the finding — expected shape:
+  computed/link properties with no column) · < 0.30 KILL (assert).
+  Note: representers are a *declarative* surface — if this leg lands BELOW
+  the ERB leg's 0.667, that itself is a finding to publish, not to smooth.
+- **L2-E2 dual-target parity incl. the WIDE leg** — EXACTLY 1.00 (assert).
+  Wide classes (>64 fields) render via `render_class_with_methods_wide`
+  against the same bit-walk oracle; jinja witness gets the mask as a hex
+  string (`int(x,16)` — Python bigint carries 256 bits natively).
+- **CONV-1 — the point of the whole bake:** shared-field overlap between
+  the Redmine-`Issue` view masks (leg 1 artifact) and the OP-`WorkPackage`
+  representer masks, through the C4 rename seed (committed WITH this
+  pre-registration, BEFORE the run — hand-seeded from known Redmine→OP
+  migrations history: `tracker_id→type_id`, `fixed_version_id→version_id`,
+  `created_on→created_at`, `updated_on→updated_at`, identity elsewhere).
+  Metric: Jaccard of the two unions-of-present-fields after rename.
+  - ≥ 0.50 → convergence stands ("routes are skins" holds ACROSS apps).
+  - 0.25–0.50 → partial: publish the disjoint-field census (the C4 gap
+    list IS the deliverable — it seeds the full rename table).
+  - < 0.25 → refuted at the field level; the claim regrades to
+    per-app-only and the disjoint census explains why.
+  Informational (not gated): exact shared-mask count after rename; the
+  per-side unmatched-field lists.
+
+Tail discipline: representers whose properties resolve to NO harvested
+column are excluded from parity but counted in the census — never
+silently dropped.
+
 ## Run log
 
 - **Run 1 (2026-07-06): VOID — harvest-layout gap, not a KILL.** The E1 gate
