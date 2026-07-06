@@ -20,8 +20,12 @@
 //! ## PRE-REGISTERED thresholds (plan §"PRE-REGISTERED", 2026-07-06)
 //!
 //! - E1 mask coverage (per view: |fields| / |referenced|, honest denominator
-//!   from the raw-ident census): median ≥ 0.80 stands · 0.30–0.80 partial
+//!   from the raw-ident census): median ≥ 0.60 stands · 0.30–0.60 partial
 //!   (ships with the uncovered census as the finding) · < 0.30 KILL (assert).
+//!   (An earlier revision of THIS comment mis-transcribed the stands bar as
+//!   0.80; the plan file — the pre-registration of record, committed before
+//!   any run — says 0.60. Corrected 2026-07-06 with the run-2 measurement
+//!   noted against BOTH bars for honesty: 0.667 stands@0.60, partial@0.80.)
 //! - E2 dual-target parity: EXACTLY 1.00 (assert) — deterministic machinery;
 //!   jinja-absent runs are tagged `witnessed=false`, never silently "pass".
 //! - E3 mask-reuse ratio (distinct masks / views, per class): reported;
@@ -31,7 +35,22 @@
 //! root; `RAILS_CORPUS_NS` (default `redmine`); `BAKE_OUT=1` to park the
 //! artifact under `.claude/harvest/redmine-view-bake/`.
 //!
-//! ## MEASURED — pending (fuses pinned after the first green run)
+//! ## MEASURED — run 2, 2026-07-06 (fuses pinned below, corpus-signature-guarded)
+//!
+//! Corpus: redmine @ `bfd3c33a`, 506 ERB files. Run 1 was VOID (columnless
+//! basis — OP-layout-only schema reader; fixed by ruff's classic-migration
+//! fallback, ruff PR #48). Run 2, with the fallback:
+//!
+//! - **E1 median coverage 0.667** over 342 (view,model) rows → **STANDS**
+//!   (plan bar 0.60). Uncovered census ships with the bake regardless.
+//! - **E2 244/244** askama == bit-walk oracle; **jinja witnessed OK** (the
+//!   `r#type` raw-ident escape initially tripped the oracle — probe parser
+//!   bug, fixed; the kit was correct).
+//! - **E3 aggregate 161 distinct masks / 333 views ≈ 0.48 < 0.5** — supports
+//!   the Scope/route-dedup SoC claim, and precisely where it matters: the
+//!   high-view classes reuse hardest (Repository 0.22, Group 0.25, Project
+//!   0.29, Query 0.33, User 0.35, Issue 0.47); tiny classes (Board, Journal,
+//!   Version at 1.00) trivially don't dedupe.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -79,7 +98,11 @@ fn present_field_names(src: &str) -> BTreeSet<String> {
             let l = l.trim_start();
             let rest = l.strip_prefix("pub ")?;
             let (name, _) = rest.split_once(':')?;
+            // The kit raw-ident-escapes Rust keywords (`type` → `r#type`,
+            // rust_struct.rs::escape_rust_ident); strip the escape so the
+            // oracle compares source-level field names.
             let name = name.trim();
+            let name = name.strip_prefix("r#").unwrap_or(name);
             name.chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_')
                 .then(|| name.to_string())
@@ -319,6 +342,29 @@ fn render_bake_leg1_redmine() {
         assert!(ok, "E2 KILL: jinja witness mismatched the bit-walk oracle");
     }
 
+    // Drift fuses — pinned from run 2 (2026-07-06, redmine @ bfd3c33a),
+    // guarded by the corpus content-signature (506 ERB files, ns=redmine) so
+    // a different corpus/checkout skips them instead of false-tripping.
+    // NEVER pre-fill these; re-pin only from a real run, with the corpus
+    // move named in the commit message.
+    if ns == "redmine" && report.erb_files == 506 {
+        assert_eq!(
+            (report.views_with_hits, rows.len()),
+            (240, 342),
+            "FUSE: view-harvest shape moved on the pinned corpus — extractor drift?"
+        );
+        assert!(
+            (0.60..0.75).contains(&median),
+            "FUSE: E1 median {median:.3} left the pinned band [0.60, 0.75) — \
+             basis or census drift (pinned 0.667)"
+        );
+        assert_eq!(
+            askama_checked, 244,
+            "FUSE: renderable (non-wide) row count moved (pinned 244; wide \
+             classes render-skipped until OGAR #163 is wired)"
+        );
+    }
+
     // 5. Park the artifact when asked.
     if std::env::var_os("BAKE_OUT").is_some() {
         let out = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -362,7 +408,7 @@ fn render_bake_leg1_redmine() {
              together, never independently (I-LEGACY-API-FEATURE-GATED).\n\n\
              - corpus: RAILS_CORPUS_SRC={} (ns={ns})\n\
              - erb files scanned: {} · views with hits: {} · (view,model) rows: {}\n\
-             - E1 median coverage: {median:.3} (pre-reg: >=0.80 stands, 0.30-0.80 partial, <0.30 KILL)\n\
+             - E1 median coverage: {median:.3} (pre-reg, plan of record: >=0.60 stands, 0.30-0.60 partial, <0.30 KILL)\n\
              - E2: askama==bit-walk on {askama_checked} rows; jinja witnessed={witnessed}\n\
              - E3 reuse: {reuse_hits} class(es) with ratio < 1.0 among >=3-view classes\n\
              - classids: null (v1 bakes namespace-locally; redmine-canon mint is a follow-up)\n\

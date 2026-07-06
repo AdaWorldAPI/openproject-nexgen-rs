@@ -82,3 +82,30 @@ histogram is published with the bake.
   classic-migration fallback in the ruff schema reader (create_table blocks +
   add_column applied in file order; renames/removals COUNTED in SchemaReport,
   not applied — an honestly-Inferred basis).
+- **Run 2 (2026-07-06, redmine @ `bfd3c33a`, classic-fallback via ruff #48
+  patched locally): GREEN — the bake STANDS.**
+  - **E1 = 0.667 median coverage** over 342 (view,model) rows (506 ERB
+    scanned, 240 views with hits) → **≥ 0.60: the ERB surface is
+    mask-shaped; the bake stands.** The uncovered-reference census ships
+    with the bake anyway (it is the render-side jitter codebook).
+    *Transcription note:* the probe's doc-comment had mis-copied the stands
+    bar as 0.80 (plan of record says 0.60 — this section, committed before
+    any run). Recorded against both bars: stands@0.60, partial@0.80; the
+    census ships either way, so the stricter reading's obligation is met.
+  - **E2 = 1.00** — 244/244 non-wide rows: askama == bit-walk oracle, jinja
+    witnessed OK. One probe-side parser bug found and fixed en route (the
+    kit's `type` → `r#type` raw-ident escape; the KIT was correct, the
+    probe's `pub <ident>:` reader wasn't stripping `r#`).
+  - **E3 aggregate = 161 distinct masks / 333 views ≈ 0.48 < 0.5 → supports
+    the Scope/route-dedup SoC claim**, concentrated exactly where it
+    matters: Repository 0.22, Group 0.25, WikiContent 0.25, Project 0.29,
+    Query 0.33, User 0.35, Wiki 0.38, CustomField 0.40, Tracker 0.44,
+    Issue 0.47 all reuse hard; small classes (Board/Comment/Journal/Version
+    = 1.00) trivially don't. "Routes are skins" is now a measurement, not
+    doctrine, for leg 1.
+  - Drift fuses pinned in the probe (content-signature-guarded on 506 ERB +
+    ns=redmine): shape (240, 342), E1 band [0.60, 0.75), renderable rows
+    244. Artifact parked at `.claude/harvest/redmine-view-bake/`
+    (field_order.ndjson 61 models · masks.ndjson 342 rows · 5 samples).
+  - Wide classes (>64 fields) recorded + render-skipped until OGAR #163's
+    `render_class_with_methods_wide` is wired (OP work_packages leg).
