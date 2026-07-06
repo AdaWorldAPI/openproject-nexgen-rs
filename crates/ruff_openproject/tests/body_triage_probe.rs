@@ -283,3 +283,167 @@ fn rails_test_leg_body_triage() {
         );
     }
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// PROBE-OGAR-RECIPE-CODEBOOK — the "rolling bucket" refinement of F17.
+//
+// The deduction (operator, `[shape]{shape×lift×fuzzy}[shape]`): each hook is a
+// FUZZY encoding of a canonical recipe that ALREADY EXISTS in the lifted
+// codebook. So fingerprint each body by its (W,R,X,C) fact-set and correlate
+// to the nearest recipe centroid — GENERIC over any AR frontend (Rails/Odoo),
+// because the centroids are pure fact-set predicates, zero language tokens.
+//
+// This REFINES the coarse F17 triage: the coarse `self-feedback` bucket
+// (R∩W≠∅ → FAIL) is itself fuzzy — it cannot tell an idempotent self-map
+// (order-free) from genuine accumulation (order-dependent). Rolling the coarse
+// FAILs through the recipe codebook recovers the idempotent ones and leaves
+// only the irreducible imperative core ("won the game").
+//
+// The recipe codebook (centroids, first-match — the "existing lifting" each
+// fuzzy body correlates with):
+//   Compensate  C∧X          manual txn (rollback) — NO recipe, essential
+//   Cascade     C, ¬X        relation.method dispatch → `dependent:` / assoc cb
+//   Guard       X, ¬W        abort criteria          → validation
+//   WriteRaise  W∧X          partial-write escape    — essential
+//   Compute     W⊄R (fresh)  derive target≠inputs    → `emitted_by` compute edge
+//   SelfMap     W⊆R          idempotent self-transform→ `normalizes` | default
+//   Observe     R only       read-only observer      → excluded from arm
+//
+// MEASURED 2026-07-06 (Redmine, fixed walker) — arm 62:
+//   Cascade 46 · Compute 13 · SelfMap 2 · Compensate 1
+//   recoverable 61/62 = 98.4% (upper) — the coarse FAIL 4 rolls to
+//   {SelfMap 2 + Compute 1 recovered} + {Compensate 1 essential}.
+//   Authoritative-only lower bound (drop the Inferred-`calls` Cascade bucket
+//   from num+denom): 15/16 = 93.75%. Irreducible = 1 Compensate in BOTH.
+//
+// The JITTER CODEBOOK (residuals the current fact-set cannot fully resolve —
+// each names one more fact ruff must capture to close the game):
+//   J1 SelfMap degeneracy — `normalizes` vs schema-default are identical under
+//      (W,R); splitting them needs the GUARD PREDICATE fact (`x.blank?` ⇒
+//      default; pure transform ⇒ normalize). Both order-free, so PASS is
+//      unaffected — only the emit TARGET differs.
+//   J2 Cascade rests on Inferred `calls` (receiver.method); the residual is the
+//      receiver→`dependent:`-kind codebook (page.destroy, line_ids.update_all).
+//      Hence the 93.75/98.4 band.
+//   J3 Composite body — `Changeset#before_create_cs` is normalize(committer,
+//      comments) + compute(user) in one hook; recipe = the SET, not one entry.
+//      Order-free (both sub-recipes are), so it stays recoverable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Recipe {
+    Compensate,
+    Cascade,
+    Guard,
+    WriteRaise,
+    Compute,
+    SelfMap,
+    Observe,
+    Empty,
+}
+
+fn recipe_of(f: &ruff_spo_triplet::Function) -> Recipe {
+    let r: BTreeSet<&str> = f.reads.iter().map(String::as_str).collect();
+    let w: BTreeSet<&str> = f.writes.iter().map(String::as_str).collect();
+    let (hw, hr, hx, hc) = (
+        !w.is_empty(),
+        !r.is_empty(),
+        !f.raises.is_empty(),
+        !f.calls.is_empty(),
+    );
+    let w_sub_r = hw && w.iter().all(|x| r.contains(x));
+    let w_fresh = w.iter().any(|x| !r.contains(x));
+    if hc && hx {
+        Recipe::Compensate
+    } else if hc {
+        Recipe::Cascade
+    } else if hx && !hw {
+        Recipe::Guard
+    } else if hx && hw {
+        Recipe::WriteRaise
+    } else if w_fresh {
+        Recipe::Compute
+    } else if w_sub_r {
+        Recipe::SelfMap
+    } else if hr {
+        Recipe::Observe
+    } else {
+        Recipe::Empty
+    }
+}
+
+#[test]
+fn rails_recipe_codebook_correlation() {
+    let Some(src) = std::env::var_os("RAILS_CORPUS_SRC") else {
+        eprintln!("recipe_codebook: RAILS_CORPUS_SRC not set — skipping.");
+        return;
+    };
+    let ns = std::env::var("RAILS_CORPUS_NS").unwrap_or_else(|_| "redmine".to_string());
+    let graph = extract_app_with(Path::new(&src), &ns);
+
+    let mut hist: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for m in &graph.models {
+        for cb in &m.callbacks {
+            if !LIFECYCLE_PHASES.contains(&cb.phase.as_str()) || cb.target == "<block>" {
+                continue;
+            }
+            let Some(f) = m
+                .functions
+                .iter()
+                .chain(m.helpers.iter())
+                .find(|f| f.name == cb.target)
+            else {
+                continue;
+            };
+            let key = match recipe_of(f) {
+                Recipe::Compensate => "Compensate",
+                Recipe::Cascade => "Cascade",
+                Recipe::Guard => "Guard",
+                Recipe::WriteRaise => "WriteRaise",
+                Recipe::Compute => "Compute",
+                Recipe::SelfMap => "SelfMap",
+                Recipe::Observe => "Observe",
+                Recipe::Empty => "Empty",
+            };
+            *hist.entry(key).or_default() += 1;
+        }
+    }
+    let n = |k: &str| *hist.get(k).unwrap_or(&0);
+    // Behavioural arm = everything with facts except pure Observe/Empty.
+    let arm = n("Cascade") + n("Compute") + n("SelfMap") + n("Guard")
+        + n("Compensate") + n("WriteRaise");
+    let essential = n("Compensate") + n("WriteRaise");
+    let recoverable = arm - essential;
+    let upper = 100.0 * recoverable as f64 / arm as f64;
+    // Lower bound: drop the Inferred-calls Cascade bucket from num AND denom.
+    let arm_auth = arm - n("Cascade");
+    let lower = 100.0 * (arm_auth - essential) as f64 / arm_auth as f64;
+    eprintln!("== F17 recipe-codebook (rolling bucket) — {ns} ==");
+    for (k, v) in &hist {
+        eprintln!("  {k:>11} {v}");
+    }
+    eprintln!(
+        "arm {arm}: recoverable {recoverable}/{arm} = {upper:.1}% (upper) .. {lower:.1}% \
+         (Authoritative-only, Cascade dropped); irreducible essential = {essential} \
+         (Compensate {} + WriteRaise {})",
+        n("Compensate"),
+        n("WriteRaise"),
+    );
+
+    assert!(arm >= 15, "arm too small — harvest regression");
+    // WON: the irreducible core is ONLY the essential kind — no recoverable
+    // recipe left stranded in a FAIL bucket. This is the "won the game" gate.
+    assert!(
+        essential <= 2,
+        "irreducible essential core grew to {essential} — a new order-dependent \
+         shape appeared (finding, not noise — characterize it)"
+    );
+
+    // Drift fuse — pinned from the MEASURED 2026-07-06 Redmine run.
+    if ns == "redmine" && arm == 62 {
+        assert_eq!(n("Cascade"), 46, "Cascade bucket moved");
+        assert_eq!(n("Compute"), 13, "Compute bucket moved");
+        assert_eq!(n("SelfMap"), 2, "SelfMap bucket moved");
+        assert_eq!(n("Compensate"), 1, "essential Compensate moved");
+        assert_eq!(n("WriteRaise"), 0, "WriteRaise bucket moved");
+    }
+}
