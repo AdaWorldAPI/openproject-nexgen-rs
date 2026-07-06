@@ -95,6 +95,21 @@
 //! D-ACCIDENTAL-IMPERATIVE `[H]` → `[G]`**, one point under the Odoo
 //! control's 94.9% — the imperative test population behaves like the
 //! declarative control, which is precisely the discovery's claim.
+//!
+//! **Tail characterization (bodies read in source):** the 4 FAIL hooks are
+//! NOT ORM-write noise — 2× encoding-membrane sanitizer
+//! (`Change#replace_invalid_utf8_of_path`, `Changeset#before_create_cs`:
+//! idempotent UTF-8 repair guarding the save; the imperative spelling of
+//! Rails `normalizes`, which ruff already harvests declaratively), 1×
+//! schema-default surrogate (`User#set_mail_notification`: write-if-blank
+//! backfill for a config-sourced default DDL doesn't carry), 1× compensating
+//! transaction (`WikiContentVersion#page_update_after_destroy`: manual
+//! revert-or-destroy cascade + Rollback — the one genuinely essential
+//! imperative). True essential residue ≈ 1/62 (1.6%); the rest are refugees
+//! from strata OGAR already owns (schema-stratum defaults, normalizer/Guard
+//! recipes). Falsifiable OP prediction: OpenProject's migration-DSL-only
+//! schema should push MORE of this shape into hooks — check on the OP
+//! corpus re-run.
 
 use std::collections::BTreeSet;
 use std::path::Path;
