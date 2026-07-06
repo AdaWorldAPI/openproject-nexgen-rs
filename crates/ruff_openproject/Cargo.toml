@@ -13,9 +13,9 @@ name = "ruff_openproject"
 [dependencies]
 # Operator ruling: rev pins on AdaWorldAPI-internal git deps are retired —
 # they were "out of desperation to lock what hadn't converged in transpiler
-# sink-in yet." Drift protection is the fuse tests, not pins. Floats on the
-# convergence branch `claude/odoo-rs-transcode-lf8ya5`. Flips to
-# `branch = "main"` once the convergence branches merge. Cargo.lock still
-# locks a concrete rev for reproducibility.
-ruff_ruby_spo    = { git = "https://github.com/AdaWorldAPI/ruff", branch = "claude/odoo-rs-transcode-lf8ya5" }
-ruff_spo_triplet = { git = "https://github.com/AdaWorldAPI/ruff", branch = "claude/odoo-rs-transcode-lf8ya5" }
+# sink-in yet." Drift protection is the fuse tests, not pins. Floats on
+# `main` — flipped 2026-07-06 (ruff #44 landed the schema stratum +
+# ruff_sqlalchemy_spo on main; convergence branch retired). Cargo.lock
+# still locks a concrete rev for reproducibility.
+ruff_ruby_spo    = { git = "https://github.com/AdaWorldAPI/ruff", branch = "main" }
+ruff_spo_triplet = { git = "https://github.com/AdaWorldAPI/ruff", branch = "main" }
