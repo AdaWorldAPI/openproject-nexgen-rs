@@ -14,6 +14,122 @@
 
 ## Entries (newest first)
 
+## 2026-07-05 — Recipe codebook Phase 1 SHIPPED upstream (`ogar-vocab::recipe`); gap (c) half-closes
+**Status:** FINDING (mirrors OGAR `E-RECIPE-CODEBOOK-MINTED-P1`)
+**Scope:** OGAR `ogar-vocab::recipe` × `.claude/knowledge/RAILS-COVERAGE-KIT.md` §5 gap (c)
+
+The recipe-concept codebook + the lift-time predicate resolver
+(`recipe_concept_from_surface`: `Triple.p: String × lang → RecipeConceptId`)
+shipped upstream in `ogar-vocab` — the four §5 families as a typed
+`RecipeConceptId` newtype (collision-proof vs class `u16`), 27 concepts,
+forward/reverse + drift-gate tests. The verb-side convergence pin is
+machine-checked: Rails `belongs_to` ≡ Odoo `Many2one` → `REL_MANY_TO_ONE`.
+So gap (c) ("recipe-concept codebook unminted") from the entry below is
+**HALF-CLOSED**: the codebook + resolver exist; Phase 2 (wire the resolver
+into `ogar-from-ruff` lift so `ActionDef`/triples carry the id) is the next
+step, zero output-shape change this pass. `OpHandlerKind` remains the
+per-consumer enum until Phase 2 lands. Canon: OGAR
+`E-RECIPE-CODEBOOK-MINTED-P1`.
+
+## 2026-07-05 — The recipe shape ruff lands on IS the `<port>::<path>(<shape>)` grammar (a canonicalized SPO triple), not the per-consumer zoo
+**Status:** FINDING (operator insight; mirrors OGAR `E-GRAMMAR-IS-THE-RECIPE-SHAPE`)
+**Scope:** `.claude/knowledge/RAILS-COVERAGE-KIT.md` §5 × OGAR invocation grammar × ruff `expand()`
+
+A recipe = a canonicalized SPO triple, and the grammar's three positions
+are the triple's three legs: subject = `part_of::is_a` facet → classid
+(shipped, `ruff_spo_address::mint`); predicate = verb → `RecipeConceptId`
+(OPEN — this is gap (c) from the entry below); object = `input[type]`
+typed by the schema/association stratum (shipped). ruff already emits the
+triples via `expand()`, but `Triple.p` is a **String** — the zoo, one
+level down. So gap (c) sharpens to: **canonicalize the predicate at lift**
+(`Triple.p: String → RecipeConceptId`, string kept as the `LabelDto`
+skin); the four §5 families = which verb-codebook the predicate comes
+from. No new extractor, no per-consumer enum — a resolver + the codebook.
+Canon: OGAR `E-GRAMMAR-IS-THE-RECIPE-SHAPE`; §5 dated pointer added.
+
+## 2026-07-05 — Gap ledger verified in code: F17 writes/calls prerequisite is DONE; remaining gaps = routes.rb stratum + recipe codebook
+**Status:** FINDING (mirrors OGAR `E-F17-PREREQ-VERIFIED`; corrects gap item (a) in the entry below, which propagated a stale RAILS-COVERAGE-KIT §6 claim)
+**Scope:** ruff `ruff_spo_triplet`/`ruff_ruby_spo` × OGAR `ogar-from-ruff`/`ogar-vocab` × `.claude/knowledge/RAILS-COVERAGE-KIT.md` §6
+
+Verified on the consumed branch: **(a) CLOSED** — `Function::{writes,
+calls}` shipped (`ir.rs:264-284`), populated by the Ruby walker
+(`functions.rs`), emitted as `writes_field`/`calls` triples with truth
+values; the controller DO-arm harvest is live (`extract_tree_with`,
+ruff #42/#43 → `lift_actions` → `ActionDef`, facts-only). **(b) OPEN**
+— the `routes.rb` stratum (HTTP verb / member-collection / return
+shape), the one missing Action-kind fact source. **(c) OPEN** — the
+OGAR recipe-concept codebook unminted (`LifecycleTrigger{event:String}`
+still surface-string). Dated staleness note added in place at
+RAILS-COVERAGE-KIT §6; the fragment README's gap ledger updated.
+Consequence: the Action-kind classifier's inputs are mostly harvestable
+TODAY; next levers are upstream — ruff routes-stratum + the OGAR §5
+codebook mint (serialized-allocation train).
+
+## 2026-07-05 (correction) — The reunion is an ORDER; route/action dedup IS SoC + the recipe codebook (operator canon). Corrects the entry below.
+**Status:** FINDING (operator ruling 2026-07-05 — mirrors OGAR `E-RECIPE-REUNION-ORDER`)
+**Scope:** `crates/ruff_python_dto_check/` × `.claude/knowledge/{CLASSVIEW-FIELDVIEW-ASKAMA-BITMASK(OGAR), RAILS-COVERAGE-KIT, TWO-SHAPES-COMPILED-NOT-PARSED}` × `2026-07-05-redmine-op-ar-shape-convergence-plan.md`
+
+The entry below (my prior FINDING) recorded a council that REJECTED the
+route-dedup ⇄ SoC unification as `[S]` mere-rhyme. That was WRONG — the
+unification was already operator-canon before the council ran, and the
+council was mis-framed (pointed only at `soc.rs` + `op-codegen-bucket`,
+never at the rulings). Operator, verbatim: *"The reunion is an order. We
+only use ORM for Schema and actions. We keep AR and rails/ruby. Redmine
+teaches us the ancestry. ERB redmine fieldview teaches us to translate
+into askama classview fieldmask."* The five clauses each have a canon
+home (see OGAR `E-RECIPE-REUNION-ORDER` for the full mapping):
+
+1. reunion = order — Redmine ⇄ OP at the AR shape (`WorkPackage ≡ Issue ≡
+   0x0102`); fork lineage. `2026-07-05-redmine-op-ar-shape-convergence-plan.md` §0.
+2. ORM only for Schema + actions (D-AR-3.5 stratum + `(verb,criteria)`
+   body triage). `TWO-SHAPES` §2, RAILS-COVERAGE-KIT §6.
+3. keep AR/Rails/Ruby (the class-body AST = the wings). `TWO-SHAPES` §2.
+4. Redmine teaches ancestry — STI collapse IS coverage (Redmine 53.8% /
+   OP 71.7%). RAILS-COVERAGE-KIT §0.
+5. ERB fieldview → askama classview fieldmask — route dedup IS SoC:
+   `FIELD_MASK_CAP = MAX_SIBLINGS_PER_TIER`, one cap (OGAR
+   `CLASSVIEW-FIELDVIEW-ASKAMA-BITMASK`, operator 2026-06-29);
+   `HandlerKind` is the canon Action-kind recipe family →
+   `RecipeConceptId` (RAILS-COVERAGE-KIT §5).
+
+Consequences landed this commit: `crates/ruff_python_dto_check/README.md`
+re-framed from "parked, retire" to the ERB-fieldview → askama render +
+Action-kind recipe corpus (teaching material seeding `ogar-render-askama`
++ the recipe codebook). What survives from the council: only the factual
+gap ledger (ruff lacks writes/calls capture per F17; the recipe-concept
+codebook unminted) — queued upstream, never op-side.
+
+## 2026-07-05 [SUPERSEDED] — Route-kind dedup ⇄ SoC synergy: council-rejected rhyme; ruff_python_dto_check parked as the un-upstreamed sqlx delta
+**Status:** SUPERSEDED (2026-07-05, same day — by the correction entry above, on operator ruling. The `[S]` rejection contradicted operator canon; the council was mis-framed. Kept append-only as the cautionary record.)
+**Scope:** `crates/ruff_python_dto_check/` × `crates/op-codegen-bucket/` × OGAR board × ruff `ruff_spo_address::soc`
+
+The proposed synergy "route deduplication is the DO-arm mirror of ruff's
+SoC lint" went through OGAR's 5+3 hardening council (5 research savants +
+3 brutally-honest reviewers, all passes recorded) and was **REJECTED at
+`[S]` mere-rhyme** — grounds: detect≠curate (ruff harvests no route
+discriminant facts; no classifier exists), discard≠retain (soc reclaims
+duplicate rows; bucketing retains every skin — DRY templating, not
+deduplication), and the vacuity trap ("N siblings → K representatives +
+residual" is the workspace's universal quotient primitive; soc's
+distinctive content — harvested relation + byte-cap + `law_holds` — does
+not transfer). Canonical verdict entry with receipts (16/16 CODED), the
+verb ≠ route-recipe carve, the pre-registered OP⇄Redmine kind A/B probe,
+and the mint fence: OGAR `.claude/board/EPIPHANIES.md`
+**E-ROUTE-KIND-VERB-STRATA** (+ `docs/DISCOVERY-MAP.md` twin
+D-ROUTE-KIND-VERB-STRATA).
+
+Local consequences landed with this entry:
+
+- `crates/ruff_python_dto_check/` is **PARKED** via its new README: it is
+  the un-upstreamed **sqlx-target delta** against live ruff's
+  `ruff_python_dto_check` (upstream has `contract.rs` + seaorm codegen,
+  no `sqlx_emit/`); no `Cargo.toml`, deliberately not a workspace member.
+  Retirement path: upstream the sqlx arm to ruff (E-VENDOR-DELTA
+  pattern), recipes to `ogar-adapter-*`, then the directory retires.
+- The route-kind A/B is a **DISTINCT measurement** from the capstone C5
+  verb A/B (route-recipe stratum vs verb stratum) — dated notes added to
+  the capstone and the migration plan §3.
+
 ## 2026-06-03 — Rails-to-SPO triples is structurally the same write shape as Lance + Raft
 **Status:** CONJECTURE
 **Scope:** `crates/op-codegen-pipeline/` × `vendor/AdaWorldAPI-lance-graph/codegen_spine` × upstream `AdaWorldAPI/lance-graph#452`
