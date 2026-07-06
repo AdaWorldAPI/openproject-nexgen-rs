@@ -14,6 +14,22 @@
 
 ## Entries (newest first)
 
+## 2026-07-05 — The recipe shape ruff lands on IS the `<port>::<path>(<shape>)` grammar (a canonicalized SPO triple), not the per-consumer zoo
+**Status:** FINDING (operator insight; mirrors OGAR `E-GRAMMAR-IS-THE-RECIPE-SHAPE`)
+**Scope:** `.claude/knowledge/RAILS-COVERAGE-KIT.md` §5 × OGAR invocation grammar × ruff `expand()`
+
+A recipe = a canonicalized SPO triple, and the grammar's three positions
+are the triple's three legs: subject = `part_of::is_a` facet → classid
+(shipped, `ruff_spo_address::mint`); predicate = verb → `RecipeConceptId`
+(OPEN — this is gap (c) from the entry below); object = `input[type]`
+typed by the schema/association stratum (shipped). ruff already emits the
+triples via `expand()`, but `Triple.p` is a **String** — the zoo, one
+level down. So gap (c) sharpens to: **canonicalize the predicate at lift**
+(`Triple.p: String → RecipeConceptId`, string kept as the `LabelDto`
+skin); the four §5 families = which verb-codebook the predicate comes
+from. No new extractor, no per-consumer enum — a resolver + the codebook.
+Canon: OGAR `E-GRAMMAR-IS-THE-RECIPE-SHAPE`; §5 dated pointer added.
+
 ## 2026-07-05 — Gap ledger verified in code: F17 writes/calls prerequisite is DONE; remaining gaps = routes.rb stratum + recipe codebook
 **Status:** FINDING (mirrors OGAR `E-F17-PREREQ-VERIFIED`; corrects gap item (a) in the entry below, which propagated a stale RAILS-COVERAGE-KIT §6 claim)
 **Scope:** ruff `ruff_spo_triplet`/`ruff_ruby_spo` × OGAR `ogar-from-ruff`/`ogar-vocab` × `.claude/knowledge/RAILS-COVERAGE-KIT.md` §6

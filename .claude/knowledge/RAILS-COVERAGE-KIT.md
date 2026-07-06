@@ -197,6 +197,18 @@ converge on one class concept (`BILLABLE_WORK_ENTRY`, `0x0103`). The recipe
 vocabulary must converge the same way, or the behavioural arm fragments back
 into the zoo the structural arm escaped.
 
+> **2026-07-05 note — the grammar frames this (OGAR `E-GRAMMAR-IS-THE-RECIPE-SHAPE`).**
+> The four families above are the VERB slot of the `<port>::<path>(<shape>)`
+> invocation grammar (OGAR `E-ONE-MASK-THREE-PORTS`). A recipe = a canonicalized
+> SPO triple: **subject** = `part_of::is_a` facet → classid (shipped,
+> `ruff_spo_address::mint`); **predicate** = a `RecipeConceptId` (this §5 mint —
+> the one open leg); **object** = the typed `input[type]` (shipped, the schema/
+> association stratum). ruff already emits the triples (`expand()`); `Triple.p`
+> is a `String` — the zoo, one level down. So the §5 "mint accordingly" is a
+> **predicate resolver at lift** (`Triple.p: String → RecipeConceptId`, string
+> kept as the `LabelDto`) + the OGAR verb codebook — NOT a new extractor and NOT
+> a per-consumer enum.
+
 ## 6. Function catalog = CRITERIA over shipped verbs + the body-pass triage
 
 > Canon: OGAR `E-FUNCTION-CATALOG` + `E-ACCIDENTAL-IMPERATIVE` + `F17`. This
