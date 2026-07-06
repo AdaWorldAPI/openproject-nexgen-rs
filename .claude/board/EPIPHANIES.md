@@ -14,6 +14,23 @@
 
 ## Entries (newest first)
 
+## 2026-07-05 — Recipe codebook Phase 1 SHIPPED upstream (`ogar-vocab::recipe`); gap (c) half-closes
+**Status:** FINDING (mirrors OGAR `E-RECIPE-CODEBOOK-MINTED-P1`)
+**Scope:** OGAR `ogar-vocab::recipe` × `.claude/knowledge/RAILS-COVERAGE-KIT.md` §5 gap (c)
+
+The recipe-concept codebook + the lift-time predicate resolver
+(`recipe_concept_from_surface`: `Triple.p: String × lang → RecipeConceptId`)
+shipped upstream in `ogar-vocab` — the four §5 families as a typed
+`RecipeConceptId` newtype (collision-proof vs class `u16`), 27 concepts,
+forward/reverse + drift-gate tests. The verb-side convergence pin is
+machine-checked: Rails `belongs_to` ≡ Odoo `Many2one` → `REL_MANY_TO_ONE`.
+So gap (c) ("recipe-concept codebook unminted") from the entry below is
+**HALF-CLOSED**: the codebook + resolver exist; Phase 2 (wire the resolver
+into `ogar-from-ruff` lift so `ActionDef`/triples carry the id) is the next
+step, zero output-shape change this pass. `OpHandlerKind` remains the
+per-consumer enum until Phase 2 lands. Canon: OGAR
+`E-RECIPE-CODEBOOK-MINTED-P1`.
+
 ## 2026-07-05 — The recipe shape ruff lands on IS the `<port>::<path>(<shape>)` grammar (a canonicalized SPO triple), not the per-consumer zoo
 **Status:** FINDING (operator insight; mirrors OGAR `E-GRAMMAR-IS-THE-RECIPE-SHAPE`)
 **Scope:** `.claude/knowledge/RAILS-COVERAGE-KIT.md` §5 × OGAR invocation grammar × ruff `expand()`
