@@ -1,0 +1,194 @@
+# Redmine/OP render bake v1 — AR/Rails views → ClassView×FieldMask → askama/jinja
+
+> **Type:** plan + PRE-REGISTRATION (thresholds written BEFORE the first
+> measurement run — the F17/C5 discipline).
+> **Status:** PLANTED 2026-07-06, fleet in flight (ERB extractor · OP recon ·
+> render-kit join design).
+> **Thesis:** a Rails view is *detected config* (fuzzy-recipe-codebook §8c):
+> it bakes to DATA — a `(class, field-set)` mask — never to hand-transcribed
+> templates. The dual-target render (askama Rust / jinja Python, falsifier #2,
+> OGAR #158) then re-emits both skins from the mask. If Redmine views and OP
+> representers of the same concept project to overlapping masks, "routes are
+> skins" stops being doctrine and becomes measurement.
+
+## Shape
+
+```
+Redmine app/views/**.erb ──┐ ruff_ruby_spo::views (field-set extractor, closed-vocab)
+OP api/v3 representers ────┘ (leg 2; grammar per recon)
+        │  per-view (model, field-name set)
+        ▼
+canonical field order (extract_app_with_schema, N3 positions)
+        ▼
+FieldMask / WideFieldMask  (#651 — work_packages ~109 cols is the born use-case)
+        ▼
+dual-target emit: askama (Rust) ∥ jinja (Python)   ← falsifier #2 machinery
+        ▼
+parked bake: .claude/harvest/redmine-view-bake/ (masks.ndjson + README + samples)
+```
+
+## PRE-REGISTERED metrics + thresholds (2026-07-06, before any run)
+
+1. **Mask coverage** — fraction of `receiver.ident` references in views that
+   resolve to harvested canonical fields.
+   - ≥ 60% → the ERB surface is mask-shaped; the bake stands.
+   - 30–60% → partial: bake ships with the uncovered-reference census as the
+     finding (helpers/computed surface = the render-side jitter codebook).
+   - < 30% → KILL: views are not field-projections; the bake claim is regraded.
+2. **Dual-target parity** — for every baked (class, mask), the askama field set
+   MUST equal the jinja field set. Threshold: **100%** (deterministic
+   machinery; any mismatch is a bug in the kit, not tolerance).
+3. **Mask-reuse ratio** — distinct masks per class ÷ views referencing that
+   class. < 0.5 supports the Scope/route-dedup SoC claim (many views, few
+   masks); ≈ 1.0 refutes it (every view its own mask — skins are NOT shared).
+
+Tail discipline: any view whose field-set maps to NO harvested field is
+excluded and counted (never silently dropped); the uncovered-reference
+histogram is published with the bake.
+
+## Legs
+
+- **Leg 1 (this session): Redmine ERB** — 506 views local/in-scope; models via
+  `extract_app_with_schema` (fixed walker). Measured leg.
+- **Leg 2: OP representers** — modern OP is Angular+APIv3; the field surface
+  lives in `*_representer.rb`/schema declarations, not ERB. Same
+  `(class, field-set)` reduction; grammar per the recon agent. May land as a
+  follow-up if the declaration surface needs its own extractor.
+- **Convergence measurement (the point):** shared-mask overlap between
+  Redmine-`Issue` views and OP-`WorkPackage` representers via the C4 rename
+  table — the render-side sibling of C5's shared-RecipeConceptId collapse.
+  NOT pre-registered yet: needs leg 2's grammar first; register before running.
+
+## Fleet (model policy: grindwork=Sonnet, accumulation=Opus)
+
+- A1 Sonnet — `ruff_ruby_spo::views` extractor (std-only, closed-vocab,
+  word-boundary; presence-only per C2).
+- A2 Sonnet — OP corpus recon (direct-token clone; ERB count, representer
+  grammar, verbatim samples).
+- A3 Opus — render-kit join design (mask width gaps, jinja runtime, canonical
+  order source, artifact schema) → `bake-design.md`.
+- Orchestrator — assembles the probe in `crates/ruff_openproject/tests/`,
+  runs leg 1, pins drift fuses, parks the bake, PRs.
+
+## PRE-REGISTERED — leg 2 (OP representers) + CONV-1 (2026-07-06, before any leg-2 run)
+
+Unblocked by: OGAR #163 merged (`render_class_with_methods_wide` — the
+born use-case is `work_packages` at >64 columns) + ruff #46 merged
+(`extract_representer_field_sets`). Corpus: `/tmp/op-corpus` (OpenProject,
+228 `*_representer.rb` under `lib/api/v3`, OP-layout `db/migrate/tables/`).
+
+- **L2-E1 representer coverage** — per representer: |resolved fields| /
+  |declared properties| against the harvested model basis (same honest
+  denominator as leg 1). Same bars for comparability: median ≥ 0.60 stands ·
+  0.30–0.60 partial (uncovered census ships as the finding — expected shape:
+  computed/link properties with no column) · < 0.30 KILL (assert).
+  Note: representers are a *declarative* surface — if this leg lands BELOW
+  the ERB leg's 0.667, that itself is a finding to publish, not to smooth.
+- **L2-E2 dual-target parity incl. the WIDE leg** — EXACTLY 1.00 (assert).
+  Wide classes (>64 fields) render via `render_class_with_methods_wide`
+  against the same bit-walk oracle; jinja witness gets the mask as a hex
+  string (`int(x,16)` — Python bigint carries 256 bits natively).
+- **CONV-1 — the point of the whole bake:** shared-field overlap between
+  the Redmine-`Issue` view masks (leg 1 artifact) and the OP-`WorkPackage`
+  representer masks, through the C4 rename seed (committed WITH this
+  pre-registration, BEFORE the run — hand-seeded from known Redmine→OP
+  migrations history: `tracker_id→type_id`, `fixed_version_id→version_id`,
+  `created_on→created_at`, `updated_on→updated_at`, identity elsewhere).
+  Metric: Jaccard of the two unions-of-present-fields after rename.
+  - ≥ 0.50 → convergence stands ("routes are skins" holds ACROSS apps).
+  - 0.25–0.50 → partial: publish the disjoint-field census (the C4 gap
+    list IS the deliverable — it seeds the full rename table).
+  - < 0.25 → refuted at the field level; the claim regrades to
+    per-app-only and the disjoint census explains why.
+  Informational (not gated): exact shared-mask count after rename; the
+  per-side unmatched-field lists.
+
+Tail discipline: representers whose properties resolve to NO harvested
+column are excluded from parity but counted in the census — never
+silently dropped.
+
+## Run log
+
+- **Run 1 (2026-07-06): VOID — harvest-layout gap, not a KILL.** The E1 gate
+  fired at median 0.000 because `extract_app_with_schema` reads only the
+  OP-layout baseline (`db/migrate/tables/*.rb`); Redmine ships classic
+  migrations, so `Model.fields` came back empty and the basis carried no DB
+  columns — the measurement was views-vs-a-columnless-basis, i.e. invalid,
+  and the KILL assert did exactly its job (loud on a broken join). The
+  pre-registered thresholds stand unchanged for run 2. Fix in flight: a
+  classic-migration fallback in the ruff schema reader (create_table blocks +
+  add_column applied in file order; renames/removals COUNTED in SchemaReport,
+  not applied — an honestly-Inferred basis).
+- **Run 2 (2026-07-06, redmine @ `bfd3c33a`, classic-fallback via ruff #48
+  patched locally): GREEN — the bake STANDS.**
+  - **E1 = 0.667 median coverage** over 342 (view,model) rows (506 ERB
+    scanned, 240 views with hits) → **≥ 0.60: the ERB surface is
+    mask-shaped; the bake stands.** The uncovered-reference census ships
+    with the bake anyway (it is the render-side jitter codebook).
+    *Transcription note:* the probe's doc-comment had mis-copied the stands
+    bar as 0.80 (plan of record says 0.60 — this section, committed before
+    any run). Recorded against both bars: stands@0.60, partial@0.80; the
+    census ships either way, so the stricter reading's obligation is met.
+  - **E2 = 1.00** — 244/244 non-wide rows: askama == bit-walk oracle, jinja
+    witnessed OK. One probe-side parser bug found and fixed en route (the
+    kit's `type` → `r#type` raw-ident escape; the KIT was correct, the
+    probe's `pub <ident>:` reader wasn't stripping `r#`).
+  - **E3 aggregate = 161 distinct masks / 333 views ≈ 0.48 < 0.5 → supports
+    the Scope/route-dedup SoC claim**, concentrated exactly where it
+    matters: Repository 0.22, Group 0.25, WikiContent 0.25, Project 0.29,
+    Query 0.33, User 0.35, Wiki 0.38, CustomField 0.40, Tracker 0.44,
+    Issue 0.47 all reuse hard; small classes (Board/Comment/Journal/Version
+    = 1.00) trivially don't. "Routes are skins" is now a measurement, not
+    doctrine, for leg 1.
+  - Drift fuses pinned in the probe (content-signature-guarded on 506 ERB +
+    ns=redmine): shape (240, 342), E1 band [0.60, 0.75), renderable rows
+    244. Artifact parked at `.claude/harvest/redmine-view-bake/`
+    (field_order.ndjson 61 models · masks.ndjson 342 rows · 5 samples).
+  - Wide classes (>64 fields) recorded + render-skipped until OGAR #163's
+    `render_class_with_methods_wide` is wired (OP work_packages leg).
+- **Leg 2 (2026-07-06, op-corpus @ `46c1fda2`, OGAR post-#163 main): GREEN —
+  L2-E1 partial, L2-E2 exact, CONV-1 partial.** Probe:
+  `crates/op-codegen-pipeline/tests/render_bake_leg2_probe.rs`.
+  - **L2-E1 = 0.429 median** over 52 mapped representer rows (104 files with
+    declarations; 52 unmapped counted, never dropped) → **partial band
+    [0.30, 0.60)**, and per the pre-reg note this IS the expected finding:
+    representers declare a thick computed/link surface with no column
+    (`derivedStartDate`, link rels, form helpers) — the uncovered census is
+    the render-side jitter codebook, published in the artifact. Notably
+    BELOW the ERB leg's 0.667: the "declarative" APIv3 surface projects
+    *less* directly onto columns than 20-year-old ERB does.
+  - **L2-E2 = 36/36** askama == bit-walk oracle, jinja witnessed OK (mask
+    passed as hex string, `int(x,16)` — bigint-ready for the wide leg).
+  - **WIDE SURPRISE:** zero wide rows — `WorkPackage` measured **40 fields**,
+    not the expected ~109. Cause: the OP-layout schema reader consumes the
+    `db/migrate/tables/*.rb` BASELINE only; post-baseline `add_column`
+    migrations are not replayed. The wide path (`WideFieldMask` +
+    `render_class_with_methods_wide`) is wired + property-verified (narrow
+    hex degeneration) but not yet runtime-exercised on real wide data.
+    Follow-up: teach the OP-layout path migration-replay (sibling of the
+    classic fallback, ruff #48) — expected to push WorkPackage past 64 and
+    light the wide leg for real.
+  - **CONV-1 = 0.464 Jaccard → partial [0.25, 0.50): the disjoint census is
+    the deliverable.** Intersection (13): author, category, created_at,
+    description, done_ratio, due_date, id, priority, project, start_date,
+    status, subject, updated_at. redmine_only (5): assigned_to,
+    fixed_version, is_private, tracker, transition_warning. op_only (10):
+    derived_done_ratio, duration, ignore_non_working_days, lock_version,
+    project_phase_definition, responsible, schedule_manually, time_entries,
+    type, version. Only 2/4 seeded renames applied — leg 1 stores
+    association NAMES, so the `*_id` column renames never matched; **the
+    census itself surfaces the association-level C4 v1 pairs
+    (`tracker→type`, `fixed_version→version`)** — exactly the "C4 gap list
+    IS the deliverable" outcome the pre-reg named. Informational only (NOT
+    the pre-reg verdict): applying those two census-identified pairs would
+    give ≈0.58 — a v1 CONV run may claim that ONLY under a fresh
+    pre-registration; never retrofitted here.
+  - Drift fuses pinned (corpus-signature-guarded, 104 decl-files +
+    ns=openproject): shape (52, 36, 0 wide), L2-E1 band [0.30, 0.60),
+    CONV-1 band [0.40, 0.55). Artifact parked at
+    `.claude/harvest/op-representer-bake/` (field_order, masks, conv1.json,
+    5 samples, README).
+  - Verdict for the thesis: **"routes are skins" now measured on BOTH
+    sides** (leg 1 E3 0.48 mask-reuse; leg 2 CONV-1 0.464 cross-app field
+    convergence with the rename gap census in hand). The convergence claim
+    is real but C4-gated — the full rename table is the next brick.

@@ -1,0 +1,5 @@
+{"from_ns":"redmine","from_class":"Issue","from_field":"tracker_id","to_ns":"openproject","to_class":"WorkPackage","to_field":"type_id","source":"OP fork history: Tracker renamed to Type (OP 3.0)","kind":"rename"}
+{"from_ns":"redmine","from_class":"Issue","from_field":"fixed_version_id","to_ns":"openproject","to_class":"WorkPackage","to_field":"version_id","source":"OP fork history: fixed_version_id simplified to version_id","kind":"rename"}
+{"from_ns":"redmine","from_class":"Issue","from_field":"created_on","to_ns":"openproject","to_class":"WorkPackage","to_field":"created_at","source":"OP adopted Rails-conventional *_at timestamps","kind":"rename"}
+{"from_ns":"redmine","from_class":"Issue","from_field":"updated_on","to_ns":"openproject","to_class":"WorkPackage","to_field":"updated_at","source":"OP adopted Rails-conventional *_at timestamps","kind":"rename"}
+{"from_ns":"redmine","from_class":"*","from_field":"*","to_ns":"openproject","to_class":"*","to_field":"=","source":"identity default: any field not named above maps to itself","kind":"identity-default"}
