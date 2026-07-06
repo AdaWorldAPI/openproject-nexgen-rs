@@ -17,7 +17,7 @@ default = []
 # ruff -> op-surreal-ast -> SurrealQL path above. Off by default so the
 # native path's dependency graph is untouched for consumers that don't
 # opt in.
-ogar-emit = ["dep:ogar-vocab", "dep:ogar-from-ruff", "dep:ogar-adapter-surrealql"]
+ogar-emit = ["dep:ogar-vocab", "dep:ogar-from-ruff", "dep:ogar-adapter-surrealql", "dep:ogar-render-askama"]
 
 [dependencies]
 ruff_openproject       = { path = "../ruff_openproject" }
@@ -42,3 +42,7 @@ ogar-from-ruff         = { git = "https://github.com/AdaWorldAPI/OGAR", branch =
 # emit(Class) -> SurrealQL DDL direction, not the AST-parser unmap side,
 # which pulls in the surrealdb-ast/-parser forks.
 ogar-adapter-surrealql = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main", optional = true }
+# The V3 render leg (Class × FieldMask × &[ActionDef] → Rust source) — the
+# non-deprecated emit path the transpile targets. Optional; only the
+# ogar-emit consumer path pulls it. (Pre-W0 blocker fix, 2026-07-06.)
+ogar-render-askama     = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main", optional = true }
