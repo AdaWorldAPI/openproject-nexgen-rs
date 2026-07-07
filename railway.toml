@@ -23,8 +23,23 @@ restartPolicyMaxRetries = 5
 # cpu = "0.5"
 
 [env]
-# Default environment variables
-# These can be overridden in Railway dashboard
+# Default environment variables — override in the Railway dashboard.
 HOST = "0.0.0.0"
 PORT = { default = "8080", isPublic = true }
 RUST_LOG = "info,op_server=debug"
+
+# Database — add a Railway **Postgres** plugin to the project; Railway then
+# injects `DATABASE_URL` into this service automatically. `op-core::config`
+# reads `DATABASE_URL` (and falls back to Railway's individual PG* vars), so
+# no extra wiring is needed. On boot the server applies the embedded schema
+# migrations (crates/op-db/migrations) — a fresh Postgres becomes queryable
+# without any manual `psql` step.
+#
+# If you reference the plugin explicitly rather than relying on auto-inject:
+#   DATABASE_URL = "${{ Postgres.DATABASE_URL }}"
+
+# Reality-check seed: set HYDRATE=1 to load the mock kanban board
+# (crates/op-db/seeds/kanban_seed.sql — 3 projects, 5 statuses, ~40 work
+# packages) on boot. Leave unset/0 for an empty schema. Idempotent
+# (ON CONFLICT DO NOTHING), so it is safe to leave on for a demo instance.
+HYDRATE = "1"

@@ -48,6 +48,29 @@ async fn main() -> anyhow::Result<()> {
     let db = match Database::connect(&db_config).await {
         Ok(db) => {
             info!("Connected to database");
+
+            // Apply schema migrations on boot. A fresh PaaS Postgres (Railway
+            // etc.) starts empty, and every op-db query targets tables that
+            // must already exist — so migrate-on-boot is what makes the
+            // deploy self-hydrating. A migration failure is fatal: serving
+            // against a half-migrated schema is worse than refusing to start.
+            match db.run_migrations().await {
+                Ok(()) => info!("Schema migrations applied"),
+                Err(e) => {
+                    tracing::error!("Migration failed: {e}");
+                    return Err(e.into());
+                }
+            }
+
+            // Reality-check seed: load the mock kanban board only when asked
+            // (`HYDRATE=1`). Never seeds a real DB by default.
+            if env_flag("HYDRATE") {
+                match db.seed_kanban().await {
+                    Ok(()) => info!("Kanban reality-check seed loaded (HYDRATE=1)"),
+                    Err(e) => tracing::error!("Seed failed (continuing unseeded): {e}"),
+                }
+            }
+
             Some(db)
         }
         Err(e) => {
@@ -90,6 +113,16 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Server shutdown complete");
     Ok(())
+}
+
+/// A boolean env var is "on" for `1` / `true` / `yes` (case-insensitive,
+/// trimmed); anything else — including unset — is off. Used for the
+/// `HYDRATE` reality-check seed gate.
+fn env_flag(name: &str) -> bool {
+    matches!(
+        std::env::var(name).ok().as_deref().map(str::trim).map(str::to_ascii_lowercase).as_deref(),
+        Some("1" | "true" | "yes")
+    )
 }
 
 /// Resolve the bind address from the `$PORT` env var (when set) or the
@@ -147,16 +180,33 @@ fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
         .route("/metrics.json", get(metrics::json_metrics))
         .with_state(metrics.clone());
 
-    // API v3 routes
-    let api_routes = Router::new()
-        .route("/", get(api_root))
-        .route("/configuration", get(api_configuration))
-        .route("/users/me", get(api_current_user));
+    // Server-local API v3 routes. `/` and `/users/me` are served by the full
+    // op-api router mounted below (its real DB-backed handlers), so only the
+    // routes op-api does NOT provide stay here (avoids a merge route clash).
+    let api_routes = Router::new().route("/configuration", get(api_configuration));
+
+    // The full OpenProject `/api/v3` surface (op-api): work_packages, projects,
+    // users, statuses, versions, … — real handlers that query the DB pool via
+    // repositories. op-api carries its own `AppState`, so we bridge op-server's
+    // pool into it here and apply the state before merging (op-api's router
+    // self-nests under `/api/v3`).
+    let openproject_api = op_api::routes::router().with_state(op_api::extractors::AppState {
+        config: Arc::new(op_api::extractors::AppConfig {
+            api_version: "3".to_string(),
+            base_url: format!("http://{}:{}", state.config.server.host, state.config.server.port),
+            // Reality-check / demo posture: allow anonymous reads so the seeded
+            // kanban board is viewable without a credential. Flip to `true`
+            // (or gate on an env var) once auth is wired for production.
+            require_authentication: false,
+        }),
+        db: state.db.clone(),
+    });
 
     // Main router
     Router::new()
         .merge(health_routes)
         .merge(metrics_routes)
+        .merge(openproject_api)
         .nest("/api/v3", api_routes)
         .layer(
             ServiceBuilder::new()
