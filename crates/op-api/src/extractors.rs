@@ -65,18 +65,16 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let app_state = AppState::from_ref(state);
 
-        // Check Authorization header
-        if let Some(auth) = parts.headers.get("authorization") {
-            if let Ok(auth_str) = auth.to_str() {
-                if auth_str.starts_with("Basic ") || auth_str.starts_with("Bearer ") {
-                    // Mock user for now
-                    return Ok(AuthenticatedUser(CurrentUser::new(
-                        1,
-                        "api_user",
-                        "api@example.com",
-                    )));
-                }
-            }
+        // SECURITY (5+3 council, S2): an Authorization header used to be
+        // accepted UNVALIDATED and mapped onto user id 1 — any caller sending
+        // `Bearer anything` became the seeded admin identity and could rewrite
+        // that row (email + credential) via the own-row update path. Until
+        // real token validation lands, a presented credential is REJECTED
+        // explicitly — never trusted, never mapped to a real user id.
+        if parts.headers.get("authorization").is_some() {
+            return Err(ApiError::unauthorized(
+                "Token validation is not implemented; do not send an Authorization header",
+            ));
         }
 
         if !app_state.config.require_authentication {

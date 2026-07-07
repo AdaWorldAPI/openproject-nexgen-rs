@@ -6,7 +6,6 @@ use axum::{
     routing::{delete, get, patch, post},
     Router,
 };
-use serde::Serialize;
 
 use crate::extractors::AppState;
 use crate::handlers::{activities, attachments, categories, journals, memberships, news, priorities, projects, queries, relations, roles, statuses, time_entries, types, users, versions, watchers, work_packages};
@@ -19,6 +18,7 @@ pub fn router() -> Router<AppState> {
 fn api_v3_router() -> Router<AppState> {
     Router::new()
         .route("/", get(api_root))
+        .route("/configuration", get(api_configuration))
         .nest("/work_packages", work_packages_router())
         .nest("/projects", projects_router())
         .nest("/users", users_router())
@@ -218,19 +218,56 @@ fn news_router() -> Router<AppState> {
         .route("/:id", get(news::get_news))
 }
 
-async fn api_root() -> axum::Json<ApiRoot> {
-    axum::Json(ApiRoot {
-        type_name: "Root".into(),
-        instance_name: "OpenProject RS".into(),
-        core_version: "15.0.0".into(),
-    })
+async fn api_root() -> axum::Json<serde_json::Value> {
+    // Single owner of `/api/v3` (5+3 council, R2): this root carries the HAL
+    // `_links` discovery map that op-server's now-removed local handler used
+    // to serve — a hypermedia API root without `_links` is a regression.
+    axum::Json(serde_json::json!({
+        "_type": "Root",
+        "instanceName": "OpenProject RS",
+        "coreVersion": env!("CARGO_PKG_VERSION"),
+        "_links": {
+            "self": { "href": "/api/v3" },
+            "configuration": { "href": "/api/v3/configuration" },
+            "user": { "href": "/api/v3/users/me" },
+            "users": { "href": "/api/v3/users" },
+            "projects": { "href": "/api/v3/projects" },
+            "workPackages": { "href": "/api/v3/work_packages" },
+            "statuses": { "href": "/api/v3/statuses" },
+            "types": { "href": "/api/v3/types" },
+            "priorities": { "href": "/api/v3/priorities" },
+            "queries": { "href": "/api/v3/queries" }
+        }
+    }))
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ApiRoot {
-    #[serde(rename = "_type")]
-    type_name: String,
-    instance_name: String,
-    core_version: String,
+/// `GET /api/v3/configuration` — static instance configuration (ported from
+/// op-server's local handler so `/api/v3` has exactly one owning router; a
+/// second router nesting the same prefix panics at startup the day the two
+/// route sets overlap).
+async fn api_configuration() -> axum::Json<serde_json::Value> {
+    axum::Json(serde_json::json!({
+        "_type": "Configuration",
+        "maximumAttachmentFileSize": 256 * 1024 * 1024,
+        "perPageOptions": [20, 100],
+        "dateFormat": "%Y-%m-%d",
+        "timeFormat": "%H:%M",
+        "startOfWeek": 1,
+        "activeFeatureFlags": [
+            "bim",
+            "boards",
+            "budgets",
+            "costs",
+            "documents",
+            "meeting",
+            "openid_connect",
+            "reporting",
+            "team_planner",
+            "webhooks",
+            "wiki"
+        ],
+        "_links": {
+            "self": { "href": "/api/v3/configuration" }
+        }
+    }))
 }

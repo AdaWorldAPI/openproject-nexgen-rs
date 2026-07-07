@@ -1,5 +1,11 @@
--- op-db :: 0002_seed_kanban.sql
+-- op-db :: kanban_seed.sql — a SEED BATCH, NOT a migration.
 -- generated 2026-07-07
+--
+-- This file lives in seeds/ (outside migrations/) ON PURPOSE: it is loaded
+-- only when the server boots with HYDRATE=1 (Database::seed_kanban), never
+-- by sqlx::migrate!, and it owns no slot in the migration version space —
+-- do NOT move it into migrations/ or number it (council S4: an earlier
+-- header mislabelled it "0002", inviting exactly that mistake).
 --
 -- Mock project-management kanban data for a fresh database: 3 projects,
 -- 5 kanban-column statuses, 4 work package types, 4 priorities, 5 users,
@@ -10,7 +16,8 @@
 --
 -- Deterministic, hardcoded ids throughout; every INSERT uses
 -- `ON CONFLICT (id) DO NOTHING` (or the natural unique key for join tables)
--- so this migration is safe to re-run against a partially-seeded database.
+-- so the batch is safe to re-run against a partially-seeded database; the
+-- whole batch executes as one implicit transaction (all-or-nothing).
 
 -- =====================================================================
 -- statuses (the 5 kanban columns)

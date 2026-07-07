@@ -122,11 +122,18 @@ docker-compose down -v
 
 ### First-Time Setup
 
-OpenProject RS is designed for **zero-migration deployment**. Unlike the original Ruby OpenProject:
+> **Superseded (2026-07-07):** this section predates the boot-time migration
+> machinery and contradicted it. Since PR #79, the server **applies its
+> embedded schema migrations on every boot** (`crates/op-db/migrations/`,
+> via `sqlx::migrate!` — fatal on failure), so a fresh empty Postgres becomes
+> queryable automatically, and an optional mock kanban seed loads when
+> `HYDRATE=1`. See **docs/DEPLOY-RAILWAY.md** for the current, authoritative
+> runbook. Deploying against an *existing* OpenProject Ruby database is NOT
+> a supported path — the migration set creates op-rs's own (narrower) schema.
 
-- **No migrations needed** - The Rust implementation works with any existing OpenProject PostgreSQL database
-- **No seeding required** - If deploying fresh, just connect to an empty database
-- **Stateless design** - The server can start immediately once DATABASE_URL is configured
+- **Migrations on boot** — embedded, checksummed, append-only (`0001_…`, `0002_…`).
+- **Optional seeding** — `HYDRATE=1` loads the reality-check kanban board; off by default.
+- **Stateless server** — starts as soon as `DATABASE_URL` is reachable.
 
 ### Via Railway Dashboard (Recommended)
 

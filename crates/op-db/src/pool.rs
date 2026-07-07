@@ -117,9 +117,12 @@ impl Database {
     ///
     /// The migration set is embedded in the binary at compile time via
     /// [`sqlx::migrate!`], so no migration files need to ship in the runtime
-    /// image (this is why the Dockerfile builds `SQLX_OFFLINE=true` with no
-    /// live DB). Idempotent: sqlx records applied versions in
-    /// `_sqlx_migrations` and skips anything already run.
+    /// image and no live DB is needed at build time. sqlx records each
+    /// applied file's version AND CHECKSUM in `_sqlx_migrations`: already-run
+    /// files are skipped, and an EDITED already-run file fails the boot with
+    /// `VersionMismatch` — applied migrations are append-only; growth goes in
+    /// new `000N_*.sql` files (see docs/DEPLOY-RAILWAY.md §Schema evolution).
+    /// Concurrent boots are safe: sqlx serializes via `pg_advisory_lock`.
     pub async fn run_migrations(&self) -> Result<(), sqlx::migrate::MigrateError> {
         sqlx::migrate!("./migrations").run(&self.pool).await
     }
