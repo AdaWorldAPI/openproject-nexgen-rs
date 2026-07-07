@@ -1500,7 +1500,7 @@ dependencies = [
 [[package]]
 name = "ogar-adapter-surrealql"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#2e346ea5c3d992d90a52a40bafea4a43393a2bfe"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#dd1c30d129baeaae314721a063908a025c23b099"
 dependencies = [
  "ogar-vocab",
 ]
@@ -1508,7 +1508,7 @@ dependencies = [
 [[package]]
 name = "ogar-class-view"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#2e346ea5c3d992d90a52a40bafea4a43393a2bfe"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#dd1c30d129baeaae314721a063908a025c23b099"
 dependencies = [
  "lance-graph-contract",
  "ogar-vocab",
@@ -1517,7 +1517,7 @@ dependencies = [
 [[package]]
 name = "ogar-from-ruff"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#2e346ea5c3d992d90a52a40bafea4a43393a2bfe"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#dd1c30d129baeaae314721a063908a025c23b099"
 dependencies = [
  "ogar-vocab",
  "ruff_spo_address",
@@ -1527,7 +1527,7 @@ dependencies = [
 [[package]]
 name = "ogar-render-askama"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#2e346ea5c3d992d90a52a40bafea4a43393a2bfe"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#dd1c30d129baeaae314721a063908a025c23b099"
 dependencies = [
  "askama",
  "lance-graph-contract",
@@ -1537,7 +1537,7 @@ dependencies = [
 [[package]]
 name = "ogar-vocab"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#2e346ea5c3d992d90a52a40bafea4a43393a2bfe"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#dd1c30d129baeaae314721a063908a025c23b099"
 
 [[package]]
 name = "once_cell"
