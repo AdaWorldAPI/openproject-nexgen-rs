@@ -52,4 +52,49 @@ impl ImportJiraImport {
     pub fn import_user(&self) {
         // TODO: port `import_user` from Import::JiraImport
     }
+
+    /// OGAR action `handle_create_user_failure` (DO-arm).
+    pub fn handle_create_user_failure(&self) {
+        // TODO: port `handle_create_user_failure` from Import::JiraImport
+    }
+
+    /// OGAR action `handle_referenced_user_mail_conflict` (DO-arm).
+    pub fn handle_referenced_user_mail_conflict(&self) {
+        // TODO: port `handle_referenced_user_mail_conflict` from Import::JiraImport
+    }
+
+    /// OGAR action `handle_referenced_user_login_conflict` (DO-arm).
+    pub fn handle_referenced_user_login_conflict(&self) {
+        // TODO: port `handle_referenced_user_login_conflict` from Import::JiraImport
+    }
+
+    /// OGAR action `import_user_groups` (DO-arm).
+    pub fn import_user_groups(&self) {
+        // TODO: port `import_user_groups` from Import::JiraImport
+    }
+
+    /// OGAR action `import_user_group` (DO-arm).
+    pub fn import_user_group(&self) {
+        // TODO: port `import_user_group` from Import::JiraImport
+    }
+
+    /// OGAR action `handle_create_group_failure` (DO-arm).
+    pub fn handle_create_group_failure(&self) {
+        // TODO: port `handle_create_group_failure` from Import::JiraImport
+    }
+
+    /// OGAR action `jira_user_already_referenced?` (DO-arm).
+    pub fn jira_user_already_referenced_(&self) {
+        // TODO: port `jira_user_already_referenced?` from Import::JiraImport
+    }
+
+    /// OGAR action `resolve_jira_email` (DO-arm).
+    pub fn resolve_jira_email(&self) {
+        // TODO: port `resolve_jira_email` from Import::JiraImport
+    }
+
+    /// OGAR action `resolve_jira_login` (DO-arm).
+    pub fn resolve_jira_login(&self) {
+        // TODO: port `resolve_jira_login` from Import::JiraImport
+    }
 }

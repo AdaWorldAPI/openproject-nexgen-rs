@@ -99,6 +99,16 @@ impl QueryResults {
         // TODO: port `aliased_sorting_by_column_name` from Query::Results
     }
 
+    /// OGAR action `apply_association_table_aliases` (DO-arm).
+    pub fn apply_association_table_aliases(&self) {
+        // TODO: port `apply_association_table_aliases` from Query::Results
+    }
+
+    /// OGAR action `substitute_association_table_alias` (DO-arm).
+    pub fn substitute_association_table_alias(&self) {
+        // TODO: port `substitute_association_table_alias` from Query::Results
+    }
+
     /// OGAR action `expand_association_columns` (DO-arm).
     pub fn expand_association_columns(&self) {
         // TODO: port `expand_association_columns` from Query::Results
@@ -127,6 +137,16 @@ impl QueryResults {
     /// OGAR action `include_aliases` (DO-arm).
     pub fn include_aliases(&self) {
         // TODO: port `include_aliases` from Query::Results
+    }
+
+    /// OGAR action `raw_join_table_counts` (DO-arm).
+    pub fn raw_join_table_counts(&self) {
+        // TODO: port `raw_join_table_counts` from Query::Results
+    }
+
+    /// OGAR action `table_to_alias_map` (DO-arm).
+    pub fn table_to_alias_map(&self) {
+        // TODO: port `table_to_alias_map` from Query::Results
     }
 
     /// OGAR action `reflection_includes` (DO-arm).

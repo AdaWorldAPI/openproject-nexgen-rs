@@ -106,6 +106,11 @@ impl PermittedParams {
         // TODO: port `move_work_package` from PermittedParams
     }
 
+    /// OGAR action `move_work_package_form_values` (DO-arm).
+    pub fn move_work_package_form_values(&self) {
+        // TODO: port `move_work_package_form_values` from PermittedParams
+    }
+
     /// OGAR action `member` (DO-arm).
     pub fn member(&self) {
         // TODO: port `member` from PermittedParams

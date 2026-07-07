@@ -19,6 +19,10 @@ pub struct ProjectCustomField {
     pub project_custom_field_project_mappings: Vec<u64>,
     /// has_many `projects`.
     pub projects: Vec<u64>,
+    /// has_many `project_custom_field_type_mappings`.
+    pub project_custom_field_type_mappings: Vec<u64>,
+    /// has_many `types`.
+    pub types: Vec<u64>,
     /// has_one `custom_fields_role`.
     pub custom_fields_role: Option<u64>,
     /// has_one `role`.
@@ -30,8 +34,8 @@ impl ProjectCustomField {
     pub const CLASS_ID: u16 = 0x0110;
 
     /// Struct-of-methods constructor over the ClassView × FieldMask field set.
-    pub fn new(project_custom_field_section: Option<u64>, project_custom_field_project_mappings: Vec<u64>, projects: Vec<u64>, custom_fields_role: Option<u64>, role: Option<u64>) -> Self {
-        Self { project_custom_field_section, project_custom_field_project_mappings, projects, custom_fields_role, role }
+    pub fn new(project_custom_field_section: Option<u64>, project_custom_field_project_mappings: Vec<u64>, projects: Vec<u64>, project_custom_field_type_mappings: Vec<u64>, types: Vec<u64>, custom_fields_role: Option<u64>, role: Option<u64>) -> Self {
+        Self { project_custom_field_section, project_custom_field_project_mappings, projects, project_custom_field_type_mappings, types, custom_fields_role, role }
     }
 
     /// OGAR action `visible?` (DO-arm).

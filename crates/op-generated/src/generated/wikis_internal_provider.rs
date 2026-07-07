@@ -32,6 +32,11 @@ impl WikisInternalProvider {
         // TODO: port `configured?` from Wikis::InternalProvider
     }
 
+    /// OGAR action `configured_from_env?` (DO-arm).
+    pub fn configured_from_env_(&self) {
+        // TODO: port `configured_from_env?` from Wikis::InternalProvider
+    }
+
     /// OGAR action `name` (DO-arm).
     pub fn name(&self) {
         // TODO: port `name` from Wikis::InternalProvider

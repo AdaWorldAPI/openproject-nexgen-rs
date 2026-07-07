@@ -77,8 +77,8 @@ fn harvest_denominator_probe() {
     eprintln!("sum_actions (Σ .actions.len() over compiled classes): {sum_actions}");
     eprintln!("workpackage_fields (WorkPackage attributes+associations): {workpackage_fields}");
 
-    // Re-pinned to the FIRST real OpenProject-corpus measurement (2026-07-06,
-    // OGAR 2e346ea5 / ruff 9ef26c1b). The earlier 18/113 were pre-corpus
+    // Re-pinned to the FIRST real OpenProject-corpus measurement (re-pinned 2026-07-07: corpus bumped
+    // to upstream dev d333d164, +373 commits — 945->950 models, WP 40->42). The earlier 18/113 were pre-corpus
     // estimates; measured truth is 16 compiled of 18 curated (2 dropped, see
     // `dropped` above — a W2 input) and a full-tree extract of 945 models
     // (walks modules/ + nested, not just app/models/*.rb).
@@ -93,12 +93,12 @@ fn harvest_denominator_probe() {
     // stratum lands (it changes both the model census and WorkPackage's
     // field count) — a signal to re-measure and re-pin, not to silently patch.
     assert_eq!(
-        total_models_extracted, 945,
+        total_models_extracted, 950,
         "total_models_extracted drifted — re-measure and re-pin for the new baseline \
          (expected to blow when the W3 migration-replay lands)"
     );
     assert_eq!(
-        workpackage_fields, 40,
+        workpackage_fields, 42,
         "workpackage_fields drifted — re-measure and re-pin for the new baseline \
          (expected to blow when the W3 migration-replay lands)"
     );

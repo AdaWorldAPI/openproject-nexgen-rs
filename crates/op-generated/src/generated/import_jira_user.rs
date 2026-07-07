@@ -31,9 +31,14 @@ impl ImportJiraUser {
         // TODO: port `to_op_attributes` from Import::JiraUser
     }
 
-    /// OGAR action `try_to_find_existing_op_users` (DO-arm).
-    pub fn try_to_find_existing_op_users(&self) {
-        // TODO: port `try_to_find_existing_op_users` from Import::JiraUser
+    /// OGAR action `try_to_find_existing_op_user_by_mail` (DO-arm).
+    pub fn try_to_find_existing_op_user_by_mail(&self) {
+        // TODO: port `try_to_find_existing_op_user_by_mail` from Import::JiraUser
+    }
+
+    /// OGAR action `try_to_find_existing_op_user_by_login` (DO-arm).
+    pub fn try_to_find_existing_op_user_by_login(&self) {
+        // TODO: port `try_to_find_existing_op_user_by_login` from Import::JiraUser
     }
 
     /// OGAR action `sanitize_name` (DO-arm).

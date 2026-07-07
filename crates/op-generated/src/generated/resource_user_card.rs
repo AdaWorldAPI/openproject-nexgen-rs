@@ -23,44 +23,4 @@ impl ResourceUserCard {
     pub fn new(card_fields: serde_json::Value) -> Self {
         Self { card_fields }
     }
-
-    /// OGAR action `results` (DO-arm).
-    pub fn results(&self) {
-        // TODO: port `results` from ResourceUserCard
-    }
-
-    /// OGAR action `manually_picked?` (DO-arm).
-    pub fn manually_picked_(&self) {
-        // TODO: port `manually_picked?` from ResourceUserCard
-    }
-
-    /// OGAR action `build_default_query` (DO-arm).
-    pub fn build_default_query(&self) {
-        // TODO: port `build_default_query` from ResourceUserCard
-    }
-
-    /// OGAR action `apply_query_configuration` (DO-arm).
-    pub fn apply_query_configuration(&self) {
-        // TODO: port `apply_query_configuration` from ResourceUserCard
-    }
-
-    /// OGAR action `manual_mode?` (DO-arm).
-    pub fn manual_mode_(&self) {
-        // TODO: port `manual_mode?` from ResourceUserCard
-    }
-
-    /// OGAR action `configure_automatic` (DO-arm).
-    pub fn configure_automatic(&self) {
-        // TODO: port `configure_automatic` from ResourceUserCard
-    }
-
-    /// OGAR action `parse_filters` (DO-arm).
-    pub fn parse_filters(&self) {
-        // TODO: port `parse_filters` from ResourceUserCard
-    }
-
-    /// OGAR action `query_must_be_user_query` (DO-arm).
-    pub fn query_must_be_user_query(&self) {
-        // TODO: port `query_must_be_user_query` from ResourceUserCard
-    }
 }

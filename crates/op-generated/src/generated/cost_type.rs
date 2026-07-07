@@ -86,4 +86,14 @@ impl CostType {
     pub fn parse_current_rate_amount(&self) {
         // TODO: port `parse_current_rate_amount` from CostType
     }
+
+    /// OGAR action `activate_for_projects_with_costs` (DO-arm).
+    pub fn activate_for_projects_with_costs(&self) {
+        // TODO: port `activate_for_projects_with_costs` from CostType
+    }
+
+    /// OGAR action `project_ids_with_unmapped_costs` (DO-arm).
+    pub fn project_ids_with_unmapped_costs(&self) {
+        // TODO: port `project_ids_with_unmapped_costs` from CostType
+    }
 }

@@ -23,13 +23,15 @@ pub struct ResourceAllocation {
     pub requested_by: Option<u64>,
     /// belongs_to `reviewed_by`.
     pub reviewed_by: Option<u64>,
+    /// belongs_to `principal_assigned_by`.
+    pub principal_assigned_by: Option<u64>,
 }
 
 impl ResourceAllocation {
 
     /// Struct-of-methods constructor over the ClassView × FieldMask field set.
-    pub fn new(user_filter: String, entity: Option<u64>, principal: Option<u64>, requested_by: Option<u64>, reviewed_by: Option<u64>) -> Self {
-        Self { user_filter, entity, principal, requested_by, reviewed_by }
+    pub fn new(user_filter: String, entity: Option<u64>, principal: Option<u64>, requested_by: Option<u64>, reviewed_by: Option<u64>, principal_assigned_by: Option<u64>) -> Self {
+        Self { user_filter, entity, principal, requested_by, reviewed_by, principal_assigned_by }
     }
 
     /// OGAR action `project` (DO-arm).

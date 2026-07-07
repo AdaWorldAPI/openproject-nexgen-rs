@@ -25,4 +25,9 @@ impl CostTypesProject {
     pub fn new(cost_type: Option<u64>, project: Option<u64>) -> Self {
         Self { cost_type, project }
     }
+
+    /// OGAR action `in_use?` (DO-arm).
+    pub fn in_use_(&self) {
+        // TODO: port `in_use?` from CostTypesProject
+    }
 }

@@ -37,6 +37,21 @@ impl ResourcePlanner {
         // TODO: port `visible?` from ResourcePlanner
     }
 
+    /// OGAR action `work_package_count` (DO-arm).
+    pub fn work_package_count(&self) {
+        // TODO: port `work_package_count` from ResourcePlanner
+    }
+
+    /// OGAR action `member_count` (DO-arm).
+    pub fn member_count(&self) {
+        // TODO: port `member_count` from ResourcePlanner
+    }
+
+    /// OGAR action `distinct_child_count` (DO-arm).
+    pub fn distinct_child_count(&self) {
+        // TODO: port `distinct_child_count` from ResourcePlanner
+    }
+
     /// OGAR action `end_date_after_start_date` (DO-arm).
     pub fn end_date_after_start_date(&self) {
         // TODO: port `end_date_after_start_date` from ResourcePlanner

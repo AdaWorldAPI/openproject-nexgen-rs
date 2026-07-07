@@ -22,9 +22,14 @@ impl QueriesMeetingsFiltersTimeFilter {
         Self {  }
     }
 
-    /// OGAR action `allowed_values` (DO-arm).
-    pub fn allowed_values(&self) {
-        // TODO: port `allowed_values` from Queries::Meetings::Filters::TimeFilter
+    /// OGAR action `available_operators` (DO-arm).
+    pub fn available_operators(&self) {
+        // TODO: port `available_operators` from Queries::Meetings::Filters::TimeFilter
+    }
+
+    /// OGAR action `default_operator` (DO-arm).
+    pub fn default_operator(&self) {
+        // TODO: port `default_operator` from Queries::Meetings::Filters::TimeFilter
     }
 
     /// OGAR action `past?` (DO-arm).
@@ -45,15 +50,5 @@ impl QueriesMeetingsFiltersTimeFilter {
     /// OGAR action `type` (DO-arm).
     pub fn r#type(&self) {
         // TODO: port `type` from Queries::Meetings::Filters::TimeFilter
-    }
-
-    /// OGAR action `available_operators` (DO-arm).
-    pub fn available_operators(&self) {
-        // TODO: port `available_operators` from Queries::Meetings::Filters::TimeFilter
-    }
-
-    /// OGAR action `validate_only_single_value` (DO-arm).
-    pub fn validate_only_single_value(&self) {
-        // TODO: port `validate_only_single_value` from Queries::Meetings::Filters::TimeFilter
     }
 }

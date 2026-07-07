@@ -23,9 +23,4 @@ impl UserCustomFieldSection {
     pub fn new(custom_fields: Vec<u64>) -> Self {
         Self { custom_fields }
     }
-
-    /// OGAR action `untitled?` (DO-arm).
-    pub fn untitled_(&self) {
-        // TODO: port `untitled?` from UserCustomFieldSection
-    }
 }
