@@ -4,7 +4,9 @@
 # =============================================================================
 # Stage 1: Build
 # =============================================================================
-FROM rust:1.85-slim-bookworm AS builder
+# Toolchain MUST match the workspace `rust-version` (Cargo.toml → 1.95);
+# an older base (this was pinned at 1.85) fails the build outright.
+FROM rust:1.95-slim-bookworm AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -14,47 +16,21 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy workspace configuration first (for better caching)
+# Copy the whole workspace. The previous per-crate dummy-lib.rs cache
+# scaffolding hardcoded a 16-crate list that drifted out of sync with the
+# 24 workspace members (op-generated, op-canon, op-codegen-*, op-surreal-ast,
+# ruff_openproject were all missing → the toml-only cache layer was already
+# broken). A single COPY is correct and drift-proof; Railway's layer cache
+# still skips this step when nothing under the build context changed.
 COPY Cargo.toml Cargo.lock ./
-
-# Create a dummy main.rs to build dependencies first
-RUN mkdir -p crates/op-server/src && \
-    echo 'fn main() { println!("dummy"); }' > crates/op-server/src/main.rs
-
-# Copy all crate Cargo.toml files for dependency resolution
-COPY crates/op-core/Cargo.toml crates/op-core/
-COPY crates/op-models/Cargo.toml crates/op-models/
-COPY crates/op-contracts/Cargo.toml crates/op-contracts/
-COPY crates/op-auth/Cargo.toml crates/op-auth/
-COPY crates/op-services/Cargo.toml crates/op-services/
-COPY crates/op-db/Cargo.toml crates/op-db/
-COPY crates/op-queries/Cargo.toml crates/op-queries/
-COPY crates/op-api/Cargo.toml crates/op-api/
-COPY crates/op-notifications/Cargo.toml crates/op-notifications/
-COPY crates/op-attachments/Cargo.toml crates/op-attachments/
-COPY crates/op-journals/Cargo.toml crates/op-journals/
-COPY crates/op-server/Cargo.toml crates/op-server/
-COPY crates/op-projects/Cargo.toml crates/op-projects/
-COPY crates/op-work-packages/Cargo.toml crates/op-work-packages/
-COPY crates/op-users/Cargo.toml crates/op-users/
-COPY crates/op-cli/Cargo.toml crates/op-cli/
-
-# Create dummy lib.rs files for all crates
-RUN for dir in op-core op-models op-contracts op-auth op-services op-db op-queries op-api op-notifications op-attachments op-journals op-projects op-work-packages op-users op-cli; do \
-    mkdir -p crates/$dir/src && \
-    echo 'pub fn dummy() {}' > crates/$dir/src/lib.rs; \
-    done
-
-# Build dependencies (this layer will be cached)
-RUN cargo build --release --package op-server 2>/dev/null || true
-
-# Now copy actual source code
 COPY crates/ crates/
 
-# Touch all files to ensure they're rebuilt
-RUN find crates -name "*.rs" -exec touch {} \;
+# SQLx is used in *offline* mode (no DB reachable at build time). The query
+# metadata is embedded via `sqlx::migrate!`, which is compile-time-checked
+# against the checked-in ./crates/op-db/migrations, not a live DB.
+ENV SQLX_OFFLINE=true
 
-# Build the actual application
+# Build the server binary (release).
 RUN cargo build --release --package op-server
 
 # =============================================================================

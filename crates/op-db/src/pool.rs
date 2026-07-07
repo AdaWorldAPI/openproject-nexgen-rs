@@ -113,6 +113,33 @@ impl Database {
         Ok(())
     }
 
+    /// Apply the checked-in schema migrations (`crates/op-db/migrations`).
+    ///
+    /// The migration set is embedded in the binary at compile time via
+    /// [`sqlx::migrate!`], so no migration files need to ship in the runtime
+    /// image (this is why the Dockerfile builds `SQLX_OFFLINE=true` with no
+    /// live DB). Idempotent: sqlx records applied versions in
+    /// `_sqlx_migrations` and skips anything already run.
+    pub async fn run_migrations(&self) -> Result<(), sqlx::migrate::MigrateError> {
+        sqlx::migrate!("./migrations").run(&self.pool).await
+    }
+
+    /// Load the mock kanban board (projects, statuses, types, users,
+    /// work_packages) for a **reality-check** deploy. Gated by the caller
+    /// (`HYDRATE=1`) — it is NOT part of the migration set, so a real
+    /// database is never seeded by accident. The seed is embedded from
+    /// `crates/op-db/seeds/kanban_seed.sql`; every row uses
+    /// `ON CONFLICT (id) DO NOTHING`, so re-running is safe.
+    pub async fn seed_kanban(&self) -> Result<(), sqlx::Error> {
+        // `PgPool::execute` on a multi-statement string runs the whole batch
+        // via the simple query protocol — correct for a seed script.
+        use sqlx::Executor as _;
+        self.pool
+            .execute(include_str!("../seeds/kanban_seed.sql"))
+            .await?;
+        Ok(())
+    }
+
     /// Close the connection pool
     pub async fn close(&self) {
         self.pool.close().await;
