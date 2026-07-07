@@ -7,8 +7,8 @@ This is the end-to-end path from an empty Railway project to a running
 
 | Piece | Path | Role |
 |---|---|---|
-| Container build | `Dockerfile` | multi-stage; builder = `rust:1.95` (matches the workspace `rust-version`), runtime = `debian:bookworm-slim`, non-root, `tini` init, `/health` HEALTHCHECK |
-| Railway config | `railway.toml` | Dockerfile builder, `/health` healthcheck, `$PORT`/`HOST`/`RUST_LOG`/`HYDRATE` env |
+| Container build | `Dockerfile` | multi-stage; builder = `rust:1.95` (matches the workspace `rust-version`), runtime = `debian:bookworm-slim`, non-root, `tini` init. `HEALTHCHECK` hits `/health` — a **liveness** probe (is the process up), deliberately distinct from Railway's readiness probe below |
+| Railway config | `railway.toml` | Dockerfile builder, `/health/ready` healthcheck (**readiness** — DB-aware, so a DB-less deploy is not marked healthy), `$PORT`/`HOST`/`RUST_LOG` env; `HYDRATE` + `OP_ALLOW_ANONYMOUS` set per-instance in the dashboard (both off by default) |
 | Schema | `crates/op-db/migrations/0001_init.sql` | the 23 tables `op-db`'s queries target, derived from op-db's own SELECT/Row contract + the OpenProject baseline (`db/migrate/tables/*.rb`) |
 | Seed | `crates/op-db/seeds/kanban_seed.sql` | mock kanban board (projects · statuses · types · users · work_packages), `ON CONFLICT DO NOTHING` |
 | Boot hydration | `op-db::Database::{run_migrations,seed_kanban}` + `op-server` main | migrate-on-boot always; seed only when `HYDRATE=1` |

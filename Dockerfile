@@ -70,7 +70,11 @@ ENV RUST_LOG=info,op_server=debug,op_api=debug \
 # Expose port
 EXPOSE 8080
 
-# Health check
+# Container LIVENESS probe — `/health` is the plain "is the process up" string.
+# This is intentionally NOT `/health/ready`: readiness (DB reachability) is
+# Railway's job via `railway.toml` healthcheckPath, and coupling container
+# liveness to the DB would make the container restart-loop during a transient
+# DB blip instead of staying up to serve `/health/ready` = not-ready.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
