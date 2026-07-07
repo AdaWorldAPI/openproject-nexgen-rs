@@ -46,3 +46,13 @@ ogar-adapter-surrealql = { git = "https://github.com/AdaWorldAPI/OGAR", branch =
 # non-deprecated emit path the transpile targets. Optional; only the
 # ogar-emit consumer path pulls it. (Pre-W0 blocker fix, 2026-07-06.)
 ogar-render-askama     = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main", optional = true }
+
+[dev-dependencies]
+# Render-bake probe (tests/render_bake_probe.rs): harvests Rails views into
+# ClassView x FieldMask rows and re-emits them dual-target. Dev-only — the
+# library never depends on the render kit. All on `main` per the
+# everything-on-main ruling.
+ogar-vocab           = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+ogar-from-ruff       = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+ogar-render-askama   = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }

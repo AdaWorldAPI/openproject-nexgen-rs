@@ -1206,7 +1206,7 @@ dependencies = [
 [[package]]
 name = "lance-graph-contract"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/lance-graph?branch=main#d6ab4885c9545d5417b8cf56f9da11833bb09d40"
+source = "git+https://github.com/AdaWorldAPI/lance-graph?branch=main#b05cc30bc82727ed455aeff3221b5e2409bd03bd"
 dependencies = [
  "glob",
  "serde",
@@ -1500,7 +1500,7 @@ dependencies = [
 [[package]]
 name = "ogar-adapter-surrealql"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#f8420b999bfe05fc64e589184ed224c83042e9dc"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#2e346ea5c3d992d90a52a40bafea4a43393a2bfe"
 dependencies = [
  "ogar-vocab",
 ]
@@ -1508,7 +1508,7 @@ dependencies = [
 [[package]]
 name = "ogar-class-view"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#f8420b999bfe05fc64e589184ed224c83042e9dc"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#2e346ea5c3d992d90a52a40bafea4a43393a2bfe"
 dependencies = [
  "lance-graph-contract",
  "ogar-vocab",
@@ -1517,7 +1517,7 @@ dependencies = [
 [[package]]
 name = "ogar-from-ruff"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#f8420b999bfe05fc64e589184ed224c83042e9dc"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#2e346ea5c3d992d90a52a40bafea4a43393a2bfe"
 dependencies = [
  "ogar-vocab",
  "ruff_spo_address",
@@ -1527,7 +1527,7 @@ dependencies = [
 [[package]]
 name = "ogar-render-askama"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#f8420b999bfe05fc64e589184ed224c83042e9dc"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#2e346ea5c3d992d90a52a40bafea4a43393a2bfe"
 dependencies = [
  "askama",
  "lance-graph-contract",
@@ -1537,7 +1537,7 @@ dependencies = [
 [[package]]
 name = "ogar-vocab"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#f8420b999bfe05fc64e589184ed224c83042e9dc"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#2e346ea5c3d992d90a52a40bafea4a43393a2bfe"
 
 [[package]]
 name = "once_cell"
