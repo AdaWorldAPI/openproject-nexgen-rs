@@ -6,6 +6,11 @@ description = "Domain models for OpenProject RS"
 
 [dependencies]
 op-core = { path = "../op-core" }
+# W6 consumer wiring: op-models opts in to the transpiled canonical shapes
+# (`op_generated::generated::project::Project`) as `CanonicalProject`, the
+# same additive pattern op-work-packages uses. Pulls in only op-generated's
+# own plain deps (serde_json) — never OGAR/askama/ruff/lance-graph.
+op-generated = { path = "../op-generated" }
 
 serde.workspace = true
 serde_json.workspace = true
