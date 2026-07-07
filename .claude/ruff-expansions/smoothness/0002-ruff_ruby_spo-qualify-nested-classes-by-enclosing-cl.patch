@@ -1,0 +1,153 @@
+From a22f4c0782eaaba9780d25f6c62e075d706d1c6d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 7 Jul 2026 09:25:39 +0000
+Subject: [PATCH 2/3] ruff_ruby_spo: qualify nested classes by enclosing class,
+ not just module
+
+Bug (measured on the OpenProject corpus): two unrelated classes named
+Methods, one nested inside class Rate and one inside class
+DefaultHourlyRate (modules/costs/app/models/rate.rb:114 and
+modules/costs/app/models/default_hourly_rate.rb:99), both extracted as
+the bare model name "Methods" and merged into one garbage model in the
+SPO graph. collect_classes_with_namespace already threads a namespace
+stack through `module ... end` wrappers to qualify names
+(module_namespace_qualifies_inner_class_name), but collect_nested_classes
+was invoked with the caller's `ns` unchanged when recursing into a
+class body's nested classes, so enclosing *class* scopes never joined
+the stack the way enclosing *module* scopes do.
+
+Fix: push the enclosing class's own local name onto `ns` before
+recursing into collect_nested_classes, mirroring the Node::Module arm.
+Rate::Methods and DefaultHourlyRate::Methods now extract as distinct
+models; top-level classes are unaffected (ns stays empty for them).
+
+Added class_nesting_qualifies_inner_class_name using the real corpus
+shape (two same-named nested classes under different top-level
+classes) to lock this in.
+---
+ crates/ruff_ruby_spo/src/lib.rs   | 54 +++++++++++++++++++++++++++++++
+ crates/ruff_ruby_spo/src/parse.rs | 27 +++++++++++++---
+ 2 files changed, 76 insertions(+), 5 deletions(-)
+
+diff --git a/crates/ruff_ruby_spo/src/lib.rs b/crates/ruff_ruby_spo/src/lib.rs
+index 399ee5b6bf..52564ba238 100644
+--- a/crates/ruff_ruby_spo/src/lib.rs
++++ b/crates/ruff_ruby_spo/src/lib.rs
+@@ -951,6 +951,60 @@ end
+         assert_eq!(names.iter().filter(|n| n.ends_with("::Bar")).count(), 2);
+     }
+ 
++    /// Real-corpus shape (`modules/costs/app/models/rate.rb` /
++    /// `default_hourly_rate.rb`): two unrelated top-level classes each
++    /// nest a bare `class Methods`. Module nesting alone isn't enough to
++    /// disambiguate them — `Methods` sits inside a *class*, not a
++    /// module — so the enclosing class name must be prefixed too,
++    /// yielding `Rate::Methods` and `DefaultHourlyRate::Methods` instead
++    /// of two colliding bare `Methods` models. Top-level classes
++    /// (`Rate`, `DefaultHourlyRate` themselves) stay unprefixed.
++    #[test]
++    fn class_nesting_qualifies_inner_class_name() {
++        let src = r#"
++class Rate < ApplicationRecord
++  def update_costs
++  end
++
++  class Methods
++    def order_dates(*dates)
++    end
++  end
++end
++
++class DefaultHourlyRate < Rate
++  def update_costs
++  end
++
++  class Methods
++    def order_dates(date1, date2)
++    end
++  end
++end
++"#;
++        let classes = extract_from_source(src);
++        let names: Vec<&str> = classes.iter().map(|c| c.name.as_str()).collect();
++        assert!(names.contains(&"Rate"), "expected bare Rate; got {names:?}");
++        assert!(
++            names.contains(&"DefaultHourlyRate"),
++            "expected bare DefaultHourlyRate; got {names:?}"
++        );
++        assert!(
++            names.contains(&"Rate::Methods"),
++            "expected Rate::Methods; got {names:?}"
++        );
++        assert!(
++            names.contains(&"DefaultHourlyRate::Methods"),
++            "expected DefaultHourlyRate::Methods; got {names:?}"
++        );
++        // The two `Methods`es must NOT collide.
++        assert_eq!(
++            names.iter().filter(|n| n.ends_with("::Methods")).count(),
++            2,
++            "the two nested Methods classes must stay distinct; got {names:?}"
++        );
++    }
++
+     /// **Codex P2 (PR #6)** — `has_many :items, -> { active }, dependent: :destroy`
+     /// puts the options hash at args[2] (the lambda is args[1]). The
+     /// scoped-association form was silently dropping the options.
+diff --git a/crates/ruff_ruby_spo/src/parse.rs b/crates/ruff_ruby_spo/src/parse.rs
+index c5096d816b..e1d7328d2e 100644
+--- a/crates/ruff_ruby_spo/src/parse.rs
++++ b/crates/ruff_ruby_spo/src/parse.rs
+@@ -179,9 +179,18 @@ fn collect_classes_with_namespace(node: &Node, ns: &[String], out: &mut Vec<Ruby
+             let local_name = const_to_string(&c.name).unwrap_or_default();
+             // Qualify with the enclosing `module Foo; module Bar; class …`
+             // namespace stack so two same-named inner classes don't
+-            // collide in the SPO graph.
++            // collide in the SPO graph. `ns` carries BOTH enclosing
++            // `module` names and enclosing `class` names (see the push
++            // below, mirroring how `Node::Module` extends it) — two
++            // unrelated classes named `Methods` nested inside two
++            // different outer classes (real corpus shape:
++            // `modules/costs/app/models/rate.rb`'s `class Rate;
++            // class Methods; end; end` vs. `default_hourly_rate.rb`'s
++            // `class DefaultHourlyRate; class Methods; end; end`) must
++            // extract as `Rate::Methods` / `DefaultHourlyRate::Methods`,
++            // not both as bare `Methods`.
+             let qualified = if ns.is_empty() {
+-                local_name
++                local_name.clone()
+             } else {
+                 format!("{}::{local_name}", ns.join("::"))
+             };
+@@ -218,9 +227,14 @@ fn collect_classes_with_namespace(node: &Node, ns: &[String], out: &mut Vec<Ruby
+             // A nested class inside a class body is unusual but possible
+             // (`class Outer; class Inner; end; end`); the inner one was
+             // walked as part of body — collect_classes_with_namespace
+-            // handles it via the body's Class node arm.
++            // handles it via the body's Class node arm. Push THIS class's
++            // local name onto the namespace stack first, the same way
++            // `Node::Module` does, so the nested class's qualified name
++            // includes every enclosing class (not just enclosing modules).
+             if let Some(body) = &c.body {
+-                collect_nested_classes(body, ns, out);
++                let mut nested_ns = ns.to_vec();
++                nested_ns.push(local_name);
++                collect_nested_classes(body, &nested_ns, out);
+             }
+         }
+         _ => {}
+@@ -230,7 +244,10 @@ fn collect_classes_with_namespace(node: &Node, ns: &[String], out: &mut Vec<Ruby
+ /// Walk a class body for *nested* classes (rare in models but legal —
+ /// `class A; class B; end; end`). The walker treats these as siblings
+ /// at IR level (flat `ModelGraph::models`), matching what the SPO store
+-/// expects.
++/// expects. `ns` is the caller's namespace stack WITH the enclosing
++/// class's own name already pushed onto it, so a nested class is
++/// qualified by every enclosing `module`/`class` scope, not just
++/// enclosing modules.
+ fn collect_nested_classes(body: &Node, ns: &[String], out: &mut Vec<RubyClass>) {
+     match body {
+         Node::Begin(b) => {
+-- 
+2.43.0
+
