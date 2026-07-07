@@ -10,6 +10,17 @@ description = "OpenProject end-to-end codegen pipeline: Rails IR → ruff SPO tr
 [lib]
 name = "op_codegen_pipeline"
 
+# `emit_generated` — WAVE 1 of the OP → op-rs V3 transpile: the checked-in
+# generator binary that harvests via ruff + OGAR and writes committed Rust
+# into `crates/op-generated/src/generated/` (see that crate's doc comment
+# for the do-not-hand-edit contract). Gated behind `ogar-emit` — same
+# feature as `ogar_consumer` — so the default build of this crate never
+# needs it, matching the native path's untouched-dependency-graph goal.
+[[bin]]
+name = "emit_generated"
+path = "src/bin/emit_generated.rs"
+required-features = ["ogar-emit"]
+
 [features]
 default = []
 # The §5 steps 4-5 consumer path: source -> ruff -> OGAR lift/mint ->

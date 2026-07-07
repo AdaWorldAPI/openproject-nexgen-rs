@@ -1,0 +1,7 @@
+[package]
+name = "op-generated"
+version.workspace = true
+edition.workspace = true
+description = "Transpile landing zone for the OP -> op-rs V3 pipeline: generated Rust lives under src/generated/, written by crates/op-codegen-pipeline/src/bin/emit_generated.rs. Deliberately dependency-free -- hand-written crates opt in by depending on this crate, keeping the transpiler's own dependency graph from leaking into them."
+
+[dependencies]

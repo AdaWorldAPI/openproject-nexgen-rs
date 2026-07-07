@@ -1714,6 +1714,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "op-generated"
+version = "0.1.0"
+
+[[package]]
 name = "op-journals"
 version = "0.1.0"
 dependencies = [
