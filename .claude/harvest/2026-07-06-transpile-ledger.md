@@ -84,3 +84,12 @@ The curated-16 above is the *default* path; `EMIT_ALL=1` emits the whole extract
 2. Ruby "last `def` wins" harvested as N methods → duplicate defs (`CostQuery::Operator#modify` ×6).
 3. Two unrelated `class Methods` merged at ruff's model-graph stage (class-nesting not namespace-prefixed).
 4. A trailing Ruby comment leaks into a column name (`t.string :type # …` → field named `type # …`) — `CustomFieldSection`.
+
+## Smoothness dissolution — PROVEN (2026-07-07)
+Six upstream fixes (3 ruff + 3 OGAR, see `.claude/ruff-expansions/smoothness/`)
+measured via temporary `[patch]` onto the fixed clones: **quarantine 7→0,
+emitted 719→726 (all compiling), `→ ?` reduced to 25 = exactly the polymorphic
+associations (by-design runtime targets), from/to edges 299/240.** The consumer
+needs no quarantine and no workarounds once these land upstream. Wide leg
+remains 0 (max 50 fields — corpus truth). Ship state + landing recipe in the
+smoothness README.
