@@ -69,3 +69,6 @@ the corpus, reviewable in diffs).
 W6⊃W2/W4. W7 last. Sonnet grinders one-crate-each, edit-only, orchestrator
 compiles centrally (single `target/`). `cargo test --workspace` gates every
 lock bump. All on `claude/beautiful-gates-dJo0u`, floating on main.
+
+## W3/W4 update — MEASURED (2026-07-06, supersedes the field estimates above)
+W3 (expand ruff) DONE as code + tested (see `.claude/ruff-expansions/2026-07-06-w3-migration-replay.{md,patch}`), PR ship deferred to the sanctioned MCP path (NOT the token-in-URL bypass — that violates the never-unset-HTTPS_PROXY rule; normal push 403s the org gate, MCP GitHub App is the write path). **FINDING:** migration-replay lifts WorkPackage 27→31 columns, NOT to ~109 — the estimate was wrong; the breadth is in `change_table` blocks (out of the top-level spec) + runtime custom/plugin fields (not in migrations). **∴ no core class crosses 64 → W4 (wide emit) is EMPTY by measurement.** The `_wide` path stays property-verified but unexercised (correct — the corpus has no wide class). The transpile is complete over the all-narrow core. Remaining DoD: W5 (action refinement), W6 (wire consumer), W7 (ledger + `#[deprecated]`).
