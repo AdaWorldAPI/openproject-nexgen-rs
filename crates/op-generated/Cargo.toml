@@ -2,6 +2,13 @@
 name = "op-generated"
 version.workspace = true
 edition.workspace = true
-description = "Transpile landing zone for the OP -> op-rs V3 pipeline: generated Rust lives under src/generated/, written by crates/op-codegen-pipeline/src/bin/emit_generated.rs. Deliberately dependency-free -- hand-written crates opt in by depending on this crate, keeping the transpiler's own dependency graph from leaking into them."
+description = "Transpile landing zone for the OP -> op-rs V3 pipeline: generated Rust lives under src/generated/, written by crates/op-codegen-pipeline/src/bin/emit_generated.rs. Kept free of the TRANSPILER's own dependency graph (OGAR / askama / ruff / lance-graph never appear here) -- hand-written crates opt in by depending on this crate. Plain, non-transpiler deps (e.g. serde_json) are added only as OGAR's rendered struct bodies come to need them."
 
 [dependencies]
+# Added because W2-rendered structs reference `serde_json::Value` for
+# jsonb/json-typed columns (Journal.cause, Project.settings, Type's
+# export_templates_* / pdf_export_templates_config) -- ogar-render-askama's
+# `rails_to_rust_type` mapping, not a choice made here. Plain output-shape
+# dependency only; NOT part of the transpiler's own graph (no OGAR / askama
+# / ruff / lance-graph dep is ever allowed in this crate).
+serde_json.workspace = true

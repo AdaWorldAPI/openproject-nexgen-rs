@@ -18,12 +18,20 @@
 //!
 //! # The dependency boundary is the point
 //!
-//! This crate has **zero dependencies** and must stay that way. Hand-written
-//! app crates will eventually depend on `op-generated` (W6), so if this
-//! crate ever pulled in OGAR / askama / ruff / lance-graph, every such
-//! consumer would transitively inherit the transpiler's dependency graph.
-//! The emit side (`emit_generated`, which *does* need OGAR/askama/ruff to
-//! harvest and render) lives upstream in `op-codegen-pipeline`, gated
-//! behind the `ogar-emit` feature, precisely so this crate never has to.
+//! This crate must never pull in **OGAR / askama / ruff / lance-graph** —
+//! the transpiler's OWN dependency graph. Hand-written app crates will
+//! eventually depend on `op-generated` (W6), so if this crate ever gained
+//! one of those, every such consumer would transitively inherit the
+//! transpiler's toolchain. The emit side (`emit_generated`, which *does*
+//! need OGAR/askama/ruff to harvest and render) lives upstream in
+//! `op-codegen-pipeline`, gated behind the `ogar-emit` feature, precisely so
+//! this crate never has to.
+//!
+//! This is narrower than "zero dependencies": plain, non-transpiler deps
+//! are added on demand, driven only by what OGAR's rendered struct bodies
+//! reference — e.g. `serde_json` for a `jsonb`/`json`-typed column
+//! (`rails_to_rust_type`'s `serde_json::Value` mapping). Never add a dep
+//! here to make hand-written code more convenient; only the generator
+//! output's own compile errors justify one.
 
 pub mod generated;

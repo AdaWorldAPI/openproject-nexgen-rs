@@ -1716,6 +1716,9 @@ dependencies = [
 [[package]]
 name = "op-generated"
 version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "op-journals"
