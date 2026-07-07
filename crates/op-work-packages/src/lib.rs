@@ -11,7 +11,11 @@
 pub mod work_package;
 pub mod work_package_service;
 
-pub use work_package::{DoneRatio, WorkPackage};
+// `CanonicalWorkPackage` is the OGAR-rendered `project_work_item` struct from
+// `op-generated` (W6: wiring a real consumer to the transpile landing zone).
+// It's additive, not a replacement — see the doc comment on the re-export in
+// `work_package.rs` and the `From<&WorkPackage>` mapping next to it.
+pub use work_package::{CanonicalWorkPackage, DoneRatio, WorkPackage};
 pub use work_package_service::{
     MemoryWorkPackageStore, NewWorkPackage, UpdateWorkPackage, WorkPackageError, WorkPackageResult,
     WorkPackageService, WorkPackageStore,

@@ -10,6 +10,17 @@ description = "OpenProject end-to-end codegen pipeline: Rails IR → ruff SPO tr
 [lib]
 name = "op_codegen_pipeline"
 
+# `emit_generated` — WAVE 1 of the OP → op-rs V3 transpile: the checked-in
+# generator binary that harvests via ruff + OGAR and writes committed Rust
+# into `crates/op-generated/src/generated/` (see that crate's doc comment
+# for the do-not-hand-edit contract). Gated behind `ogar-emit` — same
+# feature as `ogar_consumer` — so the default build of this crate never
+# needs it, matching the native path's untouched-dependency-graph goal.
+[[bin]]
+name = "emit_generated"
+path = "src/bin/emit_generated.rs"
+required-features = ["ogar-emit"]
+
 [features]
 default = []
 # The §5 steps 4-5 consumer path: source -> ruff -> OGAR lift/mint ->
@@ -17,7 +28,7 @@ default = []
 # ruff -> op-surreal-ast -> SurrealQL path above. Off by default so the
 # native path's dependency graph is untouched for consumers that don't
 # opt in.
-ogar-emit = ["dep:ogar-vocab", "dep:ogar-from-ruff", "dep:ogar-adapter-surrealql"]
+ogar-emit = ["dep:ogar-vocab", "dep:ogar-from-ruff", "dep:ogar-adapter-surrealql", "dep:ogar-render-askama"]
 
 [dependencies]
 ruff_openproject       = { path = "../ruff_openproject" }
@@ -42,6 +53,10 @@ ogar-from-ruff         = { git = "https://github.com/AdaWorldAPI/OGAR", branch =
 # emit(Class) -> SurrealQL DDL direction, not the AST-parser unmap side,
 # which pulls in the surrealdb-ast/-parser forks.
 ogar-adapter-surrealql = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main", optional = true }
+# The V3 render leg (Class × FieldMask × &[ActionDef] → Rust source) — the
+# non-deprecated emit path the transpile targets. Optional; only the
+# ogar-emit consumer path pulls it. (Pre-W0 blocker fix, 2026-07-06.)
+ogar-render-askama     = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main", optional = true }
 
 [dev-dependencies]
 # Render-bake probe (tests/render_bake_probe.rs): harvests Rails views into

@@ -6,6 +6,11 @@ description = "Work package model + services for OpenProject RS"
 
 [dependencies]
 op-core = { path = "../op-core" }
+# W6: additive link into the OGAR transpile landing zone -- surfaces the
+# canonical `project_work_item` struct alongside the working `WorkPackage`
+# model (see `CanonicalWorkPackage` in src/work_package.rs). Brings in only
+# `op-generated`'s own `serde_json` dep transitively; no OGAR/askama/ruff.
+op-generated = { path = "../op-generated" }
 
 serde.workspace = true
 chrono.workspace = true

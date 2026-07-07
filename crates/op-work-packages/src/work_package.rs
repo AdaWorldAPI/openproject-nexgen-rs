@@ -12,6 +12,21 @@ use op_core::traits::{Entity, Id, Identifiable, Lockable, ProjectScoped, Timesta
 use op_core::types::Formattable;
 use serde::{Deserialize, Serialize};
 
+/// The OGAR-rendered canonical `project_work_item` struct (codebook
+/// `0x0102`, `op-generated`'s transpile landing zone) — re-exported here so
+/// downstream code can name it as `op_work_packages::CanonicalWorkPackage`.
+///
+/// This is deliberately **not** a replacement for [`WorkPackage`]: the
+/// canonical struct is a wider, behaviour-free field projection straight off
+/// the Rails class (scheduling, derived-progress and meeting/version
+/// associations that haven't been ported into app logic yet), whereas
+/// [`WorkPackage`] is the working domain model with real invariants
+/// (`DoneRatio` clamping, `Formattable` description, the `Identifiable` /
+/// `Timestamped` / `ProjectScoped` / `Lockable` / `Entity` wiring the rest of
+/// the app depends on). Both are kept — see [`From<&WorkPackage>`] for the
+/// mapping between them.
+pub use op_generated::generated::work_package::WorkPackage as CanonicalWorkPackage;
+
 /// Progress of a work package as a whole-number percentage `0..=100`
 /// (OpenProject's `done_ratio`).
 ///
@@ -227,6 +242,40 @@ impl Entity for WorkPackage {
     const TYPE_NAME: &'static str = "WorkPackage";
 }
 
+/// Project the working model onto the OGAR canonical shape.
+///
+/// One-way and best-effort: the working model doesn't carry every field the
+/// canonical projection has (scheduling/derived-progress/associations such
+/// as `time_entries` or `meetings`), so those default via
+/// [`CanonicalWorkPackage`]'s `#[derive(Default)]`. FK ids are narrowed
+/// `Id` (`i64`) -> `u64`, which is lossless for the positive, DB-assigned
+/// ids this app produces.
+impl From<&WorkPackage> for CanonicalWorkPackage {
+    fn from(wp: &WorkPackage) -> Self {
+        Self {
+            id: wp.id.unwrap_or(0),
+            subject: wp.subject.clone(),
+            description: wp.description.raw.clone(),
+            due_date: wp.due_date.map(|d| d.to_string()).unwrap_or_default(),
+            lock_version: i64::from(wp.lock_version),
+            done_ratio: i64::from(wp.done_ratio.value()),
+            estimated_hours: wp.estimated_hours.unwrap_or_default(),
+            created_at: wp.created_at.to_rfc3339(),
+            updated_at: wp.updated_at.to_rfc3339(),
+            start_date: wp.start_date.map(|d| d.to_string()).unwrap_or_default(),
+            parent_id: wp.parent_id.unwrap_or(0),
+            project: Some(wp.project_id as u64),
+            r#type: Some(wp.type_id as u64),
+            status: Some(wp.status_id as u64),
+            author: Some(wp.author_id as u64),
+            assigned_to: wp.assigned_to_id.map(|id| id as u64),
+            responsible: wp.responsible_id.map(|id| id as u64),
+            priority: wp.priority_id.map(|id| id as u64),
+            ..Default::default()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,5 +387,39 @@ mod tests {
         assert_eq!(back.subject, wp.subject);
         assert_eq!(back.assigned_to_id, Some(20));
         assert_eq!(back.done_ratio.value(), 40);
+    }
+
+    #[test]
+    fn converts_to_the_canonical_op_generated_shape() {
+        // Proves `op-generated` is a real, wired consumer dependency: builds
+        // the working model, projects it onto the OGAR canonical struct, and
+        // checks the mapping — not just that the re-export compiles.
+        let wp = sample()
+            .with_assignee(20)
+            .with_priority(5)
+            .with_done_ratio(40u8);
+        let canonical = CanonicalWorkPackage::from(&wp);
+
+        assert_eq!(canonical.subject, "Fix the thing");
+        assert_eq!(canonical.project, Some(1));
+        assert_eq!(canonical.r#type, Some(2));
+        assert_eq!(canonical.status, Some(3));
+        assert_eq!(canonical.author, Some(10));
+        assert_eq!(canonical.assigned_to, Some(20));
+        assert_eq!(canonical.priority, Some(5));
+        assert_eq!(canonical.done_ratio, 40);
+        // Unpersisted working record -> canonical id defaults to 0.
+        assert_eq!(canonical.id, 0);
+        // Fields the working model doesn't carry yet default out via
+        // `CanonicalWorkPackage`'s own `Default`.
+        assert!(canonical.time_entries.is_empty());
+        assert_eq!(canonical.version, None);
+
+        // The canonical concept name/codebook id travel with the type.
+        assert_eq!(CanonicalWorkPackage::CLASS_ID, 0x0102);
+        assert_eq!(
+            op_generated::generated::work_package::CANONICAL_CONCEPT,
+            "project_work_item"
+        );
     }
 }

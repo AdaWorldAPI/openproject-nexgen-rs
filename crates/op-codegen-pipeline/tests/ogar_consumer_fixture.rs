@@ -11,6 +11,10 @@
 //! is never byte-golden against the native path's snapshot.
 
 #![cfg(feature = "ogar-emit")]
+// This fixture intentionally exercises the DEPRECATED SurrealQL emit path
+// (`render_surreal_via_ogar`) to keep it regression-covered while it lives —
+// the non-deprecated V3 path is `emit_generated` → `op-generated`.
+#![allow(deprecated)]
 
 use std::path::PathBuf;
 

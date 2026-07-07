@@ -22,6 +22,7 @@ members = [
     "crates/op-codegen-residual",
     "crates/op-codegen-projection",
     "crates/op-codegen-pipeline",
+    "crates/op-generated",
     "crates/op-surreal-ast",
     "crates/ruff_openproject",
 ]

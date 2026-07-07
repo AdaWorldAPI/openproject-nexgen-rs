@@ -45,6 +45,12 @@ pub fn compile_op<P: PortSpec>(graph: &ModelGraph) -> Vec<CompiledClass> {
 
 /// Compile `graph` through the [`OpenProjectPort`] and emit SurrealQL DDL
 /// via the OGAR adapter ([`ogar_adapter_surrealql::emit_surrealql_ddl`]).
+#[deprecated(
+    note = "SurrealQL is deprecated (operator ruling 2026-07-06). The V3 OGAR \
+            transpile path is Class -> ogar_render_askama::render_class_with_methods \
+            -> Rust (see the emit_generated binary + the op-generated crate). This \
+            SurrealQL DDL emitter is kept compiling but must not be extended."
+)]
 #[must_use]
 pub fn emit_surreal_via_ogar(graph: &ModelGraph) -> String {
     let classes: Vec<_> = compile_op::<OpenProjectPort>(graph)
@@ -58,6 +64,13 @@ pub fn emit_surreal_via_ogar(graph: &ModelGraph) -> String {
 /// ([`ruff_ruby_spo::extract_app_with_schema`]), filter to the curated core
 /// ([`crate::filter_to_core`]), and emit SurrealQL DDL through the OGAR
 /// consumer path.
+#[deprecated(
+    note = "SurrealQL is deprecated (operator ruling 2026-07-06). The V3 OGAR \
+            transpile path is Class -> ogar_render_askama::render_class_with_methods \
+            -> Rust (see the emit_generated binary + the op-generated crate). This \
+            SurrealQL DDL emitter is kept compiling but must not be extended."
+)]
+#[allow(deprecated)] // this deprecated fn intentionally calls the deprecated emit_surreal_via_ogar
 #[must_use]
 pub fn render_surreal_via_ogar(rails_root: &Path) -> String {
     let (mut graph, _report) = ruff_ruby_spo::extract_app_with_schema(rails_root, crate::NAMESPACE);
