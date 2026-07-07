@@ -1500,7 +1500,7 @@ dependencies = [
 [[package]]
 name = "ogar-adapter-surrealql"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#dee1fc5cac0b20814cdcf7445b886a7571ac902b"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#90ba79f638c0c77fb05466bdac994415123453b1"
 dependencies = [
  "ogar-vocab",
 ]
@@ -1508,7 +1508,7 @@ dependencies = [
 [[package]]
 name = "ogar-class-view"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#dee1fc5cac0b20814cdcf7445b886a7571ac902b"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#90ba79f638c0c77fb05466bdac994415123453b1"
 dependencies = [
  "lance-graph-contract",
  "ogar-vocab",
@@ -1517,7 +1517,7 @@ dependencies = [
 [[package]]
 name = "ogar-from-ruff"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#dee1fc5cac0b20814cdcf7445b886a7571ac902b"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#90ba79f638c0c77fb05466bdac994415123453b1"
 dependencies = [
  "ogar-vocab",
  "ruff_spo_address",
@@ -1527,7 +1527,7 @@ dependencies = [
 [[package]]
 name = "ogar-render-askama"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#dee1fc5cac0b20814cdcf7445b886a7571ac902b"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#90ba79f638c0c77fb05466bdac994415123453b1"
 dependencies = [
  "askama",
  "lance-graph-contract",
@@ -1537,7 +1537,7 @@ dependencies = [
 [[package]]
 name = "ogar-vocab"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#dee1fc5cac0b20814cdcf7445b886a7571ac902b"
+source = "git+https://github.com/AdaWorldAPI/OGAR?branch=main#90ba79f638c0c77fb05466bdac994415123453b1"
 
 [[package]]
 name = "once_cell"
@@ -2308,7 +2308,7 @@ dependencies = [
 [[package]]
 name = "ruff_ruby_spo"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/ruff?branch=main#eac9513531f224980e82c8df3461f2b169e77a63"
+source = "git+https://github.com/AdaWorldAPI/ruff?branch=main#844b42aedbb8abdd8c3e2b45ff4ed644c37946d2"
 dependencies = [
  "lib-ruby-parser",
  "ruff_spo_triplet",
@@ -2317,7 +2317,7 @@ dependencies = [
 [[package]]
 name = "ruff_spo_address"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/ruff?branch=main#55bbf6040da45f285313d7d66a3b8685b2a5c2bc"
+source = "git+https://github.com/AdaWorldAPI/ruff?branch=main#844b42aedbb8abdd8c3e2b45ff4ed644c37946d2"
 dependencies = [
  "ruff_spo_triplet",
 ]
@@ -2325,7 +2325,7 @@ dependencies = [
 [[package]]
 name = "ruff_spo_triplet"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/ruff?branch=main#55bbf6040da45f285313d7d66a3b8685b2a5c2bc"
+source = "git+https://github.com/AdaWorldAPI/ruff?branch=main#844b42aedbb8abdd8c3e2b45ff4ed644c37946d2"
 dependencies = [
  "serde",
  "serde_json",
