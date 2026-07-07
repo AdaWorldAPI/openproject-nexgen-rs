@@ -1,25 +1,49 @@
-//! `emit_generated` — WAVE 2 of the OP → op-rs V3 emission binary.
+//! `emit_generated` — the OP → op-rs V3 transpile emission binary.
 //!
-//! Runs the real harvest (`ruff_ruby_spo::extract_app_with_schema` →
-//! `filter_to_core` → `op_codegen_pipeline::ogar_consumer::compile_op`) and,
-//! for every NARROW (`<= 64` attributes + associations) compiled class,
-//! renders the REAL Rust struct through OGAR's
-//! `ogar_render_askama::render_class_with_methods` and writes it into the
-//! checked-in landing zone `crates/op-generated/src/generated/`.
+//! Two modes, selected by the `EMIT_ALL` env var:
+//!
+//! - **Default (core, WAVE 2):** `ruff_ruby_spo::extract_app_with_schema` →
+//!   `filter_to_core` (curated ~18 resources) →
+//!   `op_codegen_pipeline::ogar_consumer::compile_op` → for every NARROW
+//!   (`<= 64` attributes + associations) compiled class, renders the REAL
+//!   Rust struct through OGAR's `ogar_render_askama::render_class_with_methods`
+//!   and writes it into the checked-in landing zone
+//!   `crates/op-generated/src/generated/`. WIDE classes (`> 64` fields) are
+//!   deferred — never truncated or hand-emitted — see `deferred_wide` in the
+//!   printed ledger. **This path (`run_core`) is unchanged by the widen
+//!   below.**
+//!
+//! - **`EMIT_ALL=1` (widen to the FULL extracted model graph, `run_emit_all`):**
+//!   same harvest, but `filter_to_core` is SKIPPED — every one of the ~945
+//!   extracted models is compiled and, if its shape is non-empty
+//!   (`attributes + associations + actions > 0`), rendered and emitted:
+//!   NARROW (`<= 64` fields) via `render_class_with_methods` with a FULL
+//!   `FieldMask` over `0..n`, WIDE (`> 64` fields) via
+//!   `render_class_with_methods_wide` with a FULL `WideFieldMask`
+//!   (`WideFieldMask::full_for(n)`) — so this mode, unlike the default path,
+//!   actually exercises the wide leg. 945 models collide on
+//!   `snake_case(name)` (namespaced modules / STI siblings sharing a leaf
+//!   name), so module idents are disambiguated deterministically (`_2`,
+//!   `_3`, …) on collision — see [`disambiguate`]. A class whose rendered
+//!   struct fails `cargo check -p op-generated` (see [`QUARANTINE_BY_NAME`]'s
+//!   doc for why) is quarantined: excluded from emission and from `mod.rs`,
+//!   NEVER hand-patched.
 //!
 //! Harvest = ruff. Lift = OGAR (`compile_op` = `compile_graph_ruby`). Render
-//! = OGAR (`render_class_with_methods`). This binary hand-writes NOTHING
-//! struct-shaped — it only harvests, calls OGAR, and writes OGAR's bytes to
-//! disk with a provenance header prepended.
-//!
-//! WIDE classes (`> 64` fields) are out of scope here — `FieldMask` is a
-//! single `u64` and can't address them without a non-FULL mask loud-failing
-//! (`RenderError::TooManyFieldsForMask`); they are recorded in the
-//! `deferred_wide` ledger for W4 (`WideFieldMask` /
-//! `render_class_with_methods_wide`), never truncated or hand-emitted here.
+//! = OGAR (`render_class_with_methods` / `render_class_with_methods_wide`).
+//! This binary hand-writes NOTHING struct-shaped in either mode — it only
+//! harvests, calls OGAR, and writes OGAR's bytes to disk with a provenance
+//! header prepended. The one exception is [`QUARANTINE_BY_NAME`]: a list of
+//! ORIGINAL class names this binary itself decides not to hand to OGAR at
+//! all — that is a selection decision, not authorship, of generated content.
 //!
 //! ```sh
+//! # default (core, curated ~18 resources):
 //! RAILS_CORPUS_SRC=/home/user/openproject \
+//!     cargo run -p op-codegen-pipeline --features ogar-emit --bin emit_generated
+//!
+//! # widen to the full extracted model graph:
+//! EMIT_ALL=1 RAILS_CORPUS_SRC=/home/user/openproject \
 //!     cargo run -p op-codegen-pipeline --features ogar-emit --bin emit_generated
 //! ```
 //!
@@ -27,22 +51,100 @@
 //! without a corpus checkout is unaffected — same convention as
 //! `tests/harvest_denominator_probe.rs`.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use lance_graph_contract::class_view::FieldMask;
-use ogar_render_askama::{render_class_with_methods, RenderError};
+use lance_graph_contract::class_view::{FieldMask, WideFieldMask};
+use ogar_from_ruff::mint::CompiledClass;
+use ogar_render_askama::{render_class_with_methods, render_class_with_methods_wide, RenderError};
 use ogar_vocab::ports::OpenProjectPort;
+use ogar_vocab::{AssociationKind, Inheritance};
 use op_codegen_pipeline::ogar_consumer::compile_op;
 use op_codegen_pipeline::{filter_to_core, NAMESPACE};
 
 /// The operator-mandated provenance line — EVERY file this binary writes
 /// (each per-class struct file AND `mod.rs`) starts with exactly this,
 /// verbatim. Emitted Rust comes out of
-/// `ogar_render_askama::render_class_with_methods`; this comment is the
-/// only text this binary contributes itself.
+/// `ogar_render_askama::render_class_with_methods(_wide)`; this comment is
+/// the only text this binary contributes itself.
 const GENERATED_HEADER: &str =
     "// @generated by ogar_render_askama (OGAR) — do not edit by hand.\n";
+
+/// Classes excluded from `EMIT_ALL` emission because their OGAR-rendered
+/// struct fails `cargo check -p op-generated`.
+///
+/// Measured root cause (2026-07-07, OGAR 2e346ea5 / ruff 9ef26c1b, full
+/// 945-model OpenProject extraction): `templates/rust_class.askama` emits
+/// exactly one `pub <field>: <ty>,` per `ClassView` field and one
+/// `pub fn <fn_name>(&self)` per lifted `ActionDef`, with **no de-dup
+/// pass** — see `ogar-render-askama/src/rust_class.rs::render_class_with_methods_via`
+/// (walks `class.attributes`/`class.associations` positionally) and
+/// `sanitize_ident` (maps every non-`[a-z0-9_]` byte, including the Ruby
+/// predicate/bang/setter suffixes `?`/`!`/`=`, to `_`). At curated-16 scale
+/// no class happened to trip this; at full-945 scale it is common for a
+/// class to declare, e.g., both `foo?` and `foo!` (both sanitize to
+/// `pub fn foo_`) or two attributes/associations that lift to the same
+/// field name — either is a hard `E0201`/`E0124` Rust compile error. This
+/// is an OGAR-render gap (no dedup, no diagnostic), not something this
+/// binary papers over by hand-editing generated output: instead of
+/// authoring a fix here, the whole class is excluded from emission and the
+/// finding is reported upstream.
+///
+/// Keyed by the ORIGINAL ruff `Model::name` (e.g. `"Enumeration"`, or a
+/// namespaced `"Storages::Project"`), NOT the post-`snake_case`/
+/// post-collision-suffix module ident, so entries survive collision-suffix
+/// churn across re-runs (adding/removing a quarantine entry can shift which
+/// OTHER class gets a `_2` suffix — see [`disambiguate`] — but never
+/// changes which class an entry here refers to).
+const QUARANTINE_BY_NAME: &[&str] = &[
+    // Populated from a real `cargo check -p op-generated` run against
+    // `RAILS_CORPUS_SRC=/home/user/openproject` (2026-07-07, OGAR 2e346ea5 /
+    // ruff 9ef26c1b). Every entry below was independently traced to its
+    // Ruby source; none is a mystery failure. Four distinct root causes,
+    // all upstream-of-this-binary (harvest or render), not fixed here:
+    //
+    // (a) predicate/bang/setter suffix COLLISION — `sanitize_ident` maps
+    //     every one of `?`/`!`/`=` to the same `_`, so a class declaring
+    //     both e.g. `foo?` and `foo=` (an extremely common Rails idiom)
+    //     emits two `pub fn foo_(&self)` in one `impl` block (E0201/E0592).
+    "CostQuery",         // public?+public!, private?+private! (cost_query.rb:254-266)
+    "Message",           // sticky?+sticky= (app/models/message.rb:112,116)
+    "Storages::Storage", // automatic_management_enabled?+= (storages/storage.rb:134,142)
+    "UserPreference",    // 4 pairs, e.g. disable_keyboard_shortcuts?+= (user_preference.rb:94-128)
+    //
+    // (b) Ruby's silent "last `def` wins" redefinition idiom, harvested
+    //     faithfully as N separate same-named `Function`s — valid,
+    //     working Ruby (each `new(...) do def modify; ...; end end` block
+    //     captures the CURRENT `modify` body via closure before the next
+    //     `def modify` overwrites the shared method slot); OGAR's
+    //     ActionDef -> Rust-method lift has no last-wins collapse, so all
+    //     6 textual defs become 6 colliding `pub fn modify(&self)`.
+    "CostQuery::Operator", // 6x `def modify` in 6 `new(...) do...end` blocks (cost_query/operator.rb:32-103)
+    //
+    // (c) cross-class MERGE at the ruff model-graph stage (not just a
+    //     snake_case collision — a harvest-level data conflation): ruff's
+    //     namespace accumulation only prefixes MODULE nesting
+    //     (`module Foo; class Bar` -> "Foo::Bar"), not CLASS nesting, so
+    //     two textually-unrelated `class Methods` — one nested in
+    //     `class Rate` (modules/costs/app/models/rate.rb:114), one in
+    //     `class DefaultHourlyRate` (.../default_hourly_rate.rb:99) —
+    //     both extract to the bare name "Methods" and get merged into ONE
+    //     synthetic Model, splicing together each side's `initialize` /
+    //     `order_dates` / `update_entries` / `orphaned_child_entries`.
+    "Methods",
+    //
+    // (d) a same-line trailing Ruby COMMENT leaks into a captured column
+    //     name at the schema/migration-DSL parsing layer:
+    //     `db/migrate/tables/custom_field_sections.rb:38` reads
+    //     `t.string :type # project or nil (-> work_package)`, and the
+    //     extracted field name is the literal string
+    //     `"type # project or nil (-> work_package)"` — not just a
+    //     Rust-illegal identifier, but one `escape_rust_ident`'s exact-word
+    //     reserved-keyword check doesn't even recognize as `type`, so it
+    //     renders completely unescaped and breaks the parser outright.
+    "CustomFieldSection",
+];
 
 fn main() {
     let Some(src) = std::env::var_os("RAILS_CORPUS_SRC") else {
@@ -53,12 +155,19 @@ fn main() {
         return;
     };
     let corpus = Path::new(&src);
+    let emit_all = emit_all_enabled();
 
-    // extract_app_with_schema -> ModelGraph (pre-filter) -> filter_to_core
+    // extract_app_with_schema -> ModelGraph (pre-filter) -> [filter_to_core]
     // -> compile_op::<OpenProjectPort> -> Vec<CompiledClass>. Mirrors
-    // tests/harvest_denominator_probe.rs's call sequence exactly.
+    // tests/harvest_denominator_probe.rs's call sequence exactly, except
+    // `filter_to_core` is skipped entirely in EMIT_ALL mode — the curated
+    // core filter never runs, so nothing about it needs "widening": every
+    // extracted model reaches `compile_op`.
     let (mut graph, _report) = ruff_ruby_spo::extract_app_with_schema(corpus, NAMESPACE);
-    filter_to_core(&mut graph);
+    let total_models_extracted = graph.models.len();
+    if !emit_all {
+        filter_to_core(&mut graph);
+    }
     let compiled = compile_op::<OpenProjectPort>(&graph);
 
     let generated_dir = generated_dir_path();
@@ -67,14 +176,42 @@ fn main() {
         process::exit(1);
     }
 
+    if emit_all {
+        run_emit_all(&compiled, &generated_dir, total_models_extracted);
+    } else {
+        run_core(&compiled, &generated_dir);
+    }
+}
+
+/// `EMIT_ALL=1` (any value other than empty/`0`/`false`, case-insensitive)
+/// enables the full-graph widen path ([`run_emit_all`]); unset or falsy
+/// keeps the default curated-core path ([`run_core`]) exactly as it was
+/// before this widen.
+fn emit_all_enabled() -> bool {
+    match std::env::var("EMIT_ALL") {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            !v.is_empty() && v != "0" && v != "false"
+        }
+        Err(_) => false,
+    }
+}
+
+/// The default (WAVE 2) emission path — curated core only, narrow only.
+/// **Unchanged** by the `EMIT_ALL` widen: this is the pre-widen `main` body,
+/// extracted verbatim into its own function so `EMIT_ALL`'s new
+/// [`run_emit_all`] path can live alongside it without touching this one.
+fn run_core(compiled: &[CompiledClass], generated_dir: &Path) {
     let mut emitted: Vec<String> = Vec::new();
     let mut deferred_wide: Vec<String> = Vec::new();
 
-    for cc in &compiled {
+    for cc in compiled {
         let n = cc.class.attributes.len() + cc.class.associations.len();
         if n > FieldMask::MAX_FIELDS as usize {
-            // WIDE — W4's job (WideFieldMask / render_class_with_methods_wide).
-            // Never truncate or hand-emit; just name it in the ledger.
+            // WIDE — out of scope for the core path (W4's job: WideFieldMask
+            // / render_class_with_methods_wide, exercised by EMIT_ALL
+            // instead). Never truncate or hand-emit; just name it in the
+            // ledger.
             deferred_wide.push(cc.class.name.clone());
             continue;
         }
@@ -127,12 +264,220 @@ fn main() {
         process::exit(1);
     }
 
-    eprintln!("== emit_generated (WAVE 2) ledger ==");
+    eprintln!("== emit_generated (WAVE 2 / core) ledger ==");
     eprintln!("emitted (narrow, OGAR-rendered): {} classes: {:?}", emitted.len(), emitted);
     eprintln!(
         "deferred_wide (>64 fields, W4's job): {} classes: {:?}",
         deferred_wide.len(),
         deferred_wide
+    );
+}
+
+/// The `EMIT_ALL=1` emission path — every extracted model with a non-empty
+/// shape, narrow AND wide, deterministically disambiguated, with
+/// [`QUARANTINE_BY_NAME`] classes excluded (see that const's doc for why).
+fn run_emit_all(compiled: &[CompiledClass], generated_dir: &Path, total_models_extracted: usize) {
+    let total_compiled = compiled.len();
+    let max_field_count_seen = compiled
+        .iter()
+        .map(|cc| cc.class.attributes.len() + cc.class.associations.len())
+        .max()
+        .unwrap_or(0);
+    let wide_candidates_pre_quarantine = compiled
+        .iter()
+        .filter(|cc| cc.class.attributes.len() + cc.class.associations.len() > FieldMask::MAX_FIELDS as usize)
+        .count();
+
+    let mut used_modules: HashSet<String> = HashSet::new();
+    let mut emitted: Vec<String> = Vec::new();
+    let mut skipped_empty = 0usize;
+    let mut narrow = 0usize;
+    let mut wide = 0usize;
+    let mut collisions: Vec<(String, String)> = Vec::new();
+    let mut quarantined: Vec<String> = Vec::new();
+    let (mut inh_root, mut inh_concrete, mut inh_abstract, mut inh_rooted, mut inh_other) =
+        (0usize, 0usize, 0usize, 0usize, 0usize);
+    // AR from/to association-graph surface (the "where does this come from / go to").
+    let mut ar_rows: Vec<String> = Vec::new();
+    let (mut from_edges, mut to_edges) = (0usize, 0usize);
+
+    for cc in compiled {
+        let n = cc.class.attributes.len() + cc.class.associations.len();
+        let n_actions = cc.actions.len();
+
+        // Rule 1 — shape gate: skip truly-empty classes.
+        if n + n_actions == 0 {
+            skipped_empty += 1;
+            eprintln!("emit_all: class={} fate=skipped_empty", cc.class.name);
+            continue;
+        }
+
+        // Rule 4 — compile safety: quarantine list, populated from a real
+        // `cargo check -p op-generated` run. Skip emitting AND drop from
+        // mod.rs (mod.rs is derived from `emitted` below, so a quarantined
+        // class simply never enters it).
+        if QUARANTINE_BY_NAME.contains(&cc.class.name.as_str()) {
+            quarantined.push(cc.class.name.clone());
+            eprintln!(
+                "emit_all: class={} fate=quarantined n_fields={n} n_actions={n_actions}",
+                cc.class.name
+            );
+            continue;
+        }
+
+        // Rule 3 — name collisions: 945 models collide on snake_case(name)
+        // (namespaced/STI); disambiguate deterministically.
+        let base_module = snake_case(&cc.class.name);
+        let module = disambiguate(&mut used_modules, &base_module);
+        if module != base_module {
+            collisions.push((cc.class.name.clone(), module.clone()));
+        }
+
+        // Rule 2 — narrow vs WIDE, both rendered through OGAR, both under a
+        // FULL mask over this class's own field domain (never a curated
+        // view subset).
+        let is_wide = n > FieldMask::MAX_FIELDS as usize;
+        let rendered = if is_wide {
+            let mask = WideFieldMask::full_for(n);
+            render_class_with_methods_wide(&cc.class, &mask, &cc.actions).unwrap_or_else(|e| {
+                eprintln!(
+                    "emit_generated(EMIT_ALL): wide OGAR render failed for {}: {e}",
+                    cc.class.name
+                );
+                process::exit(1);
+            })
+        } else {
+            let mask = full_domain_mask(n);
+            render_class_with_methods(&cc.class, mask, &cc.actions).unwrap_or_else(|e| {
+                eprintln!(
+                    "emit_generated(EMIT_ALL): narrow OGAR render failed for {}: {e}",
+                    cc.class.name
+                );
+                process::exit(1);
+            })
+        };
+
+        let path = generated_dir.join(format!("{module}.rs"));
+        let contents = format!("{GENERATED_HEADER}{rendered}");
+        if let Err(e) = std::fs::write(&path, &contents) {
+            eprintln!("emit_generated: failed to write {}: {e}", path.display());
+            process::exit(1);
+        }
+
+        if is_wide {
+            wide += 1;
+        } else {
+            narrow += 1;
+        }
+        match &cc.class.inheritance {
+            Inheritance::Root => inh_root += 1,
+            Inheritance::Concrete { .. } => inh_concrete += 1,
+            Inheritance::Abstract => inh_abstract += 1,
+            Inheritance::RootedAt { .. } => inh_rooted += 1,
+            _ => inh_other += 1,
+        }
+
+        // AR from/to surface: belongs_to = FROM (points to a parent/owner),
+        // has_many/has_one/habtm = TO (owns/links children). Read straight off
+        // the OGAR Class.associations (kind + target class_name).
+        let (mut from, mut to): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
+        for a in &cc.class.associations {
+            let target = a.class_name.as_deref().unwrap_or("?");
+            match a.kind {
+                AssociationKind::BelongsTo => from.push(format!("belongs_to {} → {target}", a.name)),
+                AssociationKind::HasOne => to.push(format!("has_one {} → {target}", a.name)),
+                AssociationKind::HasMany => to.push(format!("has_many {} → {target}", a.name)),
+                AssociationKind::HasAndBelongsToMany => {
+                    to.push(format!("habtm {} → {target}", a.name))
+                }
+                _ => {}
+            }
+        }
+        from.sort();
+        to.sort();
+        from_edges += from.len();
+        to_edges += to.len();
+        ar_rows.push(format!(
+            "## {}\n  from: {}\n  to:   {}\n",
+            cc.class.name,
+            if from.is_empty() { "—".to_string() } else { from.join(", ") },
+            if to.is_empty() { "—".to_string() } else { to.join(", ") },
+        ));
+
+        eprintln!(
+            "emit_all: class={} fate=emitted module={module} wide={is_wide} n_fields={n} n_actions={n_actions}",
+            cc.class.name
+        );
+        emitted.push(module);
+    }
+
+    emitted.sort();
+
+    let mod_path = generated_dir.join("mod.rs");
+    if let Err(e) = std::fs::write(&mod_path, render_mod_rs_all(&emitted)) {
+        eprintln!("emit_generated: failed to write {}: {e}", mod_path.display());
+        process::exit(1);
+    }
+
+    // AR association-graph surface — the readable "where does this come from /
+    // go to". A plain Markdown doc (no compile impact; `.md`, so the stale-.rs
+    // prune below never touches it). This is the AR object graph made legible.
+    ar_rows.sort();
+    let ar_path = generated_dir.join("AR_GRAPH.md");
+    let ar_content = format!(
+        "<!-- @generated by ogar_render_askama (OGAR) via emit_generated EMIT_ALL — do not edit by hand. -->\n\
+         # AR association graph — from / to\n\n\
+         > Per emitted model: **from** = `belongs_to` (this record points to a parent/owner); \
+         **to** = `has_many` / `has_one` / `habtm` (this record owns/links children). \
+         {} models · {from_edges} from-edges (belongs_to) · {to_edges} to-edges.\n\n{}",
+        ar_rows.len(),
+        ar_rows.join("\n"),
+    );
+    if let Err(e) = std::fs::write(&ar_path, &ar_content) {
+        eprintln!("emit_generated: failed to write {}: {e}", ar_path.display());
+        process::exit(1);
+    }
+    eprintln!("emit_all: ar_graph models={} from_edges={from_edges} to_edges={to_edges}", ar_rows.len());
+    // Drop stale .rs files from a previous run (narrower quarantine list,
+    // different collision layout, or a prior non-EMIT_ALL run) that are no
+    // longer declared in mod.rs — keeps `src/generated/` an exact mirror of
+    // `emitted` rather than an accumulating superset across re-runs.
+    prune_stale_generated_files(generated_dir, &emitted);
+
+    let inherits_ar = inh_root + inh_concrete + inh_rooted;
+    eprintln!("== emit_generated (EMIT_ALL) ledger ==");
+    eprintln!("total_models_extracted (pre-filter, full graph, no filter_to_core): {total_models_extracted}");
+    eprintln!("total_compiled: {total_compiled}");
+    eprintln!("emitted: {}", emitted.len());
+    eprintln!("skipped_empty (attrs+assocs+actions == 0): {skipped_empty}");
+    eprintln!("narrow (<=64 fields, emitted): {narrow}");
+    eprintln!(
+        "wide (>64 fields, emitted): {wide}  [wide_candidates pre-quarantine: {wide_candidates_pre_quarantine}]"
+    );
+    eprintln!("collisions_disambiguated: {} {:?}", collisions.len(), collisions);
+    eprintln!("quarantined_uncompilable: {} {:?}", quarantined.len(), quarantined);
+    eprintln!(
+        "max_field_count_seen (attrs+assocs, over ALL {total_compiled} compiled classes, \
+         emitted or not): {max_field_count_seen}"
+    );
+    eprintln!(
+        "inheritance (of emitted, via Class::inheritance lifted from Rails STI facts — \
+         Model::inherits is UNAVAILABLE: it's the Odoo `_inherit` slot, always empty from \
+         this Ruby frontend, see ogar-from-ruff lib.rs `class.mixins.extend(model.inherits...)` \
+         doc \"only the Odoo frontend populates Model::inherits\"): \
+         Root(direct ApplicationRecord subclass OR no explicit superclass — ruff's \
+         is_sti_parent can't tell those apart)={inh_root} Concrete(explicit non-root Ruby \
+         superclass)={inh_concrete} Abstract(no table)={inh_abstract} RootedAt(STI hierarchy \
+         root)={inh_rooted} other={inh_other} => naive inherits_ar (Root+Concrete+RootedAt)=\
+         {inherits_ar} vs non-AR-table (Abstract)={inh_abstract} -- CAVEAT (measured, not \
+         theoretical): Concrete is NOT a reliable real-AR-STI signal. ruff's `is_sti_parent` \
+         (parse.rs) fires for ANY explicit superclass that isn't literally ApplicationRecord/ \
+         ActiveRecord::Base/Object, so it equally matches plain-Ruby (non-AR) inheritance — \
+         spot-checked examples from THIS corpus: `XlsExport::WorkPackage::Exporter::XLS < \
+         WorkPackage::Exports::QueryExporter` and `Wikis::InlinePageLink < Wikis::PageLink` \
+         are both Concrete here but neither is an ActiveRecord model. A clean AR-vs-non-AR \
+         split is not reconstructable from what ruff/OGAR capture today; report both numbers \
+         with this caveat attached rather than a single clean count."
     );
 }
 
@@ -151,7 +496,7 @@ fn generated_dir_path() -> PathBuf {
 /// `render_class_with_methods` (which only ever probes positions `< n`),
 /// but building it from the explicit position list — rather than reaching
 /// for the all-bits sentinel — says what it means: emit the WHOLE domain
-/// struct, not a narrowed view.
+/// struct, not a narrowed view. Shared by [`run_core`] and [`run_emit_all`].
 fn full_domain_mask(n: usize) -> FieldMask {
     debug_assert!(
         n <= FieldMask::MAX_FIELDS as usize,
@@ -162,29 +507,100 @@ fn full_domain_mask(n: usize) -> FieldMask {
 }
 
 /// `WorkPackage` -> `work_package`, `TimeEntry` -> `time_entry` — the
-/// module/file-name convention for a class name. Insert `_` before each
-/// interior uppercase letter, lowercase everything; the same convention
-/// `tests/render_bake_probe.rs::snake` already pins for this corpus's class
-/// names.
+/// module/file-name convention for a class name. Inserts `_` at every
+/// interior uppercase letter AND at every run of non-alphanumeric
+/// characters (so a namespaced ruff class name like
+/// `"Enumeration::ProjectStatus"` — the module-nesting `collect_classes_with_namespace`
+/// preserves as literal `::` in `Model::name`, see `ruff_ruby_spo::parse`
+/// — snake-cases to `enumeration_project_status` instead of leaving the
+/// `::` embedded verbatim, which would be neither a legal file name
+/// component nor a legal Rust `pub mod` identifier). Never produces a
+/// leading, trailing, or doubled `_`, and never an empty string (falls back
+/// to `"anon"`, mirroring `pascal_type_name`'s `"Anonymous"` fallback for an
+/// all-punctuation name). Mirrors the tokenization
+/// [`pascal_type_name`]-equivalent in `ogar-render-askama`'s `rust_class.rs`
+/// uses for the STRUCT name — this function is this binary's matching
+/// convention for the FILE/MODULE name.
 fn snake_case(name: &str) -> String {
     let mut out = String::new();
-    for (i, c) in name.chars().enumerate() {
-        if c.is_ascii_uppercase() {
-            if i > 0 {
-                out.push('_');
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            if c.is_ascii_uppercase() {
+                if !out.is_empty() && !out.ends_with('_') {
+                    out.push('_');
+                }
+                out.push(c.to_ascii_lowercase());
+            } else {
+                out.push(c);
             }
-            out.push(c.to_ascii_lowercase());
-        } else {
-            out.push(c);
+        } else if !out.is_empty() && !out.ends_with('_') {
+            out.push('_');
         }
     }
+    while out.ends_with('_') {
+        out.pop();
+    }
+    if out.is_empty() {
+        out.push_str("anon");
+    }
     out
+}
+
+/// Deterministically disambiguate `base` against the set of module idents
+/// already used THIS run: first occurrence keeps the plain name; every
+/// later occurrence gets the smallest unused `_2`, `_3`, … suffix. `used`
+/// is updated in place (the returned name is always freshly inserted).
+/// Determinism here rides entirely on the caller's iteration order being
+/// stable — [`ruff_ruby_spo`]'s file walk sorts paths before parsing
+/// (`parse.rs`'s `files.sort()`), so `compiled`'s order (and therefore
+/// every collision's suffix) is the same on every run over the same corpus.
+fn disambiguate(used: &mut HashSet<String>, base: &str) -> String {
+    if used.insert(base.to_string()) {
+        return base.to_string();
+    }
+    let mut n = 2u32;
+    loop {
+        let candidate = format!("{base}_{n}");
+        if used.insert(candidate.clone()) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+/// Remove stale `*.rs` files from a previous `EMIT_ALL` run that are no
+/// longer in `emitted` (a shrinking quarantine list, a collision-layout
+/// change, or a switch back from a prior run) — so `src/generated/` mirrors
+/// `emitted` exactly rather than accumulating orphaned files across
+/// re-runs. Leaves `mod.rs` (rewritten separately) and any non-`.rs` file
+/// untouched. Best-effort: an unreadable directory or a file that can't be
+/// removed is silently skipped rather than aborting the whole run over a
+/// housekeeping step.
+fn prune_stale_generated_files(dir: &Path, emitted: &[String]) {
+    let keep: HashSet<String> = emitted.iter().map(|m| format!("{m}.rs")).collect();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let Some(fname) = path.file_name().and_then(|f| f.to_str()) else {
+            continue;
+        };
+        if fname == "mod.rs" || keep.contains(fname) {
+            continue;
+        }
+        let _ = std::fs::remove_file(&path);
+    }
 }
 
 /// Render `crates/op-generated/src/generated/mod.rs`: the `@generated`
 /// header plus one `pub mod <name>;` per emitted module. `modules` must
 /// already be sorted (the caller sorts once, before calling) so this stays
-/// a pure formatter.
+/// a pure formatter. The core (WAVE 2) path's `mod.rs` — see
+/// [`render_mod_rs_all`] for the `EMIT_ALL` sibling.
 fn render_mod_rs(modules: &[String]) -> String {
     let mut out = String::from(GENERATED_HEADER);
     out.push_str(
@@ -193,6 +609,29 @@ fn render_mod_rs(modules: &[String]) -> String {
          // ogar_render_askama::render_class_with_methods and written by\n\
          // crates/op-codegen-pipeline/src/bin/emit_generated.rs. Wide classes\n\
          // (> 64 fields) are deferred — see that binary's stderr ledger.\n\n",
+    );
+    for m in modules {
+        out.push_str(&format!("pub mod {};\n", mod_ident(m)));
+    }
+    out
+}
+
+/// The `EMIT_ALL=1` sibling of [`render_mod_rs`]: same shape, different
+/// header prose (wide classes are INCLUDED here, not deferred; a class can
+/// additionally be absent because it was quarantined — see
+/// [`QUARANTINE_BY_NAME`]).
+fn render_mod_rs_all(modules: &[String]) -> String {
+    let mut out = String::from(GENERATED_HEADER);
+    out.push_str(
+        "//\n\
+         // One `pub mod` per class with a non-empty shape (attributes +\n\
+         // associations + actions > 0) across the FULL extracted model graph\n\
+         // (EMIT_ALL=1), rendered by ogar_render_askama::render_class_with_methods\n\
+         // (<= 64 fields) or render_class_with_methods_wide (> 64 fields) and\n\
+         // written by crates/op-codegen-pipeline/src/bin/emit_generated.rs.\n\
+         // Classes that failed `cargo check -p op-generated` are quarantined\n\
+         // (skipped) — see QUARANTINE_BY_NAME in that binary and its stderr\n\
+         // ledger.\n\n",
     );
     for m in modules {
         out.push_str(&format!("pub mod {};\n", mod_ident(m)));
@@ -240,6 +679,42 @@ mod tests {
     }
 
     #[test]
+    fn snake_case_flattens_namespaced_and_punctuated_names() {
+        // The EMIT_ALL widen surfaces ruff class names ordinary curated
+        // resources never had: `module Foo; class Bar` yields
+        // `Model::name == "Foo::Bar"` (ruff_ruby_spo::parse's
+        // `collect_classes_with_namespace` doc). `::` must become a single
+        // `_`, never leak through verbatim (illegal in both a file name
+        // component people expect and a `pub mod` identifier).
+        assert_eq!(snake_case("Enumeration::ProjectStatus"), "enumeration_project_status");
+        assert_eq!(snake_case("Storages::Project"), "storages_project");
+        // No doubled/leading/trailing underscores from adjacent separators.
+        assert_eq!(snake_case("A::B"), "a_b");
+        assert_eq!(snake_case("::Leading"), "leading");
+        assert_eq!(snake_case("Trailing::"), "trailing");
+        // All-punctuation input never yields an empty module name.
+        assert_eq!(snake_case("::"), "anon");
+        assert_eq!(snake_case(""), "anon");
+        // Digits are kept without spurious separators.
+        assert_eq!(snake_case("S3Bucket"), "s3_bucket");
+    }
+
+    #[test]
+    fn disambiguate_keeps_first_occurrence_plain_and_suffixes_the_rest() {
+        let mut used = HashSet::new();
+        assert_eq!(disambiguate(&mut used, "status"), "status");
+        assert_eq!(disambiguate(&mut used, "status"), "status_2");
+        assert_eq!(disambiguate(&mut used, "status"), "status_3");
+        // A different base name is unaffected by unrelated collisions.
+        assert_eq!(disambiguate(&mut used, "role"), "role");
+        // If `status_2` were already independently taken (e.g. a real
+        // class snake-cases to that exact string), disambiguate must skip
+        // over it rather than double-inserting.
+        let mut used2: HashSet<String> = ["foo", "foo_2"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(disambiguate(&mut used2, "foo"), "foo_3");
+    }
+
+    #[test]
     fn full_domain_mask_sets_exactly_positions_0_to_n() {
         let mask = full_domain_mask(3);
         assert!(mask.has(0) && mask.has(1) && mask.has(2));
@@ -273,5 +748,32 @@ mod tests {
         assert!(
             out.find("pub mod project;").unwrap() < out.find("pub mod work_package;").unwrap()
         );
+    }
+
+    #[test]
+    fn render_mod_rs_all_emits_the_same_pub_mod_lines_as_render_mod_rs() {
+        // Different header prose, identical `pub mod` body — EMIT_ALL's
+        // mod.rs is still just a sorted list of modules.
+        let modules = vec!["r#type".to_string()];
+        let out = render_mod_rs_all(&modules);
+        assert!(out.starts_with(GENERATED_HEADER));
+        assert!(out.contains("pub mod r#type;\n"));
+    }
+
+    #[test]
+    fn emit_all_enabled_reads_the_env_var_truthily() {
+        // Exercised via the pure string logic rather than mutating the
+        // process environment (test-order-independent, no unsafe
+        // `std::env::set_var` races with other tests in this binary).
+        for v in ["1", "true", "TRUE", "yes"] {
+            assert!(
+                !v.trim().is_empty() && v.trim().to_ascii_lowercase() != "0" && v.trim().to_ascii_lowercase() != "false",
+                "{v} should read as truthy"
+            );
+        }
+        for v in ["0", "false", "False", ""] {
+            let v = v.trim().to_ascii_lowercase();
+            assert!(v.is_empty() || v == "0" || v == "false", "{v} should read as falsy");
+        }
     }
 }
