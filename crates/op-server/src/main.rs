@@ -180,24 +180,34 @@ fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
         .route("/metrics.json", get(metrics::json_metrics))
         .with_state(metrics.clone());
 
-    // Server-local API v3 routes. `/` and `/users/me` are served by the full
-    // op-api router mounted below (its real DB-backed handlers), so only the
-    // routes op-api does NOT provide stay here (avoids a merge route clash).
-    let api_routes = Router::new().route("/configuration", get(api_configuration));
-
     // The full OpenProject `/api/v3` surface (op-api): work_packages, projects,
-    // users, statuses, versions, … — real handlers that query the DB pool via
-    // repositories. op-api carries its own `AppState`, so we bridge op-server's
-    // pool into it here and apply the state before merging (op-api's router
-    // self-nests under `/api/v3`).
+    // users, statuses, versions, configuration, … — real handlers that query
+    // the DB pool via repositories. op-api is the SINGLE owner of the
+    // `/api/v3` namespace (5+3 council, R2: a second router nesting the same
+    // prefix panics at startup the day the route sets overlap). op-api
+    // carries its own `AppState`, so bridge op-server's pool into it here.
+    //
+    // base_url: prefer the deploy's PUBLIC address (`PUBLIC_URL`, or Railway's
+    // injected `RAILWAY_PUBLIC_DOMAIN`) — the bind host is `0.0.0.0` on PaaS
+    // and must never leak into HAL links (council R1/R2).
+    let base_url = std::env::var("PUBLIC_URL")
+        .ok()
+        .or_else(|| std::env::var("RAILWAY_PUBLIC_DOMAIN").ok().map(|d| format!("https://{d}")))
+        .unwrap_or_else(|| {
+            format!("http://{}:{}", state.config.server.host, state.config.server.port)
+        });
     let openproject_api = op_api::routes::router().with_state(op_api::extractors::AppState {
         config: Arc::new(op_api::extractors::AppConfig {
             api_version: "3".to_string(),
-            base_url: format!("http://{}:{}", state.config.server.host, state.config.server.port),
-            // Reality-check / demo posture: allow anonymous reads so the seeded
-            // kanban board is viewable without a credential. Flip to `true`
-            // (or gate on an env var) once auth is wired for production.
-            require_authentication: false,
+            base_url,
+            // SECURE BY DEFAULT (5+3 council, S2-P0): authentication is
+            // required unless the operator EXPLICITLY opens the instance with
+            // `OP_ALLOW_ANONYMOUS=1` (the reality-check/demo posture: anonymous
+            // reads AND writes on the mock board). The old hardcoded `false`
+            // meant every deploy shipped an anonymous write surface and only a
+            // code change + rebuild could close it. Future single source:
+            // derive this from op-core's `AuthConfig` when real auth lands.
+            require_authentication: !env_flag("OP_ALLOW_ANONYMOUS"),
         }),
         db: state.db.clone(),
     });
@@ -207,7 +217,6 @@ fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
         .merge(health_routes)
         .merge(metrics_routes)
         .merge(openproject_api)
-        .nest("/api/v3", api_routes)
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
@@ -252,71 +261,6 @@ async fn shutdown_signal() {
             info!("Received SIGTERM, initiating graceful shutdown");
         }
     }
-}
-
-/// API v3 root endpoint
-async fn api_root() -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "_type": "Root",
-        "instanceName": "OpenProject RS",
-        "coreVersion": env!("CARGO_PKG_VERSION"),
-        "_links": {
-            "self": { "href": "/api/v3" },
-            "configuration": { "href": "/api/v3/configuration" },
-            "user": { "href": "/api/v3/users/me" },
-            "users": { "href": "/api/v3/users" },
-            "projects": { "href": "/api/v3/projects" },
-            "workPackages": { "href": "/api/v3/work_packages" },
-            "statuses": { "href": "/api/v3/statuses" },
-            "types": { "href": "/api/v3/types" },
-            "priorities": { "href": "/api/v3/priorities" },
-            "queries": { "href": "/api/v3/queries" }
-        }
-    }))
-}
-
-/// API configuration endpoint
-async fn api_configuration() -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "_type": "Configuration",
-        "maximumAttachmentFileSize": 256 * 1024 * 1024,
-        "perPageOptions": [20, 100],
-        "dateFormat": "%Y-%m-%d",
-        "timeFormat": "%H:%M",
-        "startOfWeek": 1,
-        "activeFeatureFlags": [
-            "bim",
-            "boards",
-            "budgets",
-            "costs",
-            "documents",
-            "meeting",
-            "openid_connect",
-            "reporting",
-            "team_planner",
-            "webhooks",
-            "wiki"
-        ],
-        "_links": {
-            "self": { "href": "/api/v3/configuration" }
-        }
-    }))
-}
-
-/// Current user endpoint (returns anonymous for now)
-async fn api_current_user() -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "_type": "User",
-        "id": 0,
-        "login": "anonymous",
-        "firstName": "Anonymous",
-        "lastName": "User",
-        "admin": false,
-        "status": "active",
-        "_links": {
-            "self": { "href": "/api/v3/users/me" }
-        }
-    }))
 }
 
 #[cfg(test)]

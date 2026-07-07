@@ -26,7 +26,19 @@ PORT="${PGPORT:-5433}"
 DB="openproject_rc"
 
 # Run pg tooling as an unprivileged owner when we are root (pg refuses root).
-if [ "$(id -u)" = "0" ]; then AS="runuser -u postgres --"; OWNER=postgres; else AS=""; OWNER="$(id -un)"; fi
+if [ "$(id -u)" = "0" ]; then
+  # Guard the assumption instead of failing with an opaque runuser error
+  # (council S3): the `postgres` system user exists on Debian-packaged
+  # installs; elsewhere, run this script as a non-root user instead.
+  if ! id postgres >/dev/null 2>&1; then
+    echo "ERROR: running as root but no 'postgres' system user exists." >&2
+    echo "       Run this script as a non-root user, or create one:  useradd -r postgres" >&2
+    exit 1
+  fi
+  AS="runuser -u postgres --"; OWNER=postgres
+else
+  AS=""; OWNER="$(id -un)"
+fi
 
 cleanup() {
   if [ "${KEEP:-0}" != "1" ]; then
@@ -45,11 +57,32 @@ $AS "$PGBIN/pg_ctl" -D "$PGDATA" \
 $AS "$PGBIN/createdb" -h "$SOCK" -p "$PORT" -U postgres "$DB"
 PSQL() { $AS "$PGBIN/psql" -h "$SOCK" -p "$PORT" -U postgres -d "$DB" -v ON_ERROR_STOP=1 "$@"; }
 
+# NOTE (council R2/R3): this harness applies the SQL via psql — the real
+# boot path is sqlx::migrate!, which additionally CHECKSUMS applied files
+# (editing an applied migration fails the real deploy but not this script).
+# The green here proves the SQL; the migrate!-mechanism leg is exercised by
+# booting the binary against the kept cluster (KEEP=1 flow in
+# docs/DEPLOY-RAILWAY.md).
 echo "== migrations =="
 for f in "$MIGRATIONS"/*.sql; do echo "  apply $(basename "$f")"; PSQL -q -f "$f"; done
 
 echo "== seed =="
 if [ -f "$SEED" ]; then echo "  apply $(basename "$SEED")"; PSQL -q -f "$SEED"; else echo "  (no seed file)"; fi
+
+# Idempotency by EXECUTION, not just by construction (council R3): apply the
+# whole chain a second time and assert row counts are unchanged.
+echo "== double-apply (idempotency check) =="
+counts() { PSQL -t -P pager=off -c "SELECT (SELECT count(*) FROM projects) || '/' || (SELECT count(*) FROM statuses) || '/' || (SELECT count(*) FROM work_packages) || '/' || (SELECT count(*) FROM member_roles) || '/' || (SELECT count(*) FROM role_permissions) || '/' || (SELECT count(*) FROM query_menu_items);" | tr -d ' '; }
+BEFORE="$(counts)"
+for f in "$MIGRATIONS"/*.sql; do PSQL -q -f "$f"; done
+[ -f "$SEED" ] && PSQL -q -f "$SEED"
+AFTER="$(counts)"
+if [ "$BEFORE" = "$AFTER" ]; then
+  echo "  stable across re-apply: $AFTER (projects/statuses/work_packages/member_roles/role_permissions/query_menu_items)"
+else
+  echo "  FAIL: row counts moved on re-apply: $BEFORE -> $AFTER" >&2
+  exit 1
+fi
 
 echo "== reality check: the kanban board =="
 PSQL -P pager=off -c "

@@ -24,8 +24,24 @@
 --     columns beyond the base Rails schema because
 --     query_executor.rs::WorkPackageRow selects them (schedule_manually and
 --     duration ARE in the Rails schema already).
+--   * member_roles: UNIQUE (member_id, role_id) — tighter than the corpus's
+--     (member_id, role_id, inherited_from) because op-db never writes
+--     inherited_from and its ON CONFLICT depends on the pair.
+--   * projects.lft/rgt: NOT NULL DEFAULT 0 (corpus nullable) — ProjectRow
+--     decodes them as non-Option i32.
+--   * users carries hashed_password/salt inline (nullable); the real
+--     OpenProject keeps credentials in a separate `user_passwords` table.
 --
--- Idempotent: safe to re-run (CREATE TABLE IF NOT EXISTS throughout).
+-- ============================ APPEND-ONLY ============================
+-- sqlx::migrate! records a CHECKSUM of this file in `_sqlx_migrations` on
+-- first apply and verifies it on every boot. EDITING THIS FILE AFTER ANY
+-- REAL DEPLOY HAS APPLIED IT bricks that deploy with VersionMismatch (boot
+-- treats migration failure as fatal). Schema growth goes in NEW files:
+-- 0002_<description>.sql, 0003_..., never edits here. The DDL is idempotent
+-- BY CONSTRUCTION (IF NOT EXISTS throughout), but sqlx applies it exactly
+-- once — "idempotent" is a property of the SQL, not an invitation to re-run
+-- or rewrite it.
+-- =====================================================================
 
 -- =====================================================================
 -- users
@@ -69,10 +85,15 @@ CREATE TABLE IF NOT EXISTS roles (
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS role_permissions (
     id          bigserial PRIMARY KEY,
-    role_id     bigint,
-    permission  text,
+    -- NOT NULL: roles.rs::RolePermissionRow decodes both as non-Option; a
+    -- NULL row would panic at decode (council S1).
+    role_id     bigint NOT NULL,
+    permission  text NOT NULL,
     created_at  timestamptz NOT NULL DEFAULT now(),
-    updated_at  timestamptz NOT NULL DEFAULT now()
+    updated_at  timestamptz NOT NULL DEFAULT now(),
+    -- roles.rs::add_permission relies on bare ON CONFLICT DO NOTHING, which
+    -- is a silent no-op without a unique constraint to conflict against.
+    UNIQUE (role_id, permission)
 );
 
 CREATE INDEX IF NOT EXISTS idx_role_permissions_role_id ON role_permissions (role_id);
@@ -88,8 +109,11 @@ CREATE TABLE IF NOT EXISTS projects (
     identifier  text NOT NULL,
     public      boolean NOT NULL DEFAULT true,
     parent_id   bigint,
-    lft         integer,
-    rgt         integer,
+    -- NOT NULL DEFAULT 0: projects.rs::ProjectRow decodes lft/rgt as
+    -- non-Option i32 (corpus leaves them nullable; op-db's need wins —
+    -- divergence header, entry 5). Every op-db write path populates both.
+    lft         integer NOT NULL DEFAULT 0,
+    rgt         integer NOT NULL DEFAULT 0,
     active      boolean NOT NULL DEFAULT true,
     created_at  timestamptz NOT NULL DEFAULT now(),
     updated_at  timestamptz NOT NULL DEFAULT now()
@@ -213,7 +237,12 @@ CREATE TABLE IF NOT EXISTS member_roles (
     id               bigserial PRIMARY KEY,
     member_id        bigint NOT NULL,
     role_id          bigint NOT NULL,
-    inherited_from   bigint
+    inherited_from   bigint,
+    -- members.rs::set_roles relies on bare ON CONFLICT DO NOTHING. Corpus
+    -- uniqueness is (member_id, role_id, inherited_from); op-db never writes
+    -- inherited_from, so the tighter op-db-need pair is used (divergence
+    -- header, entry 4).
+    UNIQUE (member_id, role_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_member_roles_member_id ON member_roles (member_id);
@@ -472,7 +501,10 @@ CREATE TABLE IF NOT EXISTS query_menu_items (
     id              bigserial PRIMARY KEY,
     navigatable_id  bigint,
     name            text,
-    title           text
+    title           text,
+    -- queries.rs::star relies on bare ON CONFLICT DO NOTHING; without a
+    -- unique target, starring twice duplicated the menu row (council S1).
+    UNIQUE (navigatable_id, name)
 );
 
 CREATE INDEX IF NOT EXISTS idx_query_menu_items_navigatable_id ON query_menu_items (navigatable_id);

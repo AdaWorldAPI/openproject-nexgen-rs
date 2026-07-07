@@ -10,8 +10,11 @@ dockerfilePath = "Dockerfile"
 # Number of replicas
 numReplicas = 1
 
-# Health check configuration
-healthcheckPath = "/health"
+# Health check configuration. MUST be the DB-aware readiness route: plain
+# `/health` is a hardcoded "OK" that stays green with no database at all
+# (5+3 council, S3 — a mis-wired DATABASE_URL would otherwise deploy
+# "healthy" while every /api/v3 call 500s).
+healthcheckPath = "/health/ready"
 healthcheckTimeout = 30
 
 # Restart policy
@@ -38,8 +41,15 @@ RUST_LOG = "info,op_server=debug"
 # If you reference the plugin explicitly rather than relying on auto-inject:
 #   DATABASE_URL = "${{ Postgres.DATABASE_URL }}"
 
-# Reality-check seed: set HYDRATE=1 to load the mock kanban board
-# (crates/op-db/seeds/kanban_seed.sql — 3 projects, 5 statuses, ~40 work
-# packages) on boot. Leave unset/0 for an empty schema. Idempotent
-# (ON CONFLICT DO NOTHING), so it is safe to leave on for a demo instance.
-HYDRATE = "1"
+# Reality-check / demo posture — BOTH gates are OFF by default and are set
+# PER-INSTANCE in the Railway dashboard, never committed here (5+3 council,
+# S3/R2: a committed-on default would seed mock data into, and open anonymous
+# writes on, ANY database this repo is ever deployed against).
+#
+#   HYDRATE = "1"            → load the mock kanban board on boot
+#                              (crates/op-db/seeds/kanban_seed.sql — 3 projects,
+#                              5 statuses, ~40 work packages; idempotent).
+#   OP_ALLOW_ANONYMOUS = "1" → serve /api/v3 without authentication
+#                              (reads AND writes — demo boxes only).
+#
+# A fresh deploy without these is a migrated, EMPTY, auth-required instance.
