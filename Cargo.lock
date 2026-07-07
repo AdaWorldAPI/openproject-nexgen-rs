@@ -2308,7 +2308,7 @@ dependencies = [
 [[package]]
 name = "ruff_ruby_spo"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/ruff?branch=main#9ef26c1b2de23a5a03afe530e8606b975a89eacf"
+source = "git+https://github.com/AdaWorldAPI/ruff?branch=main#b8e431c4d7ef139e5fa6d1d99cf27e23e74dcdae"
 dependencies = [
  "lib-ruby-parser",
  "ruff_spo_triplet",
@@ -2317,7 +2317,7 @@ dependencies = [
 [[package]]
 name = "ruff_spo_address"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/ruff?branch=main#9ef26c1b2de23a5a03afe530e8606b975a89eacf"
+source = "git+https://github.com/AdaWorldAPI/ruff?branch=main#b8e431c4d7ef139e5fa6d1d99cf27e23e74dcdae"
 dependencies = [
  "ruff_spo_triplet",
 ]
@@ -2325,7 +2325,7 @@ dependencies = [
 [[package]]
 name = "ruff_spo_triplet"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/ruff?branch=main#9ef26c1b2de23a5a03afe530e8606b975a89eacf"
+source = "git+https://github.com/AdaWorldAPI/ruff?branch=main#b8e431c4d7ef139e5fa6d1d99cf27e23e74dcdae"
 dependencies = [
  "serde",
  "serde_json",
