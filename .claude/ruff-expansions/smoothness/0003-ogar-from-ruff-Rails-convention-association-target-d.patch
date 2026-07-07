@@ -1,0 +1,243 @@
+From 450899ccc8da5486ed49aecea34937ce3537a6fb Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 7 Jul 2026 09:35:05 +0000
+Subject: [PATCH 3/3] ogar-from-ruff: Rails-convention association target
+ defaulting
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+lift_association() left `class_name` as `None` whenever the Ruby source
+had no explicit `class_name:` option, even though Rails itself always
+resolves a target class from the association name at load time
+(`belongs_to :project` -> `Project`, `has_many :time_entries` ->
+`TimeEntry`). Downstream consumers therefore saw an "unresolved"
+association target for the common, unadorned case — the real EMIT_ALL
+casualty was `belongs_to :project` rendering as an unresolved `?`.
+
+Add default_association_class_name() (+ a small local camelize_snake_case
+/ singularize_english_word inflector pair) and call it from
+lift_association() only when class_name is still None after option
+parsing, so an explicit `class_name:` is never overridden. Skips
+polymorphic associations deliberately: their real target is only known
+at runtime via the `<name>_type` column, so guessing one from the
+association name (`:reactable` -> `Reactable`) would be actively wrong.
+
+The table -> model inflection in ruff_ruby_spo::schema::model_name_for_table
+does the same job but is pub(crate) in a crate ogar-from-ruff doesn't
+depend on (this crate depends on ruff_spo_triplet / ruff_spo_address, not
+ruff_ruby_spo), so it isn't reachable — the local inflector is a small,
+independently tested reimplementation of the same convention.
+
+Also updates emit.rs's two Rails-lift integration tests, whose fixtures
+declared `has_many :time_entries` with no class_name: they previously
+asserted the (now-fixed) wrong `ToMany<TimeEntries>` shape and now assert
+the correct `ToMany<TimeEntry>`.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PBTGaPCSnnt6u3pjXpbLwY
+---
+ crates/ogar-from-ruff/src/emit.rs |  11 ++-
+ crates/ogar-from-ruff/src/lib.rs  | 145 ++++++++++++++++++++++++++++++
+ 2 files changed, 153 insertions(+), 3 deletions(-)
+
+diff --git a/crates/ogar-from-ruff/src/emit.rs b/crates/ogar-from-ruff/src/emit.rs
+index f909514..1edf071 100644
+--- a/crates/ogar-from-ruff/src/emit.rs
++++ b/crates/ogar-from-ruff/src/emit.rs
+@@ -705,9 +705,12 @@ mod tests {
+             rust.contains("pub project: ToOne<Project>,"),
+             "got:\n{rust}"
+         );
+-        // has_many, no class_name -> pascal_case(time_entries) = TimeEntries.
++        // has_many, no class_name -> Rails-convention default fills
++        // class_name at lift time (`lift_association`): singularize +
++        // PascalCase the relation name -> TimeEntry, not the raw-name
++        // pascal_case(time_entries) = TimeEntries this used to emit.
+         assert!(
+-            rust.contains("pub time_entries: ToMany<TimeEntries>,"),
++            rust.contains("pub time_entries: ToMany<TimeEntry>,"),
+             "got:\n{rust}"
+         );
+     }
+@@ -798,8 +801,10 @@ mod tests {
+             rust.contains("pub project: ToOne<Project>,"),
+             "got:\n{rust}"
+         );
++        // has_many, no class_name -> Rails-convention default (lift-time)
++        // singularizes + PascalCases the relation name -> TimeEntry.
+         assert!(
+-            rust.contains("pub time_entries: ToMany<TimeEntries>,"),
++            rust.contains("pub time_entries: ToMany<TimeEntry>,"),
+             "got:\n{rust}"
+         );
+     }
+diff --git a/crates/ogar-from-ruff/src/lib.rs b/crates/ogar-from-ruff/src/lib.rs
+index a5ce95b..a1d8cab 100644
+--- a/crates/ogar-from-ruff/src/lib.rs
++++ b/crates/ogar-from-ruff/src/lib.rs
+@@ -692,9 +692,82 @@ pub fn lift_association(a: &AssocDecl) -> Option<Association> {
+             _ => {}
+         }
+     }
++    // Rails-convention association target defaulting: when the declaration
++    // carried no explicit `class_name:`, Rails itself derives the target
++    // class from the association name at load time — `belongs_to :project`
++    // -> `Project`, `has_many :time_entries` -> `TimeEntry`, `has_one
++    // :budget` -> `Budget`, `has_and_belongs_to_many :categories` ->
++    // `Category`. Leaving `class_name` unset here means "unresolved" to
++    // every downstream consumer (real EMIT_ALL casualty: `belongs_to
++    // :project` rendering as an unresolved `?` target) even though Rails
++    // itself never leaves it ambiguous. Only fills the gap — an explicit
++    // `class_name:` always wins, and a polymorphic association's real
++    // target is only known at runtime (the `<name>_type` column), so
++    // guessing one from the association name would be actively wrong.
++    if out.class_name.is_none() && out.polymorphic != Some(true) {
++        out.class_name = Some(default_association_class_name(&a.name, kind));
++    }
+     Some(out)
+ }
+ 
++/// Rails-convention default association target: `belongs_to` / `has_one`
++/// names are already singular (`:project`, `:budget`) so PascalCasing is
++/// enough; `has_many` / `has_and_belongs_to_many` names are plural
++/// (`:time_entries`, `:statuses`) and need singularizing first. Mirrors
++/// (small, local reimplementation — see below) the table -> model
++/// inflection in `ruff_ruby_spo::schema::model_name_for_table`, which isn't
++/// reachable here: it's `pub(crate)` in a crate this one doesn't depend on
++/// (`ogar-from-ruff` depends on `ruff_spo_triplet` / `ruff_spo_address`,
++/// not `ruff_ruby_spo`), so the tiny inflector below is a fresh, tested
++/// implementation of the same convention rather than a shared import.
++fn default_association_class_name(name: &str, kind: AssociationKind) -> String {
++    let singularize_last_segment = matches!(
++        kind,
++        AssociationKind::HasMany | AssociationKind::HasAndBelongsToMany
++    );
++    camelize_snake_case(name, singularize_last_segment)
++}
++
++/// `snake_case` -> `PascalCase`, singularizing only the final `_`-segment
++/// (and only when asked) — the same shape as a Rails table name inflecting
++/// to its model name (only the last word of a compound table name is
++/// plural: `work_packages` -> `WorkPackage`).
++fn camelize_snake_case(words: &str, singularize_last_segment: bool) -> String {
++    let segments: Vec<&str> = words.split('_').collect();
++    let last = segments.len().saturating_sub(1);
++    let mut out = String::new();
++    for (i, seg) in segments.iter().enumerate() {
++        let word = if i == last && singularize_last_segment {
++            singularize_english_word(seg)
++        } else {
++            (*seg).to_string()
++        };
++        let mut chars = word.chars();
++        if let Some(first) = chars.next() {
++            out.push(first.to_ascii_uppercase());
++            out.push_str(chars.as_str());
++        }
++    }
++    out
++}
++
++/// Naive English singularizer for a plural Rails association-name segment:
++/// `categories` -> `category`, `statuses` -> `status`, `time_entries`'s
++/// last segment `entries` -> `entry`, and the plain `s`-suffix default
++/// (`journals` -> `journal`). Deliberately narrow — it exists to invert
++/// Rails' own `pluralize`, not to be a general inflector.
++fn singularize_english_word(seg: &str) -> String {
++    if let Some(stem) = seg.strip_suffix("ies") {
++        return format!("{stem}y");
++    }
++    for es_suffix in ["sses", "shes", "ches", "xes", "zes", "uses"] {
++        if seg.ends_with(es_suffix) {
++            return seg[..seg.len() - 2].to_string();
++        }
++    }
++    seg.strip_suffix('s').unwrap_or(seg).to_string()
++}
++
+ // ───────────────────────────── mixins ───────────────────────────────────
+ 
+ fn lift_mixins(model: &Model) -> Vec<String> {
+@@ -1437,6 +1510,78 @@ mod tests {
+         let time_entries = &class.associations[1];
+         assert_eq!(time_entries.kind, AssociationKind::HasMany);
+         assert_eq!(time_entries.dependent.as_deref(), Some("delete_all"));
++        // Rails-convention default: `time_entries` carries no explicit
++        // `class_name:` in the fixture, so it must be filled in.
++        assert_eq!(time_entries.class_name.as_deref(), Some("TimeEntry"));
++    }
++
++    /// Rails-convention association target defaulting: when no explicit
++    /// `class_name:` is present, the target class is derived from the
++    /// association name the same way Rails itself does at load time.
++    /// Real EMIT_ALL casualty this fixes: `belongs_to :project` rendering
++    /// as an unresolved association target.
++    #[test]
++    fn lift_association_defaults_class_name_from_rails_convention() {
++        let assoc = |kind: AssocKind, name: &str| AssocDecl {
++            kind,
++            name: name.to_string(),
++            options: vec![],
++        };
++        let class_name_of = |kind: AssocKind, name: &str| {
++            lift_association(&assoc(kind, name))
++                .expect("relation kind lifts to Some")
++                .class_name
++        };
++
++        assert_eq!(
++            class_name_of(AssocKind::BelongsTo, "project"),
++            Some("Project".to_string())
++        );
++        assert_eq!(
++            class_name_of(AssocKind::HasMany, "time_entries"),
++            Some("TimeEntry".to_string())
++        );
++        assert_eq!(
++            class_name_of(AssocKind::HasMany, "statuses"),
++            Some("Status".to_string())
++        );
++        assert_eq!(
++            class_name_of(AssocKind::HasAndBelongsToMany, "categories"),
++            Some("Category".to_string())
++        );
++        // has_one: already-singular name, no singularization needed.
++        assert_eq!(
++            class_name_of(AssocKind::HasOne, "budget"),
++            Some("Budget".to_string())
++        );
++    }
++
++    /// An explicit `class_name:` always wins over the Rails-convention
++    /// default — the default only fills a gap, it never overrides.
++    #[test]
++    fn lift_association_never_overrides_explicit_class_name() {
++        let a = AssocDecl {
++            kind: AssocKind::BelongsTo,
++            name: "author".to_string(),
++            options: vec![("class_name".to_string(), "\"Principal\"".to_string())],
++        };
++        let out = lift_association(&a).unwrap();
++        assert_eq!(out.class_name.as_deref(), Some("Principal"));
++    }
++
++    /// A polymorphic association's real target is only known at runtime
++    /// (the `<name>_type` column); guessing one from the association name
++    /// (`:reactable` -> `Reactable`, which is not a real model) would be
++    /// actively wrong, so the Rails-convention default must NOT apply.
++    #[test]
++    fn lift_association_skips_default_for_polymorphic() {
++        let a = AssocDecl {
++            kind: AssocKind::BelongsTo,
++            name: "reactable".to_string(),
++            options: vec![("polymorphic".to_string(), "true".to_string())],
++        };
++        let out = lift_association(&a).unwrap();
++        assert_eq!(out.class_name, None);
+     }
+ 
+     #[test]
+-- 
+2.43.0
+
