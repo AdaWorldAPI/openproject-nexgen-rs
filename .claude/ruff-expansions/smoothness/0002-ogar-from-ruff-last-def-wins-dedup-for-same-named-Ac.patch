@@ -1,0 +1,118 @@
+From 5c15574e1606154cf75ad83dfbc217d41cdd07b0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 7 Jul 2026 09:34:18 +0000
+Subject: [PATCH 2/3] ogar-from-ruff: last-def-wins dedup for same-named
+ ActionDefs
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+lift_actions() emitted one ActionDef per ruff Function/helper harvested,
+with no dedup — so a method defined more than once in a Ruby class body
+(real corpus case: CostQuery::Operator#modify, defined 6x across
+`Operator.new(...) do ... end` blocks) lifted to N same-named ActionDefs.
+The render side then turned each into a `pub fn` of that name, an E0592
+duplicate-definition compile error in the projected Rust.
+
+Add dedup_last_def_wins(), applied at the end of lift_actions(): when
+multiple ActionDefs share a predicate name, keep only the one whose
+source `def` executed last — mirroring Ruby's own "redefining a method
+silently replaces it" runtime semantics, not an invented merge/first-wins
+rule.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PBTGaPCSnnt6u3pjXpbLwY
+---
+ crates/ogar-from-ruff/src/lib.rs | 62 +++++++++++++++++++++++++++++++-
+ 1 file changed, 61 insertions(+), 1 deletion(-)
+
+diff --git a/crates/ogar-from-ruff/src/lib.rs b/crates/ogar-from-ruff/src/lib.rs
+index 682e400..a5ce95b 100644
+--- a/crates/ogar-from-ruff/src/lib.rs
++++ b/crates/ogar-from-ruff/src/lib.rs
+@@ -582,7 +582,7 @@ pub fn lift_actions(model: &Model) -> Vec<ActionDef> {
+     // annotations; routability / guard / RBAC enrichment happens downstream
+     // at registration (a registrar can re-join `Model::callbacks` by name to
+     // tell hook targets from routable actions).
+-    model
++    let actions: Vec<ActionDef> = model
+         .functions
+         .iter()
+         .chain(model.helpers.iter())
+@@ -622,6 +622,34 @@ pub fn lift_actions(model: &Model) -> Vec<ActionDef> {
+             }
+             a
+         })
++        .collect();
++    dedup_last_def_wins(actions)
++}
++
++/// Ruby "last def wins": re-opening a class body and defining a method with
++/// a name already in use silently REDEFINES it — only the last `def` is
++/// live at runtime. `ruff_spo_triplet::Model::functions` /  `::helpers`
++/// carry one entry per `def` seen during harvest, so a method defined N
++/// times (real corpus case: `CostQuery::Operator#modify`, defined 6x across
++/// `Operator.new(...) do ... end` blocks) yields N same-named `ActionDef`s.
++/// Left alone, the render side turns each into a `pub fn` of the same name
++/// — an `E0592` duplicate-definition compile error in the projected Rust.
++///
++/// Collapse to the single ActionDef whose source `def` executed last,
++/// matching Ruby's own runtime semantics — never a spec-invented "first
++/// wins" or "merge" rule. Dedup key is the raw (pre-sanitization) predicate
++/// name, since that is what "the same method name" means at the Ruby
++/// level; relative order of the surviving actions is preserved.
++fn dedup_last_def_wins(actions: Vec<ActionDef>) -> Vec<ActionDef> {
++    let mut last_index_for_name: HashMap<String, usize> = HashMap::new();
++    for (i, a) in actions.iter().enumerate() {
++        last_index_for_name.insert(a.predicate.clone(), i);
++    }
++    actions
++        .into_iter()
++        .enumerate()
++        .filter(|(i, a)| last_index_for_name.get(&a.predicate) == Some(i))
++        .map(|(_, a)| a)
+         .collect()
+ }
+ 
+@@ -1851,6 +1879,38 @@ mod tests {
+         assert!(lift_actions(&Model::new("Empty")).is_empty());
+     }
+ 
++    /// Ruby "last def wins": two `Function`s named `modify` (the real
++    /// `CostQuery::Operator#modify` shape, defined 6x across `Operator.new
++    /// do ... end` blocks in the corpus) must lift to exactly ONE ActionDef
++    /// — the LAST one's facts — not two same-named ActionDefs that would
++    /// render as duplicate `pub fn modify` (E0592).
++    #[test]
++    fn lift_actions_same_name_functions_keep_only_the_last_def() {
++        let mut m = Model::new("CostQuery::Operator");
++        m.functions.push(Function {
++            name: "modify".to_string(),
++            reads: vec!["first_def".to_string()],
++            raises: Vec::new(),
++            traverses: Vec::new(),
++            ..Default::default()
++        });
++        m.functions.push(Function {
++            name: "modify".to_string(),
++            reads: vec!["last_def".to_string()],
++            raises: Vec::new(),
++            traverses: Vec::new(),
++            ..Default::default()
++        });
++        let acts = lift_actions(&m);
++        assert_eq!(acts.len(), 1, "same-named defs collapse to one ActionDef");
++        assert_eq!(acts[0].predicate, "modify");
++        assert_eq!(
++            acts[0].reads,
++            vec!["last_def".to_string()],
++            "the surviving ActionDef must carry the LAST def's facts"
++        );
++    }
++
+     /// SPEC-1(i): `reads` / `writes` / `calls` now ride `ActionDef` as
+     /// first-class effect annotations (OGAR-AS-IR §3 test 2), sourced
+     /// verbatim from `ruff_spo_triplet::Function`. Crucially, this must NOT
+-- 
+2.43.0
+

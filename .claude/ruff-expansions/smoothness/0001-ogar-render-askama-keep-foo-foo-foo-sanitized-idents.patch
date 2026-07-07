@@ -1,0 +1,132 @@
+From 61098cc808162eb8834e3e9b48eb996f3e13c04b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 7 Jul 2026 09:29:33 +0000
+Subject: [PATCH 1/3] ogar-render-askama: keep foo?/foo!/foo= sanitized idents
+ distinct
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+sanitize_ident() mapped every non-alnum char (including Ruby's trailing
+`?`, `!`, `=` method-sigils) to a plain `_`, so `public?`/`public!`,
+`sticky?`/`sticky=`, and UserPreference's four such pairs all sanitized
+to the same `_`-suffixed ident. render_class_with_methods then emitted
+two `pub fn` methods with that one name — an E0592 duplicate-definition
+compile error in the projected Rust (real casualties in the OpenProject
+EMIT_ALL corpus: CostQuery, Message, UserPreference, Storages::Storage).
+
+Peel the trailing sigil off before the general sanitize pass and apply
+a sigil-specific, deterministic marker instead: `?` -> `_q` suffix,
+`!` -> `_bang` suffix, `=` -> `set_` prefix. All three forms of a name
+now render as distinct methods.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PBTGaPCSnnt6u3pjXpbLwY
+---
+ crates/ogar-render-askama/src/rust_class.rs | 82 ++++++++++++++++++---
+ 1 file changed, 72 insertions(+), 10 deletions(-)
+
+diff --git a/crates/ogar-render-askama/src/rust_class.rs b/crates/ogar-render-askama/src/rust_class.rs
+index df3b051..fe1f63d 100644
+--- a/crates/ogar-render-askama/src/rust_class.rs
++++ b/crates/ogar-render-askama/src/rust_class.rs
+@@ -312,17 +312,42 @@ fn one_line(s: &str) -> String {
+ /// Reduce an arbitrary source name to a snake-case Rust identifier body:
+ /// lowercase, `[a-z0-9_]` kept, everything else → `_`. A leading digit is
+ /// prefixed with `_` so the result is a legal identifier.
++///
++/// Ruby's trailing `?` (predicate), `!` (bang / dangerous variant), and `=`
++/// (setter) are semantically distinct method-name suffixes, but blanket
++/// non-alnum → `_` mapping collapses all three to the same `_`-suffixed
++/// ident — so a class defining both `foo?` and `foo=` (or `foo!`) rendered
++/// two Rust methods with the same name (`E0592` duplicate definition).
++/// Real corpus casualties: `CostQuery` (`public?`/`public!`), `Message`
++/// (`sticky?`/`sticky=`), `UserPreference` (four such pairs),
++/// `Storages::Storage`. Peel the trailing sigil off first and apply a
++/// sigil-specific, deterministic marker so the three forms stay distinct:
++/// trailing `?` → `_q` suffix, trailing `!` → `_bang` suffix, trailing `=`
++/// → `set_` prefix (mirrors the setter's role). Everything else sanitizes
++/// exactly as before.
+ fn sanitize_ident(s: &str) -> String {
+-    let mut out: String = s
+-        .chars()
+-        .map(|c| {
+-            if c.is_ascii_alphanumeric() || c == '_' {
+-                c.to_ascii_lowercase()
+-            } else {
+-                '_'
+-            }
+-        })
+-        .collect();
++    fn sanitize_chars(body: &str) -> String {
++        body.chars()
++            .map(|c| {
++                if c.is_ascii_alphanumeric() || c == '_' {
++                    c.to_ascii_lowercase()
++                } else {
++                    '_'
++                }
++            })
++            .collect()
++    }
++
++    let mut out = if let Some(body) = s.strip_suffix('?') {
++        format!("{}_q", sanitize_chars(body))
++    } else if let Some(body) = s.strip_suffix('!') {
++        format!("{}_bang", sanitize_chars(body))
++    } else if let Some(body) = s.strip_suffix('=') {
++        format!("set_{}", sanitize_chars(body))
++    } else {
++        sanitize_chars(s)
++    };
++
+     if out.is_empty() {
+         out.push_str("action");
+     } else if out.as_bytes()[0].is_ascii_digit() {
+@@ -669,6 +694,43 @@ mod tests {
+         assert_eq!(sanitize_ident("3d_render"), "_3d_render");
+     }
+ 
++    /// `foo?` / `foo!` / `foo=` must sanitize to three DISTINCT idents —
++    /// before this fix all three collapsed to `foo_`, so a class declaring
++    /// two or more of them rendered duplicate Rust methods (`E0592`). Pins
++    /// the real corpus shapes: `CostQuery#public?`/`#public!`,
++    /// `Message#sticky?`/`#sticky=`.
++    #[test]
++    fn sanitize_ident_keeps_predicate_bang_and_setter_distinct() {
++        let q = sanitize_ident("foo?");
++        let bang = sanitize_ident("foo!");
++        let eq = sanitize_ident("foo=");
++        assert_eq!(q, "foo_q");
++        assert_eq!(bang, "foo_bang");
++        assert_eq!(eq, "set_foo");
++        assert_ne!(q, bang);
++        assert_ne!(q, eq);
++        assert_ne!(bang, eq);
++    }
++
++    /// End-to-end: a class whose ActionDefs include `foo?`, `foo!`, `foo=`
++    /// renders three distinct `pub fn` methods, not a duplicate-name clash.
++    #[test]
++    fn class_with_predicate_bang_and_setter_actions_renders_three_distinct_methods() {
++        let class = sample_class();
++        let mk = |predicate: &str| {
++            let mut a = ActionDef::default();
++            a.identity = format!("account.move::action_def::{predicate}");
++            a.predicate = predicate.to_string();
++            a.object_class = "account.move".to_string();
++            a
++        };
++        let actions = vec![mk("foo?"), mk("foo!"), mk("foo=")];
++        let src = render_class_with_methods(&class, FieldMask(u64::MAX), &actions).unwrap();
++        assert!(src.contains("pub fn foo_q("), "{src}");
++        assert!(src.contains("pub fn foo_bang("), "{src}");
++        assert!(src.contains("pub fn set_foo("), "{src}");
++    }
++
+     #[test]
+     fn pascal_type_name_round_trips_and_normalises() {
+         assert_eq!(pascal_type_name("account.move"), "AccountMove");
+-- 
+2.43.0
+

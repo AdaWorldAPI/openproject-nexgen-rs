@@ -47,12 +47,20 @@ pub struct Type {
     pub color: Option<u64>,
     /// has_many `work_packages`.
     pub work_packages: Vec<u64>,
+    /// has_many `project_custom_field_type_mappings`.
+    pub project_custom_field_type_mappings: Vec<u64>,
+    /// has_many `project_custom_fields`.
+    pub project_custom_fields: Vec<u64>,
     /// has_many `workflows`.
     pub workflows: Vec<u64>,
     /// has_and_belongs_to_many `projects`.
     pub projects: Vec<u64>,
     /// has_and_belongs_to_many `custom_fields`.
     pub custom_fields: Vec<u64>,
+    /// belongs_to `parent`.
+    pub parent: Option<u64>,
+    /// has_many `children`.
+    pub children: Vec<u64>,
 }
 
 impl Type {
@@ -60,8 +68,8 @@ impl Type {
     pub const CLASS_ID: u16 = 0x0106;
 
     /// Struct-of-methods constructor over the ClassView × FieldMask field set.
-    pub fn new(patterns: String, export_templates_disabled: serde_json::Value, export_templates_order: serde_json::Value, id: i64, name: String, position: i64, is_in_roadmap: bool, is_milestone: bool, is_default: bool, created_at: String, updated_at: String, is_standard: bool, attribute_groups: String, description: String, pdf_export_templates_config: serde_json::Value, color: Option<u64>, work_packages: Vec<u64>, workflows: Vec<u64>, projects: Vec<u64>, custom_fields: Vec<u64>) -> Self {
-        Self { patterns, export_templates_disabled, export_templates_order, id, name, position, is_in_roadmap, is_milestone, is_default, created_at, updated_at, is_standard, attribute_groups, description, pdf_export_templates_config, color, work_packages, workflows, projects, custom_fields }
+    pub fn new(patterns: String, export_templates_disabled: serde_json::Value, export_templates_order: serde_json::Value, id: i64, name: String, position: i64, is_in_roadmap: bool, is_milestone: bool, is_default: bool, created_at: String, updated_at: String, is_standard: bool, attribute_groups: String, description: String, pdf_export_templates_config: serde_json::Value, color: Option<u64>, work_packages: Vec<u64>, project_custom_field_type_mappings: Vec<u64>, project_custom_fields: Vec<u64>, workflows: Vec<u64>, projects: Vec<u64>, custom_fields: Vec<u64>, parent: Option<u64>, children: Vec<u64>) -> Self {
+        Self { patterns, export_templates_disabled, export_templates_order, id, name, position, is_in_roadmap, is_milestone, is_default, created_at, updated_at, is_standard, attribute_groups, description, pdf_export_templates_config, color, work_packages, project_custom_field_type_mappings, project_custom_fields, workflows, projects, custom_fields, parent, children }
     }
 
     /// OGAR action `copy_from_type` (DO-arm).
@@ -84,6 +92,16 @@ impl Type {
         // TODO: port `enabled_in?` from Type
     }
 
+    /// OGAR action `root` (DO-arm).
+    pub fn root(&self) {
+        // TODO: port `root` from Type
+    }
+
+    /// OGAR action `family` (DO-arm).
+    pub fn family(&self) {
+        // TODO: port `family` from Type
+    }
+
     /// OGAR action `replacement_pattern_defined_for?` (DO-arm).
     pub fn replacement_pattern_defined_for_(&self) {
         // TODO: port `replacement_pattern_defined_for?` from Type
@@ -102,5 +120,30 @@ impl Type {
     /// OGAR action `check_integrity` (DO-arm).
     pub fn check_integrity(&self) {
         // TODO: port `check_integrity` from Type
+    }
+
+    /// OGAR action `parent_is_a_root` (DO-arm).
+    pub fn parent_is_a_root(&self) {
+        // TODO: port `parent_is_a_root` from Type
+    }
+
+    /// OGAR action `not_own_parent` (DO-arm).
+    pub fn not_own_parent(&self) {
+        // TODO: port `not_own_parent` from Type
+    }
+
+    /// OGAR action `cannot_have_children_when_child` (DO-arm).
+    pub fn cannot_have_children_when_child(&self) {
+        // TODO: port `cannot_have_children_when_child` from Type
+    }
+
+    /// OGAR action `standard_type_stays_root` (DO-arm).
+    pub fn standard_type_stays_root(&self) {
+        // TODO: port `standard_type_stays_root` from Type
+    }
+
+    /// OGAR action `parent_frozen_with_work_packages` (DO-arm).
+    pub fn parent_frozen_with_work_packages(&self) {
+        // TODO: port `parent_frozen_with_work_packages` from Type
     }
 }

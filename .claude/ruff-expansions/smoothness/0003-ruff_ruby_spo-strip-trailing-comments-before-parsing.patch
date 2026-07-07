@@ -1,0 +1,135 @@
+From 4de84a9d93362511203c016a78cdc16be1cfc173 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 7 Jul 2026 09:29:28 +0000
+Subject: [PATCH 3/3] ruff_ruby_spo: strip trailing comments before parsing DSL
+ column lines
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Bug (measured on the OpenProject corpus,
+db/migrate/tables/custom_field_sections.rb:38): `t.string :type #
+project or nil (-> work_package)` harvested a column literally named
+`"type # project or nil (-> work_package)"` — name_token only trims
+whitespace, it has no notion of a Ruby comment, so everything after the
+`:type` symbol rode along into the field name.
+
+Add strip_trailing_comment, applied to the per-line `t.` DSL scan in
+both parse_table_source (baseline `Tables::X` squash) and
+apply_migration_source (classic db/migrate/*.rb replay) — both share
+the same fields_from_column_dsl parsing and were equally exposed. Only
+a `#` outside of an open `'`/`"` quote ends the line, so a quoted
+default value containing `#` (e.g. `default: "#fff"`) is left alone.
+
+Added trailing_comment_on_column_line_is_stripped with the exact
+custom_field_sections.rb line, plus a direct unit test for
+strip_trailing_comment's string-literal guard.
+---
+ crates/ruff_ruby_spo/src/schema.rs | 70 +++++++++++++++++++++++++++++-
+ 1 file changed, 68 insertions(+), 2 deletions(-)
+
+diff --git a/crates/ruff_ruby_spo/src/schema.rs b/crates/ruff_ruby_spo/src/schema.rs
+index b10fab7452..775e7929c2 100644
+--- a/crates/ruff_ruby_spo/src/schema.rs
++++ b/crates/ruff_ruby_spo/src/schema.rs
+@@ -349,7 +349,7 @@ pub(crate) fn parse_table_source(table_name: &str, src: &str) -> Option<TableCol
+     let mut saw_create_table = false;
+ 
+     for raw in src.lines() {
+-        let line = raw.trim();
++        let line = strip_trailing_comment(raw.trim());
+         if !in_block {
+             if line.starts_with("create_table") || line.starts_with("create_unlogged_table") {
+                 saw_create_table = true;
+@@ -665,7 +665,7 @@ fn apply_migration_source(
+     let mut current_table: Option<String> = None;
+ 
+     for raw in src.lines() {
+-        let line = raw.trim();
++        let line = strip_trailing_comment(raw.trim());
+ 
+         if let Some(table_name) = &current_table {
+             if line == "end" {
+@@ -896,6 +896,35 @@ fn first_name_arg(args: &str) -> Option<&str> {
+     args.split(',').next().and_then(name_token)
+ }
+ 
++/// Strip a trailing Ruby comment (`# ...` to end of line) from a DSL
++/// line before it's parsed for column names/opts. Real-world shape from
++/// the `OpenProject` corpus (`db/migrate/tables/custom_field_sections.rb:38`):
++/// `t.string :type # project or nil (-> work_package)` — without this,
++/// the harvested column name is literally `"type # project or nil
++/// (-> work_package)"` ([`name_token`] only trims whitespace, it doesn't
++/// know about comments).
++///
++/// Guards against a `#` that's inside a `'`/`"` string literal (rare in
++/// migration DSL lines — e.g. a `default: "#fff"` — but trivial to
++/// respect): only a `#` outside of any currently-open quote ends the
++/// line. Unbalanced/mismatched quotes on one line fall back to treating
++/// the rest of the line as still-quoted (no comment found), which is
++/// conservative — it can only under-strip, never mangle a column name
++/// that had no comment to begin with.
++fn strip_trailing_comment(line: &str) -> &str {
++    let mut in_single = false;
++    let mut in_double = false;
++    for (i, ch) in line.char_indices() {
++        match ch {
++            '\'' if !in_double => in_single = !in_single,
++            '"' if !in_single => in_double = !in_double,
++            '#' if !in_single && !in_double => return line[..i].trim_end(),
++            _ => {}
++        }
++    }
++    line
++}
++
+ /// One column/type token: a Ruby symbol (`:name`) or a quoted string
+ /// (`"name"` / `'name'`). `":name"` → `name`; `"\"name\""` → `name`
+ /// (surrounding whitespace tolerated on both forms).
+@@ -1052,6 +1081,43 @@ end
+         assert!(parse_table_source("base", "class Tables::Base\nend\n").is_none());
+     }
+ 
++    /// Real-world corpus shape, verbatim from
++    /// `db/migrate/tables/custom_field_sections.rb:38`: a trailing `#`
++    /// comment on a `t.string` line must NOT become part of the parsed
++    /// column name. Before stripping the comment, this column harvested
++    /// as `"type # project or nil (-> work_package)"` instead of `"type"`.
++    #[test]
++    fn trailing_comment_on_column_line_is_stripped() {
++        let src = "class Tables::CustomFieldSections < Tables::Base\n  def self.table(migration)\n    create_table migration do |t|\n      t.integer :position\n      t.string :name\n      t.string :type # project or nil (-> work_package)\n\n      t.timestamps\n    end\n  end\nend\n";
++        let t = parse_table_source("custom_field_sections", src).expect("create_table block");
++        let names: Vec<&str> = t.fields.iter().map(|f| f.name.as_str()).collect();
++        assert_eq!(
++            names,
++            ["id", "position", "name", "type", "created_at", "updated_at"]
++        );
++        assert!(
++            !names.iter().any(|n| n.contains('#')),
++            "a trailing comment must never leak into a column name: {names:?}"
++        );
++    }
++
++    /// [`strip_trailing_comment`] itself, including the guard for a `#`
++    /// that's inside a string literal (rare in migration DSL lines, but
++    /// it must not be mistaken for the start of a comment).
++    #[test]
++    fn strip_trailing_comment_guards_hash_inside_string_literals() {
++        assert_eq!(
++            strip_trailing_comment("t.string :type # project or nil (-> work_package)"),
++            "t.string :type"
++        );
++        assert_eq!(strip_trailing_comment("t.string :name"), "t.string :name");
++        assert_eq!(
++            strip_trailing_comment(r##"t.string :color, default: "#fff""##),
++            r##"t.string :color, default: "#fff""##,
++            "a `#` inside a quoted default value is not a comment"
++        );
++    }
++
+     // ────────────────── classic `db/migrate/*.rb` fallback (Redmine-style) ──────────────────
+ 
+     use std::path::PathBuf;
+-- 
+2.43.0
+

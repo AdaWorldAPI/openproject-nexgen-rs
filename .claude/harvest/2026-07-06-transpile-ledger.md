@@ -61,3 +61,35 @@ non-deprecated path is the V3 OGAR render above.
 - ✅ transpile LEDGER (this file)
 - ✅ mark SurrealQL `#[deprecated]`
 - ⏸ W3 ruff migration-replay: code+tested, PR ship deferred to the sanctioned MCP path
+
+## Full-graph coverage — EMIT_ALL (2026-07-06, the honest denominator)
+The curated-16 above is the *default* path; `EMIT_ALL=1` emits the whole extracted graph. Measured:
+
+| metric | value |
+|---|---|
+| total compiled (full graph, no filter_to_core) | 945 |
+| **emitted structs** | **719** |
+| skipped (empty — 0 fields+assocs+actions) | 219 |
+| quarantined (uncompilable — real ruff/OGAR bugs, below) | 7 |
+| narrow (≤64) / **wide (>64)** | 719 / **0** |
+| max field count over ALL 945 | **50** — nothing crosses 64, so the wide leg never fires for this corpus |
+| AR graph: from-edges (belongs_to) / to-edges (has_many/has_one/habtm) | **292 / 232** |
+
+**Coverage:** 719 emitted vs the earlier 16 (`16/945` was a misleading ratio — 945 is mostly non-models: 107 real AR classes + ~140 STI + ~428 POROs/services). AR-vs-non-AR can't be split cleanly from what ruff/OGAR capture today (`Model::inherits` is the Odoo slot, unused for Ruby; `is_sti_parent` fires for any non-AR superclass), so the honest figure is **719 of 945 compiled classes with a shape**.
+
+**AR from/to surface:** `crates/op-generated/src/generated/AR_GRAPH.md` — readable per-model `from`/`to` edges (the "where does this come from / go to"). Some targets are `→ ?` where ruff didn't resolve the association's target class (extraction gap).
+
+**7 quarantine findings = real "expand ruff/OGAR" items (whole class skipped, not hand-patched):**
+1. `sanitize_ident` maps `?`/`!`/`=` all to `_` → duplicate methods (`CostQuery`, `Message`, `UserPreference`, `Storages::Storage`).
+2. Ruby "last `def` wins" harvested as N methods → duplicate defs (`CostQuery::Operator#modify` ×6).
+3. Two unrelated `class Methods` merged at ruff's model-graph stage (class-nesting not namespace-prefixed).
+4. A trailing Ruby comment leaks into a column name (`t.string :type # …` → field named `type # …`) — `CustomFieldSection`.
+
+## Smoothness dissolution — PROVEN (2026-07-07)
+Six upstream fixes (3 ruff + 3 OGAR, see `.claude/ruff-expansions/smoothness/`)
+measured via temporary `[patch]` onto the fixed clones: **quarantine 7→0,
+emitted 719→726 (all compiling), `→ ?` reduced to 25 = exactly the polymorphic
+associations (by-design runtime targets), from/to edges 299/240.** The consumer
+needs no quarantine and no workarounds once these land upstream. Wide leg
+remains 0 (max 50 fields — corpus truth). Ship state + landing recipe in the
+smoothness README.

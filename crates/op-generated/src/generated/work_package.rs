@@ -13,6 +13,10 @@ pub const CANONICAL_CONCEPT: &str = "project_work_item";
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct WorkPackage {
+    /// attribute `target_version_ids_replacements`.
+    pub target_version_ids_replacements: String,
+    /// attribute `observed_in_version_ids_replacements`.
+    pub observed_in_version_ids_replacements: String,
     /// attribute `id`.
     pub id: i64,
     /// attribute `subject`.
@@ -100,8 +104,18 @@ impl WorkPackage {
     pub const CLASS_ID: u16 = 0x0102;
 
     /// Struct-of-methods constructor over the ClassView × FieldMask field set.
-    pub fn new(id: i64, subject: String, description: String, due_date: String, lock_version: i64, done_ratio: i64, estimated_hours: f64, created_at: String, updated_at: String, start_date: String, derived_estimated_hours: f64, schedule_manually: bool, parent_id: i64, duration: i64, ignore_non_working_days: bool, derived_remaining_hours: f64, derived_done_ratio: i64, project_phase_id: i64, project: Option<u64>, r#type: Option<u64>, status: Option<u64>, author: Option<u64>, assigned_to: Option<u64>, responsible: Option<u64>, version: Option<u64>, project_phase_definition: Option<u64>, priority: Option<u64>, category: Option<u64>, time_entries: Vec<u64>, file_links: Vec<u64>, storages: Vec<u64>, work_package_versions: Vec<u64>, versions: Vec<u64>, target_versions: Vec<u64>, observed_in_versions: Vec<u64>, changesets: Vec<u64>, github_pull_requests: Vec<u64>, meeting_agenda_items: Vec<u64>, meeting_outcomes: Vec<u64>, meetings: Vec<u64>) -> Self {
-        Self { id, subject, description, due_date, lock_version, done_ratio, estimated_hours, created_at, updated_at, start_date, derived_estimated_hours, schedule_manually, parent_id, duration, ignore_non_working_days, derived_remaining_hours, derived_done_ratio, project_phase_id, project, r#type, status, author, assigned_to, responsible, version, project_phase_definition, priority, category, time_entries, file_links, storages, work_package_versions, versions, target_versions, observed_in_versions, changesets, github_pull_requests, meeting_agenda_items, meeting_outcomes, meetings }
+    pub fn new(target_version_ids_replacements: String, observed_in_version_ids_replacements: String, id: i64, subject: String, description: String, due_date: String, lock_version: i64, done_ratio: i64, estimated_hours: f64, created_at: String, updated_at: String, start_date: String, derived_estimated_hours: f64, schedule_manually: bool, parent_id: i64, duration: i64, ignore_non_working_days: bool, derived_remaining_hours: f64, derived_done_ratio: i64, project_phase_id: i64, project: Option<u64>, r#type: Option<u64>, status: Option<u64>, author: Option<u64>, assigned_to: Option<u64>, responsible: Option<u64>, version: Option<u64>, project_phase_definition: Option<u64>, priority: Option<u64>, category: Option<u64>, time_entries: Vec<u64>, file_links: Vec<u64>, storages: Vec<u64>, work_package_versions: Vec<u64>, versions: Vec<u64>, target_versions: Vec<u64>, observed_in_versions: Vec<u64>, changesets: Vec<u64>, github_pull_requests: Vec<u64>, meeting_agenda_items: Vec<u64>, meeting_outcomes: Vec<u64>, meetings: Vec<u64>) -> Self {
+        Self { target_version_ids_replacements, observed_in_version_ids_replacements, id, subject, description, due_date, lock_version, done_ratio, estimated_hours, created_at, updated_at, start_date, derived_estimated_hours, schedule_manually, parent_id, duration, ignore_non_working_days, derived_remaining_hours, derived_done_ratio, project_phase_id, project, r#type, status, author, assigned_to, responsible, version, project_phase_definition, priority, category, time_entries, file_links, storages, work_package_versions, versions, target_versions, observed_in_versions, changesets, github_pull_requests, meeting_agenda_items, meeting_outcomes, meetings }
+    }
+
+    /// OGAR action `override_target_versions?` (DO-arm).
+    pub fn override_target_versions_(&self) {
+        // TODO: port `override_target_versions?` from WorkPackage
+    }
+
+    /// OGAR action `override_observed_in_versions?` (DO-arm).
+    pub fn override_observed_in_versions_(&self) {
+        // TODO: port `override_observed_in_versions?` from WorkPackage
     }
 
     /// OGAR action `visible?` (DO-arm).
