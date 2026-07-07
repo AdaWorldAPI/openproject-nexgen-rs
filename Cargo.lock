@@ -1842,6 +1842,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "op-core",
+ "op-generated",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
