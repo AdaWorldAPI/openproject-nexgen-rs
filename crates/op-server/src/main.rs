@@ -175,7 +175,15 @@ fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
         // board's own cards/links — distinct from the JSON `/api/v3/...`
         // surface owned by op-api below.
         .route("/work_packages/:id", get(board::work_package_detail))
+        .route(
+            "/work_packages/:id/edit",
+            get(board::work_package_edit_form).post(board::work_package_update),
+        )
         .route("/projects/:id", get(board::project_detail))
+        .route(
+            "/projects/:id/edit",
+            get(board::project_edit_form).post(board::project_update),
+        )
         .route("/health", get(health::default_health_check))
         .route("/health_checks/default", get(health::default_health_check))
         .route("/health/live", get(health::liveness))
