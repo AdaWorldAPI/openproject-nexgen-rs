@@ -45,6 +45,32 @@ async fn main() -> anyhow::Result<()> {
         "Starting OpenProject RS"
     );
 
+    // Klickweg connectivity affirmation — the runtime counterpart to the
+    // `scripts/nav-crawl.sh` BFS, proven at boot via the sanctioned Core brick
+    // `nav_is_fully_connected` (lance-graph #670/#673). A disconnected nav
+    // graph (orphan screen / dangling click / unserved root) is a level-editor
+    // bug, not a fatal one — the board still serves, so we WARN rather than
+    // abort, but it is never silent.
+    let nav_connected = nav::klickweg_is_connected();
+    if nav_connected {
+        let root_screen = nav::SCREEN_UNIVERSE
+            .get(nav::NAV_ROOT as usize)
+            .copied()
+            .unwrap_or("?");
+        debug_assert_eq!(nav::screen_id(root_screen), Some(nav::NAV_ROOT));
+        info!(
+            screens = nav::SCREEN_UNIVERSE.len(),
+            root = root_screen,
+            "Klickweg fully connected (nav_is_fully_connected via Core brick)"
+        );
+    } else {
+        tracing::warn!(
+            screens = nav::SCREEN_UNIVERSE.len(),
+            "Klickweg NOT fully connected — an orphan screen, dangling click, \
+             or unserved root exists in the nav graph"
+        );
+    }
+
     // Connect to database
     let db_config = DatabaseConfig::with_url(&config.database.url);
     let db = match Database::connect(&db_config).await {
