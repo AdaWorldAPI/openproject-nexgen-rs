@@ -12,7 +12,26 @@
 //! + a static "no dead lanes" prober: every association target must
 //! either resolve to a route, or be explicitly listed in
 //! [`NOT_YET_NAVIGABLE`] as a known, intentional gap.
+//!
+//! ## Klickweg connectivity via the sanctioned Core brick
+//!
+//! The "does every pipe lead somewhere, and is the level fully connected"
+//! check (the Mario-World-editor validator) is NOT hand-rolled here as a
+//! bespoke BFS — it consumes the Core brick
+//! [`lance_graph_contract::class_view::nav_is_fully_connected`] (lance-graph
+//! #670/#673, the *jump* half of the topology Lego kit that pairs with the
+//! `ruff_csharp_spo` `navigates_to` harvest in ruff #61). The served-screen
+//! universe mask is minted via the sanctioned membership brick
+//! [`WideFieldMask::from_universe_present`] (lance-graph #669) — the same
+//! byte-for-byte-interchangeable mask every other consumer mints, carrying
+//! the 256-field SoC-split guard. The navigation graph reuses the Core
+//! [`ComputeEdge`] shape (`target` = destination screen, `inputs` = source
+//! screens): one more brick, not a parallel edge type. This makes the
+//! connectivity guarantee a compile/test-time invariant, not only a
+//! live `scripts/nav-crawl.sh` BFS.
 
+use lance_graph_contract::class_view::{nav_is_fully_connected, ComputeEdge};
+use lance_graph_contract::WideFieldMask;
 use ogar_vocab::{AssociationKind, Class};
 
 /// Concept → route registry. Only concepts with a live detail/list page
@@ -23,6 +42,76 @@ pub fn route_for(target_concept: &str) -> Option<&'static str> {
         "ProjectWorkItem" => Some("/work_packages"),
         _ => None,
     }
+}
+
+/// The served screens (routed concepts) in a **stable order**. A screen's
+/// position is its index here — this single array is the source of order for
+/// both the [`WideFieldMask`] universe (minted via `from_universe_present`)
+/// and the [`ComputeEdge`] positions, so the two can never drift.
+///
+/// Every entry MUST have a `Some` [`route_for`]; `screen_universe_matches_routes`
+/// proves it. The board (`"/"`) IS the `ProjectWorkItem` screen, so that is the
+/// entry/root ([`NAV_ROOT`] = index 0).
+pub const SCREEN_UNIVERSE: &[&str] = &["ProjectWorkItem", "Project"];
+
+/// The entry screen position — the board (`"/"`), i.e. `ProjectWorkItem`.
+pub const NAV_ROOT: u8 = 0;
+
+/// Screen position for a served (routed) concept — its index in
+/// [`SCREEN_UNIVERSE`]. `None` for un-routed / deferred concepts. The `u8`
+/// cast is safe: the universe is far under `u8::MAX` entries.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub fn screen_id(concept: &str) -> Option<u8> {
+    SCREEN_UNIVERSE
+        .iter()
+        .position(|c| *c == concept)
+        .map(|i| i as u8)
+}
+
+/// The navigation edges among served screens, in the Core [`ComputeEdge`]
+/// shape: `target` = destination screen position, `inputs` = source screen
+/// positions that navigate to it (the *jump* half of the topology kit).
+///
+/// This is the routed subset of the derived [`nav_edges`] of every served
+/// class; `nav_edges_match_static_table` cross-checks this table against the
+/// live derivation so it can never silently drift. `inputs` is `&'static`
+/// (the Core edge shape), so this is a plain `const` manifest.
+pub const NAV_EDGES: &[ComputeEdge] = &[
+    // ProjectWorkItem.project (belongs_to) → Project
+    ComputeEdge {
+        target: 1,
+        inputs: &[0],
+    },
+    // Project.work_packages (has_many) → ProjectWorkItem
+    ComputeEdge {
+        target: 0,
+        inputs: &[1],
+    },
+];
+
+/// The served-screen universe as a [`WideFieldMask`], minted via the
+/// sanctioned membership brick [`WideFieldMask::from_universe_present`]
+/// (universe = present = every served screen, since all listed screens are
+/// routed). This is the `screens` argument to [`nav_is_fully_connected`].
+///
+/// # Panics
+///
+/// Never in practice: [`SCREEN_UNIVERSE`] has 2 entries, far under the
+/// 256-field SoC cap the brick guards.
+#[must_use]
+pub fn served_screens_mask() -> WideFieldMask {
+    WideFieldMask::from_universe_present(SCREEN_UNIVERSE, SCREEN_UNIVERSE)
+        .expect("2-screen universe is within the 256-field SoC cap")
+}
+
+/// Whether the klickweg is fully connected: every served screen is reachable
+/// from [`NAV_ROOT`] and no navigation edge dangles off the served set — the
+/// Core-brick ([`nav_is_fully_connected`]) level-editor validator, at
+/// compile/test time rather than only via the live crawl.
+#[must_use]
+pub fn klickweg_is_connected() -> bool {
+    nav_is_fully_connected(NAV_ROOT, NAV_EDGES, &served_screens_mask())
 }
 
 /// Association targets referenced by `project_work_item()` / `project()`
@@ -152,6 +241,80 @@ mod tests {
                 "menu href {href} is not a known route"
             );
         }
+    }
+
+    /// Every screen in [`SCREEN_UNIVERSE`] must actually be routed — the
+    /// mask universe cannot claim a screen the router won't serve.
+    #[test]
+    fn screen_universe_matches_routes() {
+        for concept in SCREEN_UNIVERSE {
+            assert!(
+                route_for(concept).is_some(),
+                "SCREEN_UNIVERSE lists {concept} but route_for({concept}) is None"
+            );
+            assert!(screen_id(concept).is_some());
+        }
+    }
+
+    /// The static [`NAV_EDGES`] table must equal the routed subset of the
+    /// derived [`nav_edges`] across every served class — no silent drift
+    /// between the hand-written Core-shape manifest and the live derivation.
+    #[test]
+    fn nav_edges_match_static_table() {
+        // Build the expected routed edges from the derivation: for each served
+        // class, every association whose target is itself a served screen is a
+        // nav edge (owner-screen → target-screen).
+        let classes: [(&str, Class); 2] = [
+            ("ProjectWorkItem", ogar_vocab::project_work_item()),
+            ("Project", ogar_vocab::project()),
+        ];
+        let mut derived: Vec<(u8, u8)> = Vec::new(); // (target, source)
+        for (owner, class) in &classes {
+            let Some(owner_pos) = screen_id(owner) else {
+                continue;
+            };
+            for edge in nav_edges(class) {
+                if let Some(target_pos) = screen_id(&edge.target_concept) {
+                    // Only edges BETWEEN served screens are navigation edges in
+                    // the connectivity graph (a routed target the crawl walks).
+                    derived.push((target_pos, owner_pos));
+                }
+            }
+        }
+        derived.sort_unstable();
+        derived.dedup();
+
+        let mut table: Vec<(u8, u8)> = NAV_EDGES
+            .iter()
+            .flat_map(|e| e.inputs.iter().map(move |&src| (e.target, src)))
+            .collect();
+        table.sort_unstable();
+        table.dedup();
+
+        assert_eq!(
+            table, derived,
+            "NAV_EDGES static table drifted from the derived routed nav edges"
+        );
+    }
+
+    /// The klickweg is fully connected, proven by the sanctioned Core brick
+    /// [`nav_is_fully_connected`] — this is the compile/test-time form of the
+    /// live `scripts/nav-crawl.sh` BFS. Also spot-check `screens_reachable_from`
+    /// reaches the whole served universe from the root.
+    #[test]
+    fn klickweg_is_fully_connected_via_core_brick() {
+        assert!(
+            klickweg_is_connected(),
+            "klickweg not fully connected: reached != served screens \
+             (orphan screen, dangling click, or unserved root)"
+        );
+
+        let reached = lance_graph_contract::class_view::screens_reachable_from(NAV_ROOT, NAV_EDGES);
+        assert_eq!(
+            reached,
+            served_screens_mask(),
+            "reached set from NAV_ROOT must equal the served-screen universe"
+        );
     }
 
     #[test]
