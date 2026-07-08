@@ -19,9 +19,10 @@ use op_core::config::AppConfig;
 use op_db::{Database, DatabaseConfig};
 
 mod board;
-mod nav;
 mod health;
 mod metrics;
+mod nav;
+mod viewfilter;
 
 use health::{AppState, HealthChecker, HealthConfig};
 use metrics::Metrics;
@@ -68,6 +69,33 @@ async fn main() -> anyhow::Result<()> {
             screens = nav::SCREEN_UNIVERSE.len(),
             "Klickweg NOT fully connected — an orphan screen, dangling click, \
              or unserved root exists in the nav graph"
+        );
+    }
+
+    // View-stack self-check — the *stack* half of the topology kit (the
+    // klickweg above is the *jump* half). Interns every route arm's real
+    // skin into the ViewRegistry (dedup + constructor amortization), then
+    // runs the once-pass nesting construction-order check and the
+    // forward/backward bijective round trip. Also proves the rolling-
+    // bucket God-object overflow path equivalent to the direct mint on
+    // today's bases, so the >256-field path is verified before it is
+    // ever needed.
+    let mut views = board::view_registry();
+    let stack_ordered = views.verify_stack_order();
+    let stack_bijective = views.verify_bijective();
+    let buckets_ok = board::bases_bucket_roundtrip();
+    if stack_ordered && stack_bijective && buckets_ok {
+        info!(
+            view_nodes = views.len(),
+            "View stack interned: construction order + bijective round trip + bucket/direct equivalence hold"
+        );
+    } else {
+        tracing::warn!(
+            view_nodes = views.len(),
+            stack_ordered,
+            stack_bijective,
+            buckets_ok,
+            "View-stack self-check FAILED — nesting order, bijection, or bucket equivalence violated"
         );
     }
 
@@ -148,7 +176,12 @@ async fn main() -> anyhow::Result<()> {
 /// `HYDRATE` reality-check seed gate.
 fn env_flag(name: &str) -> bool {
     matches!(
-        std::env::var(name).ok().as_deref().map(str::trim).map(str::to_ascii_lowercase).as_deref(),
+        std::env::var(name)
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
         Some("1" | "true" | "yes")
     )
 }
@@ -237,9 +270,16 @@ fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
     // and must never leak into HAL links (council R1/R2).
     let base_url = std::env::var("PUBLIC_URL")
         .ok()
-        .or_else(|| std::env::var("RAILWAY_PUBLIC_DOMAIN").ok().map(|d| format!("https://{d}")))
+        .or_else(|| {
+            std::env::var("RAILWAY_PUBLIC_DOMAIN")
+                .ok()
+                .map(|d| format!("https://{d}"))
+        })
         .unwrap_or_else(|| {
-            format!("http://{}:{}", state.config.server.host, state.config.server.port)
+            format!(
+                "http://{}:{}",
+                state.config.server.host, state.config.server.port
+            )
         });
     let openproject_api = op_api::routes::router().with_state(op_api::extractors::AppState {
         config: Arc::new(op_api::extractors::AppConfig {

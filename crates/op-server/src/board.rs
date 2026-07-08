@@ -34,6 +34,7 @@ use op_db::{
 
 use crate::health::AppState;
 use crate::nav;
+use crate::viewfilter;
 
 // ── Field basis + FieldMask-driven column projection ─────────────────
 //
@@ -131,12 +132,22 @@ fn skin(basis: &[String], order: &'static [&'static str]) -> Skin {
     // other ClassView consumer (the DTO-Lego-brick interchange guarantee).
     // The basis is far under the 256-field SOC-split cap, so the mint
     // cannot error here — a >256 universe would be a "split this class"
-    // signal, not a mask to widen.
+    // signal, not a mask to widen (the rolling-bucket overflow path for
+    // un-split God objects lives in `crate::viewfilter::bucketized_masks`).
     let universe: Vec<&str> = basis.iter().map(String::as_str).collect();
+    let view = WideFieldMask::from_universe_present(&universe, order)
+        .expect("class basis is well under the 256-field SOC cap");
+    // The facet-presence gate: every basis field exists in memory today,
+    // so `present` = the full basis — minted on-brick, and the seam where
+    // a disabled facet would narrow what a tenant's ClassView carries.
+    let present = WideFieldMask::from_universe_present(&universe, &universe)
+        .expect("class basis is well under the 256-field SOC cap");
+    // The ViewFilter (one brick, three sources): rbac ∩ present ∩ view.
+    // Anonymous demo posture → FieldMask::FULL → identity today; when a
+    // role store lands, columns drop per role with no change here.
     Skin {
         order,
-        mask: WideFieldMask::from_universe_present(&universe, order)
-            .expect("class basis is well under the 256-field SOC cap"),
+        mask: viewfilter::view_filter(viewfilter::current_rbac_field_mask(), &present, &view),
     }
 }
 
@@ -203,14 +214,88 @@ fn wp_stacked_skin(basis: &[String]) -> Skin {
 }
 
 /// Project detail skin.
-const PROJECT_DETAIL_ORDER: &[&str] =
-    &["identifier", "public", "active", "created_at", "description"];
+const PROJECT_DETAIL_ORDER: &[&str] = &[
+    "identifier",
+    "public",
+    "active",
+    "created_at",
+    "description",
+];
 
 /// Project form skin.
 const PROJECT_FORM_ORDER: &[&str] = &["name", "public", "active", "description"];
 
 /// Project index (list) skin.
 const PROJECT_INDEX_ORDER: &[&str] = &["identifier", "public", "active"];
+
+/// Intern the app's REAL route skins into a [`viewfilter::ViewRegistry`]
+/// — every route arm's `(concept, mask)` becomes an interned node, so two
+/// operations minting the same projection resolve to ONE node (route-arm
+/// dedup + constructor amortization), and the one genuine stack today
+/// (`/projects/:id` composing the stacked work-package list) is a child
+/// edge interned children-first. Called at boot (`main`) where the
+/// once-pass construction-order check and the forward/backward bijective
+/// round trip run over exactly what the routes serve.
+pub fn view_registry() -> viewfilter::ViewRegistry {
+    let wp_basis = wp_basis();
+    let project_basis = project_basis();
+    let mut reg = viewfilter::ViewRegistry::new();
+    let leaf = |reg: &mut viewfilter::ViewRegistry, concept, mask| {
+        reg.intern(concept, mask, vec![])
+            .expect("leaf nodes have no children — cannot violate construction order")
+    };
+    // Leaf skins first (children before parents — the construction order
+    // IS the topological order, so the stack is acyclic by construction).
+    leaf(
+        &mut reg,
+        "ProjectWorkItem",
+        skin(&wp_basis, WP_BOARD_ORDER).mask,
+    ); // `/`
+    let wp_stacked = leaf(&mut reg, "ProjectWorkItem", wp_stacked_skin(&wp_basis).mask);
+    leaf(
+        &mut reg,
+        "ProjectWorkItem",
+        skin(&wp_basis, WP_DETAIL_ORDER).mask,
+    ); // `/work_packages/:id`
+    leaf(
+        &mut reg,
+        "ProjectWorkItem",
+        skin(&wp_basis, WP_FORM_ORDER).mask,
+    ); // `…/edit`
+    leaf(
+        &mut reg,
+        "Project",
+        skin(&project_basis, PROJECT_INDEX_ORDER).mask,
+    ); // `/projects`
+    leaf(
+        &mut reg,
+        "Project",
+        skin(&project_basis, PROJECT_FORM_ORDER).mask,
+    ); // `…/edit`
+       // The real nesting: project detail stacks the WP list (child already
+       // interned above — children-first, checked by `intern` itself).
+    reg.intern(
+        "Project",
+        skin(&project_basis, PROJECT_DETAIL_ORDER).mask,
+        vec![wp_stacked],
+    )
+    .expect("wp_stacked is interned above — construction order holds");
+    reg
+}
+
+/// Boot-time proof that the rolling-bucket overflow path is equivalent to
+/// the direct mint on the app's REAL bases (both fit one bucket today) —
+/// so the God-object path is already proven before any basis grows past
+/// the 256-field cap.
+pub fn bases_bucket_roundtrip() -> bool {
+    let wp_basis = wp_basis();
+    let project_basis = project_basis();
+    let wp_universe: Vec<&str> = wp_basis.iter().map(String::as_str).collect();
+    let project_universe: Vec<&str> = project_basis.iter().map(String::as_str).collect();
+    viewfilter::buckets_match_direct(&wp_universe, WP_BOARD_ORDER)
+        && viewfilter::buckets_match_direct(&wp_universe, WP_DETAIL_ORDER)
+        && viewfilter::buckets_match_direct(&project_universe, PROJECT_DETAIL_ORDER)
+}
 
 /// Human caption for a basis field name — mirrors the captions the
 /// hand-listed `RenderColumn` vecs used to carry verbatim.
@@ -277,7 +362,12 @@ fn kind_for(name: &str, class: &Class) -> ColumnKind {
 /// gates inclusion. A name in `order` that the mask doesn't select
 /// (e.g. `stacked_mask` dropping `project`) is silently skipped — same
 /// as a name not present in `basis` at all.
-fn columns_for(basis: &[String], mask: &WideFieldMask, order: &[&str], class: &Class) -> Vec<RenderColumn> {
+fn columns_for(
+    basis: &[String],
+    mask: &WideFieldMask,
+    order: &[&str],
+    class: &Class,
+) -> Vec<RenderColumn> {
     order
         .iter()
         .filter_map(|name| {
@@ -285,7 +375,11 @@ fn columns_for(basis: &[String], mask: &WideFieldMask, order: &[&str], class: &C
             if !mask.has(pos as u8) {
                 return None;
             }
-            let mut col = RenderColumn::new((*name).to_string(), caption_for(name), kind_for(name, class));
+            let mut col = RenderColumn::new(
+                (*name).to_string(),
+                caption_for(name),
+                kind_for(name, class),
+            );
             if *name == "subject" {
                 col = col.sortable();
             }
@@ -361,7 +455,8 @@ fn render_board(
     let class = project_work_item();
     let basis = wp_basis();
     let board = skin(&basis, WP_BOARD_ORDER);
-    let mut inline_columns: Vec<RenderColumn> = vec![RenderColumn::new("id", "#", ColumnKind::IdLink)];
+    let mut inline_columns: Vec<RenderColumn> =
+        vec![RenderColumn::new("id", "#", ColumnKind::IdLink)];
     inline_columns.extend(columns_for(&basis, &board.mask, board.order, &class));
     let block_columns: Vec<RenderColumn> = Vec::new();
 
@@ -636,10 +731,7 @@ fn render_wp_detail(
         .estimated_hours
         .map(|h| format!("{h:.2}"))
         .unwrap_or_else(|| "—".to_string());
-    let description_html = format!(
-        "<p>{}</p>",
-        esc(wp.description.as_deref().unwrap_or("—"))
-    );
+    let description_html = format!("<p>{}</p>", esc(wp.description.as_deref().unwrap_or("—")));
     let done = wp.done_ratio.clamp(0, 100) as u8;
 
     let cells: Vec<CellSource<'_>> = vec![
@@ -995,7 +1087,8 @@ fn render_wp_edit(
     let concept = class.canonical_concept.clone().unwrap_or_default();
     let class_id = canonical_concept_id(&concept).unwrap_or(0);
 
-    render_form(class_id, &concept, &src).unwrap_or_else(|e| format!("<pre>render error: {e}</pre>"))
+    render_form(class_id, &concept, &src)
+        .unwrap_or_else(|e| format!("<pre>render error: {e}</pre>"))
 }
 
 /// POST `/work_packages/:id/edit` — apply the submitted edit form and
@@ -1055,11 +1148,7 @@ fn parse_wp_update(
     form: &HashMap<String, String>,
     existing: &op_db::work_packages::WorkPackageRow,
 ) -> UpdateWorkPackageDto {
-    let non_empty = |k: &str| {
-        form.get(k)
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-    };
+    let non_empty = |k: &str| form.get(k).map(|s| s.trim()).filter(|s| !s.is_empty());
 
     let subject = non_empty("subject").map(str::to_string);
     let description = non_empty("description").map(str::to_string);
@@ -1276,7 +1365,8 @@ fn render_project_work_items_stack(wps: &[op_db::work_packages::WorkPackageRow])
     let class = project_work_item();
     let basis = wp_basis();
     let stacked = wp_stacked_skin(&basis);
-    let mut inline_columns: Vec<RenderColumn> = vec![RenderColumn::new("id", "#", ColumnKind::IdLink)];
+    let mut inline_columns: Vec<RenderColumn> =
+        vec![RenderColumn::new("id", "#", ColumnKind::IdLink)];
     inline_columns.extend(columns_for(&basis, &stacked.mask, stacked.order, &class));
 
     let owned: Vec<StackedRow> = wps
@@ -1352,10 +1442,7 @@ fn render_project_detail(row: &ProjectRow) -> String {
     let public_label = if row.public { "yes" } else { "no" };
     let active_label = if row.active { "yes" } else { "no" };
     let created_label = row.created_at.to_rfc3339();
-    let description_html = format!(
-        "<p>{}</p>",
-        esc(row.description.as_deref().unwrap_or("—"))
-    );
+    let description_html = format!("<p>{}</p>", esc(row.description.as_deref().unwrap_or("—")));
 
     let cells: Vec<CellSource<'_>> = vec![
         CellSource {
@@ -1524,7 +1611,8 @@ fn render_project_edit(row: &ProjectRow) -> String {
     let concept = class.canonical_concept.clone().unwrap_or_default();
     let class_id = canonical_concept_id(&concept).unwrap_or(0);
 
-    render_form(class_id, &concept, &src).unwrap_or_else(|e| format!("<pre>render error: {e}</pre>"))
+    render_form(class_id, &concept, &src)
+        .unwrap_or_else(|e| format!("<pre>render error: {e}</pre>"))
 }
 
 /// POST `/projects/:id/edit` — apply the submitted edit form and
@@ -1947,7 +2035,10 @@ mod tests {
 
         assert!(html.contains("<form"), "{html}");
         assert!(html.contains("method=\"post\""), "{html}");
-        assert!(html.contains("action=\"/work_packages/101/edit\""), "{html}");
+        assert!(
+            html.contains("action=\"/work_packages/101/edit\""),
+            "{html}"
+        );
         assert!(html.contains("<select"), "{html}");
         // Current status (id 2, "In Progress") is pre-selected.
         assert!(
@@ -2110,6 +2201,24 @@ mod tests {
         let board = skin(&basis, WP_BOARD_ORDER);
         assert_eq!(board.mask.count(), 3);
         assert_eq!(stacked.mask.count(), 2);
+    }
+
+    /// The app's REAL route skins intern into a ViewRegistry whose
+    /// nesting construction order and forward/backward bijective round
+    /// trip both hold — the compile/test-time form of the boot self-check
+    /// in `main`. Seven distinct nodes today (six leaves + the project
+    /// detail stacking the WP list), each route arm's projection its own
+    /// interned node (no accidental collapse, no duplicate).
+    #[test]
+    fn real_skin_registry_is_ordered_and_bijective() {
+        let mut reg = view_registry();
+        assert_eq!(reg.len(), 7, "6 leaf skins + 1 stacking parent");
+        assert!(reg.verify_stack_order(), "children strictly before parents");
+        assert!(reg.verify_bijective(), "resolve∘intern round trip");
+        assert!(
+            bases_bucket_roundtrip(),
+            "rolling-bucket path must equal the direct mint on today's bases"
+        );
     }
 
     /// The work-package detail page's `project` cell is a live

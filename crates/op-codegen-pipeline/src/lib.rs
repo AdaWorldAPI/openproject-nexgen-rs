@@ -48,6 +48,12 @@ use ruff_spo_triplet::Triple as RuffTriple;
 #[cfg(feature = "ogar-emit")]
 pub mod ogar_consumer;
 
+/// Field-set harvest bridge: mint the ViewFilter *view* mask from the ERB
+/// `ViewFieldSet` harvest — the harvested source of what op-server's skin
+/// order constants (`WP_BOARD_ORDER` …) bake by hand. Field twin of
+/// [`nav_harvest`].
+pub mod field_harvest;
+
 /// Klickweg harvest bridge: run the Rails `navigates_to` harvest (ruff #62)
 /// over an OpenProject source tree to produce the board's navigation edges —
 /// the harvested source of what `op-server::nav::NAV_EDGES` bakes by hand.
