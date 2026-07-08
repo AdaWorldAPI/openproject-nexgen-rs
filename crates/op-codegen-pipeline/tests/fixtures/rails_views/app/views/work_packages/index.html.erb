@@ -1,0 +1,11 @@
+<h1>Work packages</h1>
+<table>
+  <% @work_packages.each do |wp| %>
+    <tr>
+      <td><%= wp.subject %></td>
+      <td><%= wp.project %></td>
+      <td><%= wp.done_ratio %>%</td>
+      <td><%= wp.frobnicate %></td>
+    </tr>
+  <% end %>
+</table>
