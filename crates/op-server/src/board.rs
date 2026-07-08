@@ -11,16 +11,24 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::response::Html;
 
 use ogar_render_askama::{
-    render_list, CellData, CellSource, ColumnKind, GroupHeader, RenderColumn, RowSource,
+    render_detail, render_list, CellData, CellSource, ColumnKind, GroupHeader, RenderColumn,
+    RowSource,
 };
-use ogar_vocab::{canonical_concept_id, project_work_item};
+// `project` (the ogar_vocab canonical-class constructor) is aliased to
+// `project_class` — the tests module below defines its own `fn project(...)`
+// fake-row helper, and a bare `project` import would collide with it (same
+// value namespace, same name, `use super::*;` would pull both in).
+use ogar_vocab::{canonical_concept_id, project as project_class, project_work_item};
 
 use op_db::repository::Repository;
-use op_db::{ProjectRepository, ProjectRow, StatusRepository, StatusRow};
+use op_db::{
+    PriorityRepository, ProjectRepository, ProjectRow, StatusRepository, StatusRow,
+    TypeRepository, UserRepository,
+};
 
 use crate::health::AppState;
 
@@ -43,10 +51,7 @@ struct OwnedRow {
 /// GET `/` — the kanban board.
 pub async fn board_page(State(state): State<Arc<AppState>>) -> Html<String> {
     let Some(pool) = state.db.clone() else {
-        return Html(page_shell(
-            "OpenProject RS — Board",
-            "<main><p class=\"empty\">Database not connected — the board needs a live DB pool.</p></main>",
-        ));
+        return not_connected_page("OpenProject RS — Board", "the board");
     };
 
     let statuses = StatusRepository::new(pool.clone())
@@ -118,9 +123,9 @@ fn render_board(
             owned.push(OwnedRow {
                 id: wp.id as u64,
                 subject: wp.subject.clone(),
-                wp_href: format!("/api/v3/work_packages/{}", wp.id),
+                wp_href: format!("/work_packages/{}", wp.id),
                 project,
-                project_href: format!("/api/v3/projects/{}", wp.project_id),
+                project_href: format!("/projects/{}", wp.project_id),
                 done: wp.done_ratio.clamp(0, 100) as u8,
                 status_label: status.name.clone(),
                 group_count: count,
@@ -194,6 +199,395 @@ fn render_board(
     .unwrap_or_else(|e| format!("<pre>render error: {e}</pre>"))
 }
 
+/// Minimal HTML-escape for untrusted text interpolated into `headline_html`
+/// / page `<title>` / `RichText` bodies — the only three spots the
+/// render-bake spine does NOT auto-escape for us (see `html_detail_view.rs`
+/// doc comment on `render_detail`'s `headline_html` param, and `cells.rs`'s
+/// `RichTextCell` which is `escape = "none"` by design so pre-rendered
+/// prose HTML can pass through). Order matters: `&` first.
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Shared "database not connected" fallback page — used by the board and
+/// both detail routes when `state.db` is `None`.
+fn not_connected_page(title: &str, subject: &str) -> Html<String> {
+    Html(page_shell(
+        title,
+        &format!(
+            "<main><p class=\"empty\">Database not connected — {subject} needs a live DB pool.</p></main>"
+        ),
+    ))
+}
+
+/// A small breadcrumb back to the board, prepended above every detail page.
+const BREADCRUMB: &str = "<p class=\"breadcrumb\"><a href=\"/\">← Board</a></p>";
+
+// ── Work package detail ──────────────────────────────────────────────
+
+/// GET `/work_packages/:id` — rendered detail page for one work package.
+///
+/// Resolves the work package's family-edge ids (status/project/type/
+/// priority/author/assignee) to display names via their repositories,
+/// then hands off to [`render_wp_detail`] (the pure, DB-less render path
+/// covered by the unit test below).
+pub async fn work_package_detail(
+    Path(id): Path<i64>,
+    State(state): State<Arc<AppState>>,
+) -> Html<String> {
+    let Some(pool) = state.db.clone() else {
+        return not_connected_page("Work package", "this page");
+    };
+
+    let Some(wp) = op_db::WorkPackageRepository::new(pool.clone())
+        .find_by_id(id)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return Html(page_shell(
+            "Work package not found",
+            &format!("<main><p class=\"empty\">Work package #{id} not found.</p></main>"),
+        ));
+    };
+
+    let status_name = StatusRepository::new(pool.clone())
+        .find_by_id(wp.status_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|s: StatusRow| s.name)
+        .unwrap_or_else(|| format!("#{}", wp.status_id));
+
+    let project_name = ProjectRepository::new(pool.clone())
+        .find_by_id(wp.project_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|p: ProjectRow| p.name)
+        .unwrap_or_else(|| format!("#{}", wp.project_id));
+
+    let type_name = TypeRepository::new(pool.clone())
+        .find_by_id(wp.type_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|t| t.name)
+        .unwrap_or_else(|| format!("#{}", wp.type_id));
+
+    let priority_name = match wp.priority_id {
+        Some(pid) => PriorityRepository::new(pool.clone())
+            .find_by_id(pid)
+            .await
+            .ok()
+            .flatten()
+            .map(|p| p.name)
+            .unwrap_or_else(|| format!("#{pid}")),
+        None => "—".to_string(),
+    };
+
+    let author_name = UserRepository::new(pool.clone())
+        .find_by_id(wp.author_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|u| u.full_name())
+        .unwrap_or_else(|| format!("#{}", wp.author_id));
+
+    let assignee_name = match wp.assigned_to_id {
+        Some(uid) => UserRepository::new(pool)
+            .find_by_id(uid)
+            .await
+            .ok()
+            .flatten()
+            .map(|u| u.full_name())
+            .unwrap_or_else(|| format!("#{uid}")),
+        None => "—".to_string(),
+    };
+
+    let fragment = render_wp_detail(
+        &wp,
+        &status_name,
+        &project_name,
+        &type_name,
+        &priority_name,
+        &author_name,
+        &assignee_name,
+    );
+
+    Html(page_shell(
+        &format!("Work package #{id} — {}", esc(&wp.subject)),
+        &format!("{BREADCRUMB}<main>{fragment}</main>"),
+    ))
+}
+
+/// Render the work-package detail fragment (pure — no DB access), given
+/// the row plus the already-resolved display names for its family-edge
+/// fields (status/project/type/priority/author/assignee). Kept separate
+/// from the async handler so it's testable without a live DB pool
+/// (mirrors [`render_board`]'s split).
+fn render_wp_detail(
+    wp: &op_db::work_packages::WorkPackageRow,
+    status_name: &str,
+    project_name: &str,
+    type_name: &str,
+    priority_name: &str,
+    author_name: &str,
+    assignee_name: &str,
+) -> String {
+    let columns: Vec<RenderColumn> = vec![
+        RenderColumn::new("id", "#", ColumnKind::IdLink),
+        RenderColumn::new("status", "Status", ColumnKind::Plain),
+        RenderColumn::new("project", "Project", ColumnKind::RecordRef),
+        RenderColumn::new("type", "Type", ColumnKind::Plain),
+        RenderColumn::new("priority", "Priority", ColumnKind::Plain),
+        RenderColumn::new("author", "Author", ColumnKind::Plain),
+        RenderColumn::new("assignee", "Assignee", ColumnKind::Plain),
+        RenderColumn::new("start_date", "Start date", ColumnKind::Plain),
+        RenderColumn::new("due_date", "Due date", ColumnKind::Plain),
+        RenderColumn::new("estimated_hours", "Estimated hours", ColumnKind::Plain),
+        RenderColumn::new("done_ratio", "% Done", ColumnKind::ProgressBar),
+        RenderColumn::new("description", "Description", ColumnKind::RichText).block(),
+    ];
+
+    let wp_href = format!("/work_packages/{}", wp.id);
+    let project_href = format!("/projects/{}", wp.project_id);
+    let start_date = wp
+        .start_date
+        .map(|d| d.to_string())
+        .unwrap_or_else(|| "—".to_string());
+    let due_date = wp
+        .due_date
+        .map(|d| d.to_string())
+        .unwrap_or_else(|| "—".to_string());
+    let estimated_hours = wp
+        .estimated_hours
+        .map(|h| format!("{h:.2}"))
+        .unwrap_or_else(|| "—".to_string());
+    let description_html = format!(
+        "<p>{}</p>",
+        esc(wp.description.as_deref().unwrap_or("—"))
+    );
+    let done = wp.done_ratio.clamp(0, 100) as u8;
+
+    let cells: Vec<CellSource<'_>> = vec![
+        CellSource {
+            column: &columns[0],
+            css_classes: "",
+            data: CellData::IdLink {
+                id: wp.id as u64,
+                href: &wp_href,
+            },
+        },
+        CellSource {
+            column: &columns[1],
+            css_classes: "",
+            data: CellData::Plain { value: status_name },
+        },
+        CellSource {
+            column: &columns[2],
+            css_classes: "",
+            data: CellData::RecordRef {
+                label: project_name,
+                href: &project_href,
+                target_concept: "project",
+            },
+        },
+        CellSource {
+            column: &columns[3],
+            css_classes: "",
+            data: CellData::Plain { value: type_name },
+        },
+        CellSource {
+            column: &columns[4],
+            css_classes: "",
+            data: CellData::Plain {
+                value: priority_name,
+            },
+        },
+        CellSource {
+            column: &columns[5],
+            css_classes: "",
+            data: CellData::Plain { value: author_name },
+        },
+        CellSource {
+            column: &columns[6],
+            css_classes: "",
+            data: CellData::Plain {
+                value: assignee_name,
+            },
+        },
+        CellSource {
+            column: &columns[7],
+            css_classes: "",
+            data: CellData::Plain { value: &start_date },
+        },
+        CellSource {
+            column: &columns[8],
+            css_classes: "",
+            data: CellData::Plain { value: &due_date },
+        },
+        CellSource {
+            column: &columns[9],
+            css_classes: "",
+            data: CellData::Plain {
+                value: &estimated_hours,
+            },
+        },
+        CellSource {
+            column: &columns[10],
+            css_classes: "",
+            data: CellData::ProgressBar { pct: done },
+        },
+        CellSource {
+            column: &columns[11],
+            css_classes: "",
+            data: CellData::RichText {
+                body: &description_html,
+            },
+        },
+    ];
+
+    let class = project_work_item();
+    let concept = class.canonical_concept.clone().unwrap_or_default();
+    let class_id = canonical_concept_id(&concept).unwrap_or(0);
+
+    let headline = esc(&wp.subject);
+    let subtitle = format!("#{} · {status_name} · {project_name}", wp.id);
+
+    render_detail(
+        class_id,
+        &concept,
+        wp.id as u64,
+        &headline,
+        &subtitle,
+        &columns,
+        &cells,
+    )
+    .unwrap_or_else(|e| format!("<pre>render error: {e}</pre>"))
+}
+
+// ── Project detail ───────────────────────────────────────────────────
+
+/// GET `/projects/:id` — rendered detail page for one project.
+pub async fn project_detail(
+    Path(id): Path<i64>,
+    State(state): State<Arc<AppState>>,
+) -> Html<String> {
+    let Some(pool) = state.db.clone() else {
+        return not_connected_page("Project", "this page");
+    };
+
+    let Some(row) = ProjectRepository::new(pool)
+        .find_by_id(id)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return Html(page_shell(
+            "Project not found",
+            &format!("<main><p class=\"empty\">Project #{id} not found.</p></main>"),
+        ));
+    };
+
+    let fragment = render_project_detail(&row);
+
+    Html(page_shell(
+        &format!("Project — {}", esc(&row.name)),
+        &format!("{BREADCRUMB}<main>{fragment}</main>"),
+    ))
+}
+
+/// Render the project detail fragment (pure — no DB access). Kept
+/// separate from the async handler so it's testable without a live DB
+/// pool (mirrors [`render_wp_detail`] / [`render_board`]).
+fn render_project_detail(row: &ProjectRow) -> String {
+    let columns: Vec<RenderColumn> = vec![
+        RenderColumn::new("id", "#", ColumnKind::IdLink),
+        RenderColumn::new("identifier", "Identifier", ColumnKind::Plain),
+        RenderColumn::new("public", "Public", ColumnKind::Plain),
+        RenderColumn::new("active", "Active", ColumnKind::Plain),
+        RenderColumn::new("created_at", "Created", ColumnKind::Plain),
+        RenderColumn::new("description", "Description", ColumnKind::RichText).block(),
+    ];
+
+    let project_href = format!("/projects/{}", row.id);
+    let public_label = if row.public { "yes" } else { "no" };
+    let active_label = if row.active { "yes" } else { "no" };
+    let created_label = row.created_at.to_rfc3339();
+    let description_html = format!(
+        "<p>{}</p>",
+        esc(row.description.as_deref().unwrap_or("—"))
+    );
+
+    let cells: Vec<CellSource<'_>> = vec![
+        CellSource {
+            column: &columns[0],
+            css_classes: "",
+            data: CellData::IdLink {
+                id: row.id as u64,
+                href: &project_href,
+            },
+        },
+        CellSource {
+            column: &columns[1],
+            css_classes: "",
+            data: CellData::Plain {
+                value: &row.identifier,
+            },
+        },
+        CellSource {
+            column: &columns[2],
+            css_classes: "",
+            data: CellData::Plain {
+                value: public_label,
+            },
+        },
+        CellSource {
+            column: &columns[3],
+            css_classes: "",
+            data: CellData::Plain {
+                value: active_label,
+            },
+        },
+        CellSource {
+            column: &columns[4],
+            css_classes: "",
+            data: CellData::Plain {
+                value: &created_label,
+            },
+        },
+        CellSource {
+            column: &columns[5],
+            css_classes: "",
+            data: CellData::RichText {
+                body: &description_html,
+            },
+        },
+    ];
+
+    let class = project_class();
+    let concept = class.canonical_concept.clone().unwrap_or_default();
+    let class_id = canonical_concept_id(&concept).unwrap_or(0);
+
+    let headline = esc(&row.name);
+    let subtitle = row.identifier.clone();
+
+    render_detail(
+        class_id,
+        &concept,
+        row.id as u64,
+        &headline,
+        &subtitle,
+        &columns,
+        &cells,
+    )
+    .unwrap_or_else(|e| format!("<pre>render error: {e}</pre>"))
+}
+
 /// Wrap a rendered body fragment in a full, self-contained HTML page —
 /// no external assets, readable in light and dark, kanban-ish styling on
 /// top of the `html_list_view` spine markup (`.ogar-list`, `table.list`,
@@ -220,6 +614,7 @@ fn page_shell(title: &str, body_html: &str) -> String {
   header p {{ margin: 0; font-size: 0.85rem; opacity: 0.85; }}
   main {{ padding: 1.25rem; overflow-x: auto; }}
   .empty {{ padding: 3rem 1rem; text-align: center; color: #6b778c; }}
+  .breadcrumb {{ margin: 0; padding: 0.6rem 1.25rem 0; font-size: 0.85rem; }}
   .ogar-list h2 {{ font-size: 1.05rem; margin: 0 0 0.75rem; }}
   table.list {{
     width: 100%;
@@ -368,5 +763,69 @@ mod tests {
         assert!(html.contains("In Progress"), "{html}");
         assert!(html.contains("New"), "{html}");
         assert!(html.contains("Nexgen"), "{html}");
+    }
+
+    /// Proves the detail-view render path (`render_detail` /
+    /// `HtmlDetailView`) works end-to-end without a DB for a work
+    /// package: fake row + resolved family-edge names in, HTML
+    /// containing the subject, resolved labels, and (crucially) the
+    /// rewritten `/work_packages/…` + `/projects/…` hrefs out — proving
+    /// the board's link rewrite lands on a page that actually resolves.
+    #[test]
+    fn render_wp_detail_contains_fields() {
+        let mut wp = work_package(101, "Fix the login bug", 10, 2, 40);
+        wp.description = Some("Some rich description".to_string());
+        wp.priority_id = Some(5);
+        wp.assigned_to_id = Some(7);
+        wp.estimated_hours = Some(3.5);
+
+        let html = render_wp_detail(
+            &wp,
+            "In Progress",
+            "Nexgen",
+            "Bug",
+            "High",
+            "Jane Doe",
+            "John Smith",
+        );
+
+        // Headline + subtitle
+        assert!(html.contains("Fix the login bug"), "{html}");
+        assert!(html.contains("In Progress"), "{html}");
+        // Resolved family-edge labels
+        assert!(html.contains("Nexgen"), "{html}");
+        assert!(html.contains("Bug"), "{html}");
+        assert!(html.contains("High"), "{html}");
+        assert!(html.contains("Jane Doe"), "{html}");
+        assert!(html.contains("John Smith"), "{html}");
+        // Rich-text block (escaped, wrapped)
+        assert!(html.contains("Some rich description"), "{html}");
+        // Numeric fields
+        assert!(html.contains("3.50"), "{html}");
+        assert!(html.contains("aria-valuenow=\"40\""), "{html}");
+        // The link rewrite: project cell links to /projects/{id}, NOT
+        // /api/v3/projects/{id}.
+        assert!(html.contains("href=\"/projects/10\""), "{html}");
+        assert!(!html.contains("/api/v3/projects/10"), "{html}");
+        // The record's own id link points at /work_packages/{id}.
+        assert!(html.contains("/work_packages/101"), "{html}");
+    }
+
+    /// Same proof for the project detail page: fake `ProjectRow` in, HTML
+    /// containing name/identifier/public/active/description out.
+    #[test]
+    fn render_project_detail_contains_fields() {
+        let mut row = project(10, "Nexgen");
+        row.description = Some("A cool project".to_string());
+        row.public = false;
+
+        let html = render_project_detail(&row);
+
+        assert!(html.contains("Nexgen"), "{html}");
+        assert!(html.contains("nexgen"), "{html}"); // identifier
+        assert!(html.contains("A cool project"), "{html}");
+        assert!(html.contains("no"), "{html}"); // public = false
+        assert!(html.contains("yes"), "{html}"); // active = true (default)
+        assert!(html.contains("/projects/10"), "{html}");
     }
 }
