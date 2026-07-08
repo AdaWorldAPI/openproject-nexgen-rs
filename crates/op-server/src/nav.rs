@@ -77,6 +77,17 @@ pub fn screen_id(concept: &str) -> Option<u8> {
 /// class; `nav_edges_match_static_table` cross-checks this table against the
 /// live derivation so it can never silently drift. `inputs` is `&'static`
 /// (the Core edge shape), so this is a plain `const` manifest.
+///
+/// **Baked mirror of the harvest.** This table is the hand-authored (from the
+/// `ClassView` association graph) equivalent of what
+/// `op_codegen_pipeline::nav_harvest::harvest_klickweg` produces from the
+/// OpenProject Rails source via the `ruff_ruby_spo` `navigates_to` harvest
+/// (ruff #62). `op-codegen-pipeline`'s `nav_harvest_probe` proves the harvest
+/// yields exactly the `work_packages ↔ projects` klickweg these edges encode
+/// (`RESOURCE_TO_CONCEPT` bridges the Rails resource stems to the
+/// `ProjectWorkItem`/`Project` concepts here). Once the OpenProject source is
+/// in the pipeline input, this manifest regenerates from that harvest rather
+/// than being hand-authored.
 pub const NAV_EDGES: &[ComputeEdge] = &[
     // ProjectWorkItem.project (belongs_to) → Project
     ComputeEdge {

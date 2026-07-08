@@ -48,6 +48,11 @@ use ruff_spo_triplet::Triple as RuffTriple;
 #[cfg(feature = "ogar-emit")]
 pub mod ogar_consumer;
 
+/// Klickweg harvest bridge: run the Rails `navigates_to` harvest (ruff #62)
+/// over an OpenProject source tree to produce the board's navigation edges —
+/// the harvested source of what `op-server::nav::NAV_EDGES` bakes by hand.
+pub mod nav_harvest;
+
 // `lance_graph_contract::codegen_spine::TripletProjection` is implemented
 // on the projection type — we don't reference the trait directly here, only
 // its associated method, which keeps the import surface narrow.
