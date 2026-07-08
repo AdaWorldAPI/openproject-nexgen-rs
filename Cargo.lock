@@ -1788,6 +1788,7 @@ dependencies = [
  "chrono",
  "config",
  "dotenvy",
+ "lance-graph-contract",
  "ogar-render-askama",
  "ogar-vocab",
  "op-api",

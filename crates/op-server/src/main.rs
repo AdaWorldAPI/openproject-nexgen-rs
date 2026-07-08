@@ -180,6 +180,7 @@ fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
             "/work_packages/:id/edit",
             get(board::work_package_edit_form).post(board::work_package_update),
         )
+        .route("/projects", get(board::project_index))
         .route("/projects/:id", get(board::project_detail))
         .route(
             "/projects/:id/edit",

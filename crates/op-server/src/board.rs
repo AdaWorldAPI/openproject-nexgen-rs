@@ -22,7 +22,9 @@ use ogar_render_askama::{
 // `project_class` — the tests module below defines its own `fn project(...)`
 // fake-row helper, and a bare `project` import would collide with it (same
 // value namespace, same name, `use super::*;` would pull both in).
-use ogar_vocab::{canonical_concept_id, project as project_class, project_work_item};
+use ogar_vocab::{canonical_concept_id, project as project_class, project_work_item, Class};
+
+use lance_graph_contract::class_view::WideFieldMask;
 
 use op_db::repository::Repository;
 use op_db::{
@@ -31,6 +33,266 @@ use op_db::{
 };
 
 use crate::health::AppState;
+use crate::nav;
+
+// ── Field basis + FieldMask-driven column projection ─────────────────
+//
+// A skin's column set is no longer hand-listed: it is a
+// `WideFieldMask` over a per-class `basis` (position 0 = the class's
+// first attribute, counting up through attributes then associations —
+// mirroring `ClassView::fields`'s position convention), plus a small
+// pragmatic tail of leaf fields (`subject`, `done_ratio`, the `_id`
+// form-select keys, …) that exist on the DB row / form but are not
+// (yet) modeled as `ogar_vocab::Attribute`s on the synthetic canonical
+// classes (`project_work_item()` carries zero `Attribute`s today — see
+// its doc comment; `project()` carries only `name`/`identifier`). The
+// tail is appended, never interleaved, so the attributes-then-
+// associations prefix stays a faithful `ClassView` mirror and every
+// position is still a stable, addressable bit.
+
+/// The field-order source for a class: `attributes[].name` then
+/// `associations[].name`, in declaration order, plus `extra` leaf
+/// field names appended (skipping any already present). THIS is the
+/// position index a `WideFieldMask` bit refers to for this class.
+fn basis(class: &Class, extra: &[&str]) -> Vec<String> {
+    let mut out: Vec<String> = class.attributes.iter().map(|a| a.name.clone()).collect();
+    out.extend(class.associations.iter().map(|a| a.name.clone()));
+    for name in extra {
+        if !out.iter().any(|b| b == name) {
+            out.push((*name).to_string());
+        }
+    }
+    out
+}
+
+/// The extra leaf fields `project_work_item()` needs beyond its
+/// (currently empty) `attributes` + its 6 direct family edges: the
+/// DB-row scalars every skin renders (`subject` .. `description`), and
+/// the raw FK-select keys the edit form posts under (`status_id` ..
+/// `assigned_to_id`) — distinct positions from the association roles
+/// (`status` .. `assignee`) because the form's `name=` attribute must
+/// be the literal POST key `parse_wp_update` reads.
+const WP_EXTRA_FIELDS: &[&str] = &[
+    "subject",
+    "start_date",
+    "due_date",
+    "estimated_hours",
+    "done_ratio",
+    "description",
+    "status_id",
+    "type_id",
+    "priority_id",
+    "assigned_to_id",
+    "lock_version",
+];
+
+/// The extra leaf fields `project()` needs beyond its `name`/
+/// `identifier` attributes: the remaining DB-row scalars.
+const PROJECT_EXTRA_FIELDS: &[&str] = &["public", "active", "created_at", "description"];
+
+fn wp_basis() -> Vec<String> {
+    basis(&project_work_item(), WP_EXTRA_FIELDS)
+}
+
+fn project_basis() -> Vec<String> {
+    basis(&project_class(), PROJECT_EXTRA_FIELDS)
+}
+
+/// Map field names to their position in `basis` (the bits a
+/// `WideFieldMask::from_positions` call needs). Names not present in
+/// `basis` are skipped — a mask simply cannot select a field the class
+/// doesn't know about.
+fn mask_positions(basis: &[String], names: &[&str]) -> Vec<u8> {
+    names
+        .iter()
+        .filter_map(|n| basis.iter().position(|b| b == n).map(|p| p as u8))
+        .collect()
+}
+
+/// Resolve the up-link href for a `belongs_to`-style association
+/// (`role`) on `class`, IF its target concept has a live route (per
+/// [`nav::route_for`] through [`nav::nav_edges`]) — `None` for a "dead
+/// lane" association (a known, undeferred-but-unrouted target such as
+/// `status`/`type`/`priority`/`author`/`assignee` today). This is the
+/// single source of truth [`kind_for`] also consults, so the column
+/// kind and the cell's actual href never disagree.
+fn nav_href(class: &Class, role: &str, fk_id: i64) -> Option<String> {
+    nav::nav_edges(class)
+        .into_iter()
+        .find(|e| e.role == role)
+        .and_then(|e| e.route)
+        .map(|route| format!("{route}/{fk_id}"))
+}
+
+/// Field order + `WideFieldMask` for a skin. Order is what the skin
+/// author writes (and drives display order via [`columns_for`]); the
+/// mask (built from the same names' basis positions) is what actually
+/// gates membership — the two are kept in one struct so a skin is
+/// defined once.
+struct Skin {
+    order: &'static [&'static str],
+    mask: WideFieldMask,
+}
+
+fn skin(basis: &[String], order: &'static [&'static str]) -> Skin {
+    Skin {
+        order,
+        mask: WideFieldMask::from_positions(&mask_positions(basis, order)),
+    }
+}
+
+/// Board (list, standalone) skin: the kanban card columns.
+const WP_BOARD_ORDER: &[&str] = &["subject", "project", "done_ratio"];
+
+/// Detail skin: the fuller work-package detail page.
+const WP_DETAIL_ORDER: &[&str] = &[
+    "status",
+    "project",
+    "type",
+    "priority",
+    "author",
+    "assignee",
+    "start_date",
+    "due_date",
+    "estimated_hours",
+    "done_ratio",
+    "description",
+];
+
+/// Form skin: the editable work-package fields (posted under their raw
+/// `_id` FK keys, not the association role names — see
+/// [`WP_EXTRA_FIELDS`]).
+const WP_FORM_ORDER: &[&str] = &[
+    "subject",
+    "status_id",
+    "type_id",
+    "priority_id",
+    "assigned_to_id",
+    "start_date",
+    "due_date",
+    "estimated_hours",
+    "done_ratio",
+    "description",
+    "lock_version",
+];
+
+/// Stacked skin: the board mask, minus the `project` column — used
+/// when a work-package list is embedded UNDER a project detail page
+/// (the parent context already names the project, so repeating it in
+/// every row is noise). Built by intersecting `WP_BOARD_ORDER`'s mask
+/// with a mask that has every basis position EXCEPT `project`'s —
+/// demonstrating `WideFieldMask` composition rather than hand-editing
+/// a second literal field list.
+fn wp_stacked_skin(basis: &[String]) -> Skin {
+    let board = skin(basis, WP_BOARD_ORDER);
+    let project_pos = basis
+        .iter()
+        .position(|b| b == "project")
+        .expect("project is always in the work-package basis");
+    let all_but_project: Vec<u8> = (0..basis.len() as u8)
+        .filter(|&p| p != project_pos as u8)
+        .collect();
+    let without_project = WideFieldMask::from_positions(&all_but_project);
+    Skin {
+        order: WP_BOARD_ORDER,
+        mask: board.mask.intersect(&without_project),
+    }
+}
+
+/// Project detail skin.
+const PROJECT_DETAIL_ORDER: &[&str] =
+    &["identifier", "public", "active", "created_at", "description"];
+
+/// Project form skin.
+const PROJECT_FORM_ORDER: &[&str] = &["name", "public", "active", "description"];
+
+/// Project index (list) skin.
+const PROJECT_INDEX_ORDER: &[&str] = &["identifier", "public", "active"];
+
+/// Human caption for a basis field name — mirrors the captions the
+/// hand-listed `RenderColumn` vecs used to carry verbatim.
+fn caption_for(name: &str) -> &'static str {
+    match name {
+        "subject" => "Subject",
+        "project" => "Project",
+        "status" | "status_id" => "Status",
+        "type" | "type_id" => "Type",
+        "priority" | "priority_id" => "Priority",
+        "author" => "Author",
+        "assignee" | "assigned_to_id" => "Assignee",
+        "start_date" => "Start date",
+        "due_date" => "Due date",
+        "estimated_hours" => "Estimated hours",
+        "done_ratio" => "% Done",
+        "description" => "Description",
+        "lock_version" => "Lock version",
+        "name" => "Name",
+        "identifier" => "Identifier",
+        "public" => "Public",
+        "active" => "Active",
+        "created_at" => "Created",
+        "work_items" => "Work items",
+        _ => "Field",
+    }
+}
+
+/// Cell-kind dispatch for a basis field name, in the context of `class`.
+/// A field that is one of `class`'s associations renders as
+/// [`ColumnKind::RecordRef`] IF the association's target concept
+/// resolves to a live route via [`nav::route_for`] (through
+/// [`nav::nav_edges`]) — otherwise it stays [`ColumnKind::Plain`] (a
+/// "dead lane": the label shows, but there's nowhere to link to yet).
+/// This is the topology-driven half of (B): a new page landing for a
+/// concept that already has an association edge lights the link up
+/// without touching this function. Non-association fields keep the
+/// small fixed kind table the hand-listed columns used to carry.
+fn kind_for(name: &str, class: &Class) -> ColumnKind {
+    match name {
+        "id" => ColumnKind::IdLink,
+        "subject" => ColumnKind::PrimaryLink,
+        "done_ratio" => ColumnKind::ProgressBar,
+        "description" => ColumnKind::RichText,
+        _ => {
+            let is_routed_assoc = nav::nav_edges(class)
+                .into_iter()
+                .find(|e| e.role == name)
+                .is_some_and(|e| e.route.is_some());
+            if is_routed_assoc {
+                ColumnKind::RecordRef
+            } else {
+                ColumnKind::Plain
+            }
+        }
+    }
+}
+
+/// Build the `RenderColumn` list a mask selects out of `basis`,
+/// ordered per `order` (a skin's own field-order list) rather than raw
+/// basis-position order — `order` is what a skin author writes (and
+/// what the previous hand-listed `RenderColumn` vecs encoded
+/// implicitly via `vec![...]` element order); `mask` is what actually
+/// gates inclusion. A name in `order` that the mask doesn't select
+/// (e.g. `stacked_mask` dropping `project`) is silently skipped — same
+/// as a name not present in `basis` at all.
+fn columns_for(basis: &[String], mask: &WideFieldMask, order: &[&str], class: &Class) -> Vec<RenderColumn> {
+    order
+        .iter()
+        .filter_map(|name| {
+            let pos = basis.iter().position(|b| b == name)?;
+            if !mask.has(pos as u8) {
+                return None;
+            }
+            let mut col = RenderColumn::new((*name).to_string(), caption_for(name), kind_for(name, class));
+            if *name == "subject" {
+                col = col.sortable();
+            }
+            if *name == "description" {
+                col = col.block();
+            }
+            Some(col)
+        })
+        .collect()
+}
 
 /// Owned per-row data, built BEFORE any `RowSource`/`CellSource` borrows
 /// are taken. `RowSource<'a>`/`CellSource<'a>` borrow `&str` data, so the
@@ -93,12 +355,11 @@ fn render_board(
     wps: &[op_db::work_packages::WorkPackageRow],
     projects: &[ProjectRow],
 ) -> String {
-    let inline_columns: Vec<RenderColumn> = vec![
-        RenderColumn::new("id", "#", ColumnKind::IdLink),
-        RenderColumn::new("subject", "Subject", ColumnKind::PrimaryLink).sortable(),
-        RenderColumn::new("project", "Project", ColumnKind::RecordRef),
-        RenderColumn::new("done_ratio", "% Done", ColumnKind::ProgressBar),
-    ];
+    let class = project_work_item();
+    let basis = wp_basis();
+    let board = skin(&basis, WP_BOARD_ORDER);
+    let mut inline_columns: Vec<RenderColumn> = vec![RenderColumn::new("id", "#", ColumnKind::IdLink)];
+    inline_columns.extend(columns_for(&basis, &board.mask, board.order, &class));
     let block_columns: Vec<RenderColumn> = Vec::new();
 
     let project_names: HashMap<i64, String> =
@@ -184,7 +445,6 @@ fn render_board(
         })
         .collect();
 
-    let class = project_work_item();
     let concept = class.canonical_concept.clone().unwrap_or_default();
     let class_id = canonical_concept_id(&concept).unwrap_or(0);
 
@@ -348,23 +608,19 @@ fn render_wp_detail(
     author_name: &str,
     assignee_name: &str,
 ) -> String {
-    let columns: Vec<RenderColumn> = vec![
-        RenderColumn::new("id", "#", ColumnKind::IdLink),
-        RenderColumn::new("status", "Status", ColumnKind::Plain),
-        RenderColumn::new("project", "Project", ColumnKind::RecordRef),
-        RenderColumn::new("type", "Type", ColumnKind::Plain),
-        RenderColumn::new("priority", "Priority", ColumnKind::Plain),
-        RenderColumn::new("author", "Author", ColumnKind::Plain),
-        RenderColumn::new("assignee", "Assignee", ColumnKind::Plain),
-        RenderColumn::new("start_date", "Start date", ColumnKind::Plain),
-        RenderColumn::new("due_date", "Due date", ColumnKind::Plain),
-        RenderColumn::new("estimated_hours", "Estimated hours", ColumnKind::Plain),
-        RenderColumn::new("done_ratio", "% Done", ColumnKind::ProgressBar),
-        RenderColumn::new("description", "Description", ColumnKind::RichText).block(),
-    ];
+    let class = project_work_item();
+    let basis = wp_basis();
+    let detail = skin(&basis, WP_DETAIL_ORDER);
+    let mut columns: Vec<RenderColumn> = vec![RenderColumn::new("id", "#", ColumnKind::IdLink)];
+    columns.extend(columns_for(&basis, &detail.mask, detail.order, &class));
 
     let wp_href = format!("/work_packages/{}", wp.id);
-    let project_href = format!("/projects/{}", wp.project_id);
+    // `project` is the only association whose target has a live route
+    // today (`nav::route_for("Project")`), so this is the only link;
+    // when another association gains a route this expression starts
+    // producing a link for it too, with no code change here.
+    let project_href = nav_href(&class, "project", wp.project_id)
+        .unwrap_or_else(|| format!("/projects/{}", wp.project_id));
     let start_date = wp
         .start_date
         .map(|d| d.to_string())
@@ -461,7 +717,6 @@ fn render_wp_detail(
         },
     ];
 
-    let class = project_work_item();
     let concept = class.canonical_concept.clone().unwrap_or_default();
     let class_id = canonical_concept_id(&concept).unwrap_or(0);
 
@@ -551,19 +806,15 @@ fn render_wp_edit(
     priorities: &[PriorityRow],
     users: &[UserRow],
 ) -> String {
-    let columns: Vec<RenderColumn> = vec![
-        RenderColumn::new("subject", "Subject", ColumnKind::Plain),
-        RenderColumn::new("status_id", "Status", ColumnKind::Plain),
-        RenderColumn::new("type_id", "Type", ColumnKind::Plain),
-        RenderColumn::new("priority_id", "Priority", ColumnKind::Plain),
-        RenderColumn::new("assigned_to_id", "Assignee", ColumnKind::Plain),
-        RenderColumn::new("start_date", "Start date", ColumnKind::Plain),
-        RenderColumn::new("due_date", "Due date", ColumnKind::Plain),
-        RenderColumn::new("estimated_hours", "Estimated hours", ColumnKind::Plain),
-        RenderColumn::new("done_ratio", "% Done", ColumnKind::Plain),
-        RenderColumn::new("description", "Description", ColumnKind::Plain),
-        RenderColumn::new("lock_version", "Lock version", ColumnKind::Plain),
-    ];
+    let class = project_work_item();
+    let basis = wp_basis();
+    let form = skin(&basis, WP_FORM_ORDER);
+    // `columns_for` sets `subject`/`description` to Sortable/Block —
+    // both irrelevant to a form's `RenderColumn` (form dispatch reads
+    // `name`/`caption`, not `sortable`/`block`), so they're harmless
+    // here; kept identical to the list/detail skins for one shared
+    // helper rather than a second near-duplicate.
+    let columns: Vec<RenderColumn> = columns_for(&basis, &form.mask, form.order, &class);
 
     let status_options: Vec<SelectOptionOwned> = statuses
         .iter()
@@ -738,7 +989,6 @@ fn render_wp_edit(
         fields,
     };
 
-    let class = project_work_item();
     let concept = class.canonical_concept.clone().unwrap_or_default();
     let class_id = canonical_concept_id(&concept).unwrap_or(0);
 
@@ -843,6 +1093,124 @@ fn parse_wp_update(
     }
 }
 
+// ── Project index ────────────────────────────────────────────────────
+
+/// GET `/projects` — the project list page. Closes the `nav::menu()`
+/// "Projects" link's connectivity gap: without this route, the
+/// menu-derived link points at a 404.
+pub async fn project_index(State(state): State<Arc<AppState>>) -> Html<String> {
+    let Some(pool) = state.db.clone() else {
+        return not_connected_page("Projects", "the project list");
+    };
+
+    let projects = ProjectRepository::new(pool)
+        .find_all(200, 0)
+        .await
+        .unwrap_or_default();
+
+    let fragment = render_project_index(&projects);
+
+    Html(page_shell(
+        "Projects",
+        &format!("{BREADCRUMB}<main>{fragment}</main>"),
+    ))
+}
+
+/// Render the project index fragment (pure — no DB access). `name`
+/// (the headline column) is prepended by hand, same as `id` — neither
+/// is mask-selected because both are structural (record identity +
+/// primary label), not optional display fields; the mask drives the
+/// `identifier`/`public`/`active` tail per [`PROJECT_INDEX_ORDER`].
+fn render_project_index(projects: &[ProjectRow]) -> String {
+    let class = project_class();
+    let basis = project_basis();
+    let index = skin(&basis, PROJECT_INDEX_ORDER);
+    let mut inline_columns: Vec<RenderColumn> = vec![
+        RenderColumn::new("id", "#", ColumnKind::IdLink),
+        RenderColumn::new("name", caption_for("name"), ColumnKind::PrimaryLink).sortable(),
+    ];
+    inline_columns.extend(columns_for(&basis, &index.mask, index.order, &class));
+
+    struct OwnedProjectRow {
+        id: u64,
+        name: String,
+        href: String,
+        identifier: String,
+        public: &'static str,
+        active: &'static str,
+    }
+
+    let owned: Vec<OwnedProjectRow> = projects
+        .iter()
+        .map(|p| OwnedProjectRow {
+            id: p.id as u64,
+            name: p.name.clone(),
+            href: format!("/projects/{}", p.id),
+            identifier: p.identifier.clone(),
+            public: if p.public { "yes" } else { "no" },
+            active: if p.active { "yes" } else { "no" },
+        })
+        .collect();
+
+    let rows: Vec<RowSource> = owned
+        .iter()
+        .map(|o| RowSource {
+            record_id: o.id,
+            css_classes: "",
+            group: None,
+            inline: vec![
+                CellSource {
+                    column: &inline_columns[0],
+                    css_classes: "",
+                    data: CellData::IdLink {
+                        id: o.id,
+                        href: &o.href,
+                    },
+                },
+                CellSource {
+                    column: &inline_columns[1],
+                    css_classes: "",
+                    data: CellData::PrimaryLink {
+                        label: &o.name,
+                        href: &o.href,
+                    },
+                },
+                CellSource {
+                    column: &inline_columns[2],
+                    css_classes: "",
+                    data: CellData::Plain {
+                        value: &o.identifier,
+                    },
+                },
+                CellSource {
+                    column: &inline_columns[3],
+                    css_classes: "",
+                    data: CellData::Plain { value: o.public },
+                },
+                CellSource {
+                    column: &inline_columns[4],
+                    css_classes: "",
+                    data: CellData::Plain { value: o.active },
+                },
+            ],
+            block: vec![],
+        })
+        .collect();
+
+    let concept = class.canonical_concept.clone().unwrap_or_default();
+    let class_id = canonical_concept_id(&concept).unwrap_or(0);
+
+    render_list(
+        "Projects",
+        class_id,
+        &concept,
+        &inline_columns,
+        &Vec::new(),
+        &rows,
+    )
+    .unwrap_or_else(|e| format!("<pre>render error: {e}</pre>"))
+}
+
 // ── Project detail ───────────────────────────────────────────────────
 
 /// GET `/projects/:id` — rendered detail page for one project.
@@ -854,7 +1222,7 @@ pub async fn project_detail(
         return not_connected_page("Project", "this page");
     };
 
-    let Some(row) = ProjectRepository::new(pool)
+    let Some(row) = ProjectRepository::new(pool.clone())
         .find_by_id(id)
         .await
         .ok()
@@ -866,7 +1234,20 @@ pub async fn project_detail(
         ));
     };
 
-    let fragment = render_project_detail(&row);
+    let mut fragment = render_project_detail(&row);
+
+    // Topology (B.2): `work_items` is a `has_many` edge on `project()`
+    // whose target (`ProjectWorkItem`) resolves to a live route — stack
+    // the child list view under the parent detail, Lego-style, instead
+    // of leaving the reader to navigate away and filter by hand.
+    if nav::route_for("ProjectWorkItem").is_some() {
+        let items = op_db::WorkPackageRepository::new(pool)
+            .find_by_project(id, op_db::repository::Pagination::new(500, 0))
+            .await
+            .map(|p| p.items)
+            .unwrap_or_default();
+        fragment.push_str(&render_project_work_items_stack(&items));
+    }
 
     let toolbar = detail_toolbar(&format!("/projects/{id}/edit"));
     Html(page_shell(
@@ -875,18 +1256,94 @@ pub async fn project_detail(
     ))
 }
 
+/// Render the "stacked" child list of a project's work packages —
+/// embedded below the project's own detail fields (see
+/// [`project_detail`]). Uses the [`wp_stacked_skin`] mask (the board
+/// skin minus its `project` column, since the parent context already
+/// names the project). Pure — no DB access — so it's testable with
+/// fake rows, mirroring every other render fn in this module.
+fn render_project_work_items_stack(wps: &[op_db::work_packages::WorkPackageRow]) -> String {
+    struct StackedRow {
+        id: u64,
+        subject: String,
+        wp_href: String,
+        done: u8,
+    }
+
+    let class = project_work_item();
+    let basis = wp_basis();
+    let stacked = wp_stacked_skin(&basis);
+    let mut inline_columns: Vec<RenderColumn> = vec![RenderColumn::new("id", "#", ColumnKind::IdLink)];
+    inline_columns.extend(columns_for(&basis, &stacked.mask, stacked.order, &class));
+
+    let owned: Vec<StackedRow> = wps
+        .iter()
+        .map(|wp| StackedRow {
+            id: wp.id as u64,
+            subject: wp.subject.clone(),
+            wp_href: format!("/work_packages/{}", wp.id),
+            done: wp.done_ratio.clamp(0, 100) as u8,
+        })
+        .collect();
+
+    let rows: Vec<RowSource> = owned
+        .iter()
+        .map(|o| RowSource {
+            record_id: o.id,
+            css_classes: "",
+            group: None,
+            inline: vec![
+                CellSource {
+                    column: &inline_columns[0],
+                    css_classes: "",
+                    data: CellData::IdLink {
+                        id: o.id,
+                        href: &o.wp_href,
+                    },
+                },
+                CellSource {
+                    column: &inline_columns[1],
+                    css_classes: "",
+                    data: CellData::PrimaryLink {
+                        label: &o.subject,
+                        href: &o.wp_href,
+                    },
+                },
+                CellSource {
+                    column: &inline_columns[2],
+                    css_classes: "",
+                    data: CellData::ProgressBar { pct: o.done },
+                },
+            ],
+            block: vec![],
+        })
+        .collect();
+
+    let concept = class.canonical_concept.clone().unwrap_or_default();
+    let class_id = canonical_concept_id(&concept).unwrap_or(0);
+
+    let list_html = render_list(
+        "Work items",
+        class_id,
+        &concept,
+        &inline_columns,
+        &Vec::new(),
+        &rows,
+    )
+    .unwrap_or_else(|e| format!("<pre>render error: {e}</pre>"));
+
+    format!("<section class=\"stacked-list\">{list_html}</section>")
+}
+
 /// Render the project detail fragment (pure — no DB access). Kept
 /// separate from the async handler so it's testable without a live DB
 /// pool (mirrors [`render_wp_detail`] / [`render_board`]).
 fn render_project_detail(row: &ProjectRow) -> String {
-    let columns: Vec<RenderColumn> = vec![
-        RenderColumn::new("id", "#", ColumnKind::IdLink),
-        RenderColumn::new("identifier", "Identifier", ColumnKind::Plain),
-        RenderColumn::new("public", "Public", ColumnKind::Plain),
-        RenderColumn::new("active", "Active", ColumnKind::Plain),
-        RenderColumn::new("created_at", "Created", ColumnKind::Plain),
-        RenderColumn::new("description", "Description", ColumnKind::RichText).block(),
-    ];
+    let class = project_class();
+    let basis = project_basis();
+    let detail = skin(&basis, PROJECT_DETAIL_ORDER);
+    let mut columns: Vec<RenderColumn> = vec![RenderColumn::new("id", "#", ColumnKind::IdLink)];
+    columns.extend(columns_for(&basis, &detail.mask, detail.order, &class));
 
     let project_href = format!("/projects/{}", row.id);
     let public_label = if row.public { "yes" } else { "no" };
@@ -943,7 +1400,6 @@ fn render_project_detail(row: &ProjectRow) -> String {
         },
     ];
 
-    let class = project_class();
     let concept = class.canonical_concept.clone().unwrap_or_default();
     let class_id = canonical_concept_id(&concept).unwrap_or(0);
 
@@ -998,12 +1454,10 @@ pub async fn project_edit_form(
 /// separate from the async handler so it's testable without a live DB
 /// pool (mirrors [`render_wp_edit`] / [`render_project_detail`]).
 fn render_project_edit(row: &ProjectRow) -> String {
-    let columns: Vec<RenderColumn> = vec![
-        RenderColumn::new("name", "Name", ColumnKind::Plain),
-        RenderColumn::new("public", "Public", ColumnKind::Plain),
-        RenderColumn::new("active", "Active", ColumnKind::Plain),
-        RenderColumn::new("description", "Description", ColumnKind::Plain),
-    ];
+    let class = project_class();
+    let basis = project_basis();
+    let form = skin(&basis, PROJECT_FORM_ORDER);
+    let columns: Vec<RenderColumn> = columns_for(&basis, &form.mask, form.order, &class);
 
     let action = format!("/projects/{}/edit", row.id);
     let legend = format!("Edit project #{}", row.id);
@@ -1064,7 +1518,6 @@ fn render_project_edit(row: &ProjectRow) -> String {
         fields,
     };
 
-    let class = project_class();
     let concept = class.canonical_concept.clone().unwrap_or_default();
     let class_id = canonical_concept_id(&concept).unwrap_or(0);
 
@@ -1250,11 +1703,23 @@ fn page_shell(title: &str, body_html: &str) -> String {
 </style>
 </head>
 <body>
-<nav class="topnav"><a href="/" class="topnav-brand">OpenProject RS</a><a href="/">Board</a></nav>
+<nav class="topnav"><a href="/" class="topnav-brand">OpenProject RS</a>{menu_links}</nav>
 {body_html}
 </body>
-</html>"#
+</html>"#,
+        menu_links = topnav_menu_links(),
     )
+}
+
+/// The top-nav link list, built from [`nav::menu()`] — every link the
+/// menu carries is guaranteed routable (see nav's own
+/// `menu_targets_are_all_routable` test), so a page can never link to
+/// a 404 through here.
+fn topnav_menu_links() -> String {
+    nav::menu()
+        .iter()
+        .map(|(label, href)| format!("<a href=\"{href}\">{}</a>", esc(label)))
+        .collect::<String>()
 }
 
 #[cfg(test)]
@@ -1607,5 +2072,85 @@ mod tests {
         assert_eq!(dto.public, Some(true));
         assert_eq!(dto.active, Some(false));
         assert_eq!(dto.parent_id, None);
+    }
+
+    // ── FieldMask-driven columns + topology links (this refactor) ────
+
+    /// The board's columns are exactly the mask-selected subset of the
+    /// work-package basis, in the skin's declared order — proving the
+    /// mask (not a hand-written `vec![...]`) drives which columns
+    /// appear.
+    #[test]
+    fn board_columns_come_from_mask() {
+        let basis = wp_basis();
+        let board = skin(&basis, WP_BOARD_ORDER);
+        let class = project_work_item();
+        let columns = columns_for(&basis, &board.mask, board.order, &class);
+
+        let names: Vec<&str> = columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["subject", "project", "done_ratio"]);
+    }
+
+    /// `stacked_mask` (via `wp_stacked_skin`) drops `project` from the
+    /// board mask — proving the `WideFieldMask::intersect` composition
+    /// actually removes the bit rather than just being unused.
+    #[test]
+    fn stacked_mask_drops_project_via_intersect() {
+        let basis = wp_basis();
+        let stacked = wp_stacked_skin(&basis);
+        let class = project_work_item();
+        let columns = columns_for(&basis, &stacked.mask, stacked.order, &class);
+
+        let names: Vec<&str> = columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["subject", "done_ratio"]);
+
+        let board = skin(&basis, WP_BOARD_ORDER);
+        assert_eq!(board.mask.count(), 3);
+        assert_eq!(stacked.mask.count(), 2);
+    }
+
+    /// The work-package detail page's `project` cell is a live
+    /// `RecordRef` link (derived from `nav::route_for("Project")`
+    /// being `Some`), while `status` — a known dead lane per
+    /// `nav::NOT_YET_NAVIGABLE` — renders as plain resolved text with
+    /// no href anywhere in the fragment. Both are DERIVED from
+    /// `nav::nav_edges`, not hand-wired.
+    #[test]
+    fn detail_project_link_is_derived_not_hardwired() {
+        let wp = work_package(101, "Fix the login bug", 10, 2, 40);
+
+        let html = render_wp_detail(
+            &wp,
+            "In Progress",
+            "Nexgen",
+            "Bug",
+            "High",
+            "Jane Doe",
+            "John Smith",
+        );
+
+        assert!(html.contains("href=\"/projects/10\""), "{html}");
+        assert!(!html.contains("/statuses/"), "{html}");
+        // The status label still shows (resolved text), just unlinked.
+        assert!(html.contains("In Progress"), "{html}");
+    }
+
+    /// A project detail page stacks its work packages' list view
+    /// (the `has_many` `work_items` topology edge) below the project's
+    /// own fields.
+    #[test]
+    fn project_detail_stacks_its_work_packages() {
+        let wps = vec![
+            work_package(201, "Stacked item one", 10, 1, 0),
+            work_package(202, "Stacked item two", 10, 2, 50),
+        ];
+
+        let html = render_project_work_items_stack(&wps);
+
+        assert!(html.contains("Work items"), "{html}");
+        assert!(html.contains("Stacked item one"), "{html}");
+        assert!(html.contains("Stacked item two"), "{html}");
+        // Stacked rows use the narrower (project-less) column set.
+        assert!(!html.contains("href=\"/projects/10\""), "{html}");
     }
 }
