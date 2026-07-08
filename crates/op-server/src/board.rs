@@ -98,17 +98,6 @@ fn project_basis() -> Vec<String> {
     basis(&project_class(), PROJECT_EXTRA_FIELDS)
 }
 
-/// Map field names to their position in `basis` (the bits a
-/// `WideFieldMask::from_positions` call needs). Names not present in
-/// `basis` are skipped — a mask simply cannot select a field the class
-/// doesn't know about.
-fn mask_positions(basis: &[String], names: &[&str]) -> Vec<u8> {
-    names
-        .iter()
-        .filter_map(|n| basis.iter().position(|b| b == n).map(|p| p as u8))
-        .collect()
-}
-
 /// Resolve the up-link href for a `belongs_to`-style association
 /// (`role`) on `class`, IF its target concept has a live route (per
 /// [`nav::route_for`] through [`nav::nav_edges`]) — `None` for a "dead
@@ -135,9 +124,19 @@ struct Skin {
 }
 
 fn skin(basis: &[String], order: &'static [&'static str]) -> Skin {
+    // Canonical mask minting (lance-graph #669): `from_universe_present`
+    // sets bit `i` iff `basis[i] ∈ order` — the SAME sort-agnostic
+    // membership rule odoo-rs's `mint_wide_mask` and the Rails/ERB
+    // `ViewFieldSet` use, so op-nexgen mints the IDENTICAL mask as every
+    // other ClassView consumer (the DTO-Lego-brick interchange guarantee).
+    // The basis is far under the 256-field SOC-split cap, so the mint
+    // cannot error here — a >256 universe would be a "split this class"
+    // signal, not a mask to widen.
+    let universe: Vec<&str> = basis.iter().map(String::as_str).collect();
     Skin {
         order,
-        mask: WideFieldMask::from_positions(&mask_positions(basis, order)),
+        mask: WideFieldMask::from_universe_present(&universe, order)
+            .expect("class basis is well under the 256-field SOC cap"),
     }
 }
 
