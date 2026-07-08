@@ -48,27 +48,46 @@ async fn main() -> anyhow::Result<()> {
 
     // Klickweg connectivity affirmation — the runtime counterpart to the
     // `scripts/nav-crawl.sh` BFS, proven at boot via the sanctioned Core brick
-    // `nav_is_fully_connected` (lance-graph #670/#673). A disconnected nav
-    // graph (orphan screen / dangling click / unserved root) is a level-editor
-    // bug, not a fatal one — the board still serves, so we WARN rather than
-    // abort, but it is never silent.
+    // `nav_is_fully_connected` (lance-graph #670/#673), in TWO layers: the
+    // screen↔screen graph, and the stronger MENU-rooted reachability — every
+    // screen must be reachable by clicking from the top nav (the render-side
+    // twin of Odoo's menuitem roots, ruff #66). A menu-orphan screen fails the
+    // second even if it passes the first. A disconnected graph is a
+    // level-editor bug, not a fatal one — the board still serves, so we WARN
+    // rather than abort, but it is never silent.
     let nav_connected = nav::klickweg_is_connected();
-    if nav_connected {
+    let menu_connected = nav::menu_klickweg_is_connected();
+    if nav_connected && menu_connected {
         let root_screen = nav::SCREEN_UNIVERSE
             .get(nav::NAV_ROOT as usize)
             .copied()
             .unwrap_or("?");
         debug_assert_eq!(nav::screen_id(root_screen), Some(nav::NAV_ROOT));
+        // Every top-nav tab must resolve to a served screen — the menu-root
+        // entry-point wiring (each tab is a `Menu → screen` edge).
+        let menu_tabs = nav::menu()
+            .iter()
+            .filter(|(_, href)| nav::menu_target_concept(href).is_some())
+            .count();
+        debug_assert_eq!(
+            menu_tabs,
+            nav::menu().len(),
+            "a menu tab resolves to no served screen"
+        );
         info!(
             screens = nav::SCREEN_UNIVERSE.len(),
             root = root_screen,
-            "Klickweg fully connected (nav_is_fully_connected via Core brick)"
+            menu_tabs,
+            menu_reachable = true,
+            "Klickweg fully connected (screen graph + menu-rooted reachability, Core brick)"
         );
     } else {
         tracing::warn!(
             screens = nav::SCREEN_UNIVERSE.len(),
-            "Klickweg NOT fully connected — an orphan screen, dangling click, \
-             or unserved root exists in the nav graph"
+            nav_connected,
+            menu_connected,
+            "Klickweg NOT fully connected — an orphan screen (menu-unreachable), \
+             dangling click, or unserved root exists in the nav graph"
         );
     }
 
