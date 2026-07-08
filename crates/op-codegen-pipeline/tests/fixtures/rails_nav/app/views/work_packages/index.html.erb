@@ -1,0 +1,7 @@
+<h1>Work packages</h1>
+<ul>
+  <% @work_packages.each do |wp| %>
+    <li><%= wp.subject %></li>
+  <% end %>
+</ul>
+<%= link_to "Back to project", project_path(@project) %>
