@@ -179,19 +179,23 @@ const WP_FORM_ORDER: &[&str] = &[
 /// when a work-package list is embedded UNDER a project detail page
 /// (the parent context already names the project, so repeating it in
 /// every row is noise). Built by intersecting `WP_BOARD_ORDER`'s mask
-/// with a mask that has every basis position EXCEPT `project`'s —
-/// demonstrating `WideFieldMask` composition rather than hand-editing
-/// a second literal field list.
+/// with a "context" mask of every basis field EXCEPT `project` —
+/// demonstrating `WideFieldMask` composition (the stud algebra) rather
+/// than hand-editing a second literal field list. Both operands are
+/// minted through the canonical `from_universe_present` brick — no raw
+/// `from_positions`, so the SOC-cap guard applies to every mask here.
 fn wp_stacked_skin(basis: &[String]) -> Skin {
     let board = skin(basis, WP_BOARD_ORDER);
-    let project_pos = basis
+    // The "in-project context" universe: present = every basis field but
+    // `project`. Minted on-brick (identical rule to odoo-rs/ViewFieldSet).
+    let universe: Vec<&str> = basis.iter().map(String::as_str).collect();
+    let context_present: Vec<&str> = universe
         .iter()
-        .position(|b| b == "project")
-        .expect("project is always in the work-package basis");
-    let all_but_project: Vec<u8> = (0..basis.len() as u8)
-        .filter(|&p| p != project_pos as u8)
+        .copied()
+        .filter(|&n| n != "project")
         .collect();
-    let without_project = WideFieldMask::from_positions(&all_but_project);
+    let without_project = WideFieldMask::from_universe_present(&universe, &context_present)
+        .expect("class basis is well under the 256-field SOC cap");
     Skin {
         order: WP_BOARD_ORDER,
         mask: board.mask.intersect(&without_project),
