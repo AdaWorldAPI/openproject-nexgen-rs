@@ -171,6 +171,11 @@ fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
         // The OGAR render-bake kanban board — a server-rendered HTML view
         // instead of a bare 404 / JSON landing page at the domain root.
         .route("/", get(board::board_page))
+        // Rendered detail pages (render-bake `HtmlDetailView`) for the
+        // board's own cards/links — distinct from the JSON `/api/v3/...`
+        // surface owned by op-api below.
+        .route("/work_packages/:id", get(board::work_package_detail))
+        .route("/projects/:id", get(board::project_detail))
         .route("/health", get(health::default_health_check))
         .route("/health_checks/default", get(health::default_health_check))
         .route("/health/live", get(health::liveness))
