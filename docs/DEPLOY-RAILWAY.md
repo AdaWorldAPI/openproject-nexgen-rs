@@ -95,11 +95,20 @@ Therefore, once any real deploy has applied `0001_init.sql`:
 ## Evidence status (what is proven vs expected)
 
 - **Proven locally**: the SQL applies + reseeds idempotently
-  (`reality-check.sh`, double-apply); the host-built server binary migrates,
-  seeds under `HYDRATE=1`, and serves the board over `/api/v3`; the release
-  build compiles (`cargo build --release -p op-server`).
-- **Expected, unverified until the first real deploy**: the Docker image
-  build on Railway's builder, Railway's `DATABASE_URL` auto-injection on
-  plugin add, healthcheck/`$PORT` routing. These match Railway's documented
-  behavior but were not executable from the authoring environment — confirm
-  on first deploy and note it here.
+  (`reality-check.sh`, double-apply); the release build compiles
+  (`cargo build --release -p op-server`).
+- **Container image — PROVEN (2026-07-08)**: the Dockerfile's exact build
+  sequence was executed under Docker 29.3 / buildkit — both stages, the
+  `--release` workspace compile (~3m), and the multi-stage runtime image
+  (169 MB). The resulting **container** was run against Postgres and, from
+  inside the image, self-applied migrations, loaded the `HYDRATE=1` seed,
+  and served the 40-card board over `/api/v3` (`/health` + `/health/ready`
+  both 200). The only delta from the committed Dockerfile was sandbox-local
+  CA/proxy plumbing for `apt`/`cargo` egress (a real builder with direct
+  internet needs none of it) — the build *logic*, context coverage, compile,
+  and runtime are the committed ones.
+- **Expected, unverified until the first real deploy**: Railway's own
+  builder environment, Railway's `DATABASE_URL` auto-injection on plugin
+  add, and healthcheck/`$PORT` routing. These match Railway's documented
+  behavior but require an actual Railway deploy to confirm — note the result
+  here on first deploy.
