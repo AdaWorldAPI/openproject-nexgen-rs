@@ -5,7 +5,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::{middleware, routing::get, Json, Router};
+use axum::{middleware, routing::get, Router};
 use tower::ServiceBuilder;
 use tower_http::{
     compression::CompressionLayer,
@@ -18,6 +18,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use op_core::config::AppConfig;
 use op_db::{Database, DatabaseConfig};
 
+mod board;
 mod health;
 mod metrics;
 
@@ -167,10 +168,9 @@ fn init_tracing() {
 fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
     // Health check routes (no auth required)
     let health_routes = Router::new()
-        // A friendly root instead of a bare 404 — this is an API server, so `/`
-        // points the visitor at the live surface (the domain root in a browser
-        // used to just 404).
-        .route("/", get(root_landing))
+        // The OGAR render-bake kanban board — a server-rendered HTML view
+        // instead of a bare 404 / JSON landing page at the domain root.
+        .route("/", get(board::board_page))
         .route("/health", get(health::default_health_check))
         .route("/health_checks/default", get(health::default_health_check))
         .route("/health/live", get(health::liveness))
@@ -236,22 +236,6 @@ fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
             metrics,
             metrics::metrics_middleware,
         ))
-}
-
-/// Root landing — an API server has no HTML site, so `/` used to 404 in a
-/// browser (looked broken). Point the visitor at the live surface instead.
-async fn root_landing() -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "service": "openproject-rs",
-        "version": env!("CARGO_PKG_VERSION"),
-        "_links": {
-            "api": { "href": "/api/v3" },
-            "health": { "href": "/health" },
-            "ready": { "href": "/health/ready" },
-            "workPackages": { "href": "/api/v3/work_packages" },
-            "projects": { "href": "/api/v3/projects" }
-        }
-    }))
 }
 
 /// Graceful shutdown signal handler
