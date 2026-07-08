@@ -365,7 +365,21 @@ fn render_bake_leg2_op_representers() {
         if !positions.is_empty() {
             let class = by_name[model_name.as_str()];
             let rendered = if wide {
-                let mask = WideFieldMask::from_positions(&positions);
+                // Sanctioned mask-minter brick (lance-graph #669):
+                // `WideFieldMask::from_universe_present(universe = basis,
+                // present = declared skin fields)` mints the IDENTICAL mask
+                // odoo-rs's `view_mask::mint_wide_mask` and the ERB
+                // `ViewFieldSet` mint — the interchangeable-across-consumers
+                // guarantee — instead of the ad-hoc `from_positions` loop, and
+                // it carries the 256-field SOC-split guard. The membership
+                // result is bit-identical to `from_positions(&positions)`
+                // above (positions were the basis indices of these same skin
+                // fields), so the render round-trip below still holds.
+                let basis_refs: Vec<&str> = basis_vec.iter().map(String::as_str).collect();
+                let present: Vec<String> = set.decls.iter().map(|d| snake(&d.name)).collect();
+                let present_refs: Vec<&str> = present.iter().map(String::as_str).collect();
+                let mask = WideFieldMask::from_universe_present(&basis_refs, &present_refs)
+                    .expect("basis within the 256-field SOC cap");
                 render_class_with_methods_wide(class, &mask, &[]).expect("wide render must succeed")
             } else {
                 let mask = FieldMask::from_positions(&positions);
