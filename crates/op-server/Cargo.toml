@@ -14,6 +14,10 @@ op-api = { path = "../op-api" }
 op-db = { path = "../op-db" }
 op-auth = { path = "../op-auth" }
 
+# OGAR render-bake pipeline: ClassView x FieldMask -> HtmlListView.
+ogar-render-askama = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+ogar-vocab = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+
 axum.workspace = true
 sqlx.workspace = true
 tokio = { workspace = true, features = ["signal"] }

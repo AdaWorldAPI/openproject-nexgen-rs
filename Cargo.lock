@@ -1788,6 +1788,8 @@ dependencies = [
  "chrono",
  "config",
  "dotenvy",
+ "ogar-render-askama",
+ "ogar-vocab",
  "op-api",
  "op-auth",
  "op-core",
