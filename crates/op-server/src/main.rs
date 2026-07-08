@@ -167,6 +167,10 @@ fn init_tracing() {
 fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
     // Health check routes (no auth required)
     let health_routes = Router::new()
+        // A friendly root instead of a bare 404 — this is an API server, so `/`
+        // points the visitor at the live surface (the domain root in a browser
+        // used to just 404).
+        .route("/", get(root_landing))
         .route("/health", get(health::default_health_check))
         .route("/health_checks/default", get(health::default_health_check))
         .route("/health/live", get(health::liveness))
@@ -232,6 +236,22 @@ fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
             metrics,
             metrics::metrics_middleware,
         ))
+}
+
+/// Root landing — an API server has no HTML site, so `/` used to 404 in a
+/// browser (looked broken). Point the visitor at the live surface instead.
+async fn root_landing() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "service": "openproject-rs",
+        "version": env!("CARGO_PKG_VERSION"),
+        "_links": {
+            "api": { "href": "/api/v3" },
+            "health": { "href": "/health" },
+            "ready": { "href": "/health/ready" },
+            "workPackages": { "href": "/api/v3/work_packages" },
+            "projects": { "href": "/api/v3/projects" }
+        }
+    }))
 }
 
 /// Graceful shutdown signal handler
