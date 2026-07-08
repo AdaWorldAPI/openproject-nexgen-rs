@@ -17,6 +17,7 @@ op-auth = { path = "../op-auth" }
 # OGAR render-bake pipeline: ClassView x FieldMask -> HtmlListView.
 ogar-render-askama = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 ogar-vocab = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
 
 axum.workspace = true
 sqlx.workspace = true

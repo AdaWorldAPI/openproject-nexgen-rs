@@ -1206,7 +1206,7 @@ dependencies = [
 [[package]]
 name = "lance-graph-contract"
 version = "0.1.0"
-source = "git+https://github.com/AdaWorldAPI/lance-graph?branch=main#593b7b7902dd7ae3d766cbb2ddf787738c4481cb"
+source = "git+https://github.com/AdaWorldAPI/lance-graph?branch=main#ae4264f0eb990530977b95129ced4795852cc73d"
 dependencies = [
  "glob",
  "serde",
@@ -1788,6 +1788,7 @@ dependencies = [
  "chrono",
  "config",
  "dotenvy",
+ "lance-graph-contract",
  "ogar-render-askama",
  "ogar-vocab",
  "op-api",
