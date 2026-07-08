@@ -19,6 +19,7 @@ use op_core::config::AppConfig;
 use op_db::{Database, DatabaseConfig};
 
 mod board;
+mod nav;
 mod health;
 mod metrics;
 
