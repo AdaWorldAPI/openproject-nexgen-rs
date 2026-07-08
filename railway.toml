@@ -28,7 +28,13 @@ restartPolicyMaxRetries = 5
 [env]
 # Default environment variables — override in the Railway dashboard.
 HOST = "0.0.0.0"
-PORT = { default = "8080", isPublic = true }
+# NOTE: PORT is intentionally NOT pinned here. Railway injects its own `$PORT`
+# into the container and expects the app to bind it; the server reads `$PORT`
+# (see resolve_bind_addr) and binds `0.0.0.0:$PORT`. Pinning a fixed value
+# here would shadow Railway's injected port. In the service's Networking
+# settings, leave the target port unset (let Railway auto-detect) so the
+# public proxy routes to the same `$PORT` the app bound. Falls back to 8080
+# only for local/non-PaaS runs where `$PORT` is unset.
 RUST_LOG = "info,op_server=debug"
 
 # Database — add a Railway **Postgres** plugin to the project; Railway then
