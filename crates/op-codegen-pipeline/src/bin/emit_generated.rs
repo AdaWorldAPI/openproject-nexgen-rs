@@ -212,6 +212,16 @@ fn run_core(compiled: &[CompiledClass], generated_dir: &Path) {
             // / render_class_with_methods_wide, exercised by EMIT_ALL
             // instead). Never truncate or hand-emit; just name it in the
             // ledger.
+            //
+            // FORWARD RULE (lance-graph #669): when W4 mints the wide
+            // *view/skin* projection (not the full domain), it MUST use the
+            // sanctioned brick `WideFieldMask::from_universe_present(universe =
+            // basis, present = skin fields)` — NOT an ad-hoc
+            // `from_positions(...)` — so op-nexgen mints the IDENTICAL mask
+            // that odoo-rs's `mint_wide_mask` and the ERB `ViewFieldSet` do
+            // (interchangeable-across-consumers), and inherits the 256-field
+            // SOC-split guard for free. The leg2 render-bake probe already
+            // dogfoods the brick.
             deferred_wide.push(cc.class.name.clone());
             continue;
         }
