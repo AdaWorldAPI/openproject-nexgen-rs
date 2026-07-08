@@ -116,13 +116,108 @@ pub fn served_screens_mask() -> WideFieldMask {
         .expect("2-screen universe is within the 256-field SoC cap")
 }
 
-/// Whether the klickweg is fully connected: every served screen is reachable
-/// from [`NAV_ROOT`] and no navigation edge dangles off the served set — the
-/// Core-brick ([`nav_is_fully_connected`]) level-editor validator, at
-/// compile/test time rather than only via the live crawl.
+/// Whether the inter-screen klickweg is fully connected: every served
+/// screen is reachable from [`NAV_ROOT`] and no navigation edge dangles
+/// off the served set — the Core-brick ([`nav_is_fully_connected`])
+/// level-editor validator over the screen-only graph.
+///
+/// This is the *screen↔screen* layer. The stronger **menu-reachability**
+/// check ([`menu_klickweg_is_connected`]) verifies every screen is
+/// reachable *from the top-nav menu* — see that function's docs.
 #[must_use]
 pub fn klickweg_is_connected() -> bool {
     nav_is_fully_connected(NAV_ROOT, NAV_EDGES, &served_screens_mask())
+}
+
+// ── Menu-rooted connectivity (cross-frontend Klickweg parity) ────────
+//
+// The Odoo `navigates_to` arm (ruff #66) introduced the **synthetic menu
+// root**: `<menuitem>` records emit `menu → res_model` edges that give
+// `nav_is_fully_connected` its entry points, so "connected" means *every
+// screen is reachable FROM THE MENU* — an orphan screen the user cannot
+// click to from the top nav fails, even if it is reachable from some
+// other screen. op-nexgen's top nav ([`menu`]) is the identical
+// structure — each tab is a `menu → screen` edge — so we model it the
+// same way: a synthetic `Menu` node at position 0, screens after it, and
+// the connectivity check rooted at the menu. This is the render-side twin
+// of Odoo's menuitem roots (same Core brick, same "menu gives entry
+// points" shape).
+
+/// The menu-inclusive screen universe: the synthetic `Menu` node
+/// ([`MENU_ROOT`] = index 0) followed by every served screen. Distinct
+/// from [`SCREEN_UNIVERSE`] (screens only) because the render masks index
+/// screen positions and must NOT see the synthetic node; this universe is
+/// the connectivity graph only.
+pub const MENU_UNIVERSE: &[&str] = &["Menu", "ProjectWorkItem", "Project"];
+
+/// The synthetic top-nav menu node — the entry point of the klickweg,
+/// mirroring Odoo's `<menuitem>` root.
+pub const MENU_ROOT: u8 = 0;
+
+/// The menu-rooted navigation edges over [`MENU_UNIVERSE`] positions:
+/// `Menu → <screen>` for each top-nav tab (the twin of Odoo's
+/// `menuitem → res_model`), plus the inter-screen [`NAV_EDGES`] lifted
+/// into the menu-inclusive positions (+1 shift). `menu_nav_edges_match_derived`
+/// cross-checks this table against [`menu`] + [`NAV_EDGES`] so it cannot
+/// drift.
+pub const MENU_NAV_EDGES: &[ComputeEdge] = &[
+    // Menu → ProjectWorkItem  (the "Board" tab, href "/")
+    ComputeEdge {
+        target: 1,
+        inputs: &[0],
+    },
+    // Menu → Project  (the "Projects" tab, href "/projects")
+    ComputeEdge {
+        target: 2,
+        inputs: &[0],
+    },
+    // ProjectWorkItem → Project  (NAV_EDGES[0], shifted +1)
+    ComputeEdge {
+        target: 2,
+        inputs: &[1],
+    },
+    // Project → ProjectWorkItem  (NAV_EDGES[1], shifted +1)
+    ComputeEdge {
+        target: 1,
+        inputs: &[2],
+    },
+];
+
+/// The menu-inclusive universe as a [`WideFieldMask`], minted on-brick
+/// (universe = present = every node incl. the synthetic menu).
+///
+/// # Panics
+///
+/// Never: [`MENU_UNIVERSE`] has 3 entries, far under the 256-field cap.
+#[must_use]
+pub fn menu_screens_mask() -> WideFieldMask {
+    WideFieldMask::from_universe_present(MENU_UNIVERSE, MENU_UNIVERSE)
+        .expect("3-node menu universe is within the 256-field SoC cap")
+}
+
+/// The concept a top-nav menu href routes to (the inverse of
+/// [`route_for`], with `"/"` special-cased to the board = `ProjectWorkItem`).
+/// `None` for an href no served screen owns.
+#[must_use]
+pub fn menu_target_concept(href: &str) -> Option<&'static str> {
+    if href == "/" {
+        return Some("ProjectWorkItem");
+    }
+    SCREEN_UNIVERSE
+        .iter()
+        .copied()
+        .find(|c| route_for(c) == Some(href))
+}
+
+/// Whether the klickweg is fully connected **from the top-nav menu**:
+/// every served screen is reachable by clicking from [`menu`], and no menu
+/// or nav edge dangles off the served set. This is the cross-frontend
+/// parity check (ruff #66 Odoo menuitem roots): a screen that exists and
+/// is inter-linked but has NO menu path is an orphan the user cannot reach,
+/// and this — unlike [`klickweg_is_connected`] — catches it.
+#[must_use]
+pub fn menu_klickweg_is_connected() -> bool {
+    nav_is_fully_connected(MENU_ROOT, MENU_NAV_EDGES, &menu_screens_mask())
 }
 
 /// Association targets referenced by `project_work_item()` / `project()`
@@ -326,6 +421,77 @@ mod tests {
             served_screens_mask(),
             "reached set from NAV_ROOT must equal the served-screen universe"
         );
+    }
+
+    /// Cross-frontend parity: the klickweg is fully connected **from the
+    /// menu root** — every served screen is reachable by clicking from the
+    /// top nav (the render-side twin of Odoo's `menuitem → res_model`
+    /// roots, ruff #66). The synthetic `Menu` node itself is in the reached
+    /// set, so `reached == MENU_UNIVERSE`.
+    #[test]
+    fn menu_klickweg_is_fully_connected() {
+        assert!(
+            menu_klickweg_is_connected(),
+            "menu-rooted klickweg not connected: a served screen has no \
+             click-path from the top-nav menu (orphan), or a menu/nav edge \
+             dangles off the served set"
+        );
+        let reached =
+            lance_graph_contract::class_view::screens_reachable_from(MENU_ROOT, MENU_NAV_EDGES);
+        assert_eq!(
+            reached,
+            menu_screens_mask(),
+            "reached set from the menu root must equal the menu-inclusive universe"
+        );
+    }
+
+    /// The static [`MENU_NAV_EDGES`] table must equal the edges derived from
+    /// [`menu`] (menu → tab-target) + [`NAV_EDGES`] (inter-screen, +1 shifted
+    /// into the menu-inclusive positions) — no drift between the hand-written
+    /// menu-rooted manifest and the live menu + screen graph.
+    #[test]
+    fn menu_nav_edges_match_derived() {
+        // Position of a concept in MENU_UNIVERSE (menu node offsets screens +1).
+        let menu_pos = |c: &str| MENU_UNIVERSE.iter().position(|m| *m == c).map(|i| i as u8);
+
+        let mut derived: Vec<(u8, u8)> = Vec::new(); // (target, source)
+
+        // Menu → each tab's target concept.
+        for (_label, href) in menu() {
+            if *href == "/" || route_for_is_menu_reachable(href) {
+                if let Some(target) = menu_target_concept(href).and_then(menu_pos) {
+                    derived.push((target, MENU_ROOT));
+                }
+            }
+        }
+        // Inter-screen NAV_EDGES, lifted into menu-inclusive positions (+1:
+        // SCREEN_UNIVERSE[i] == MENU_UNIVERSE[i+1]).
+        for e in NAV_EDGES {
+            for &src in e.inputs {
+                derived.push((e.target + 1, src + 1));
+            }
+        }
+        derived.sort_unstable();
+        derived.dedup();
+
+        let mut table: Vec<(u8, u8)> = MENU_NAV_EDGES
+            .iter()
+            .flat_map(|e| e.inputs.iter().map(move |&src| (e.target, src)))
+            .collect();
+        table.sort_unstable();
+        table.dedup();
+
+        assert_eq!(
+            table, derived,
+            "MENU_NAV_EDGES drifted from menu() + NAV_EDGES"
+        );
+    }
+
+    // Every menu href resolves to a served screen (proven by
+    // `menu_targets_are_all_routable`); this helper keeps the derivation
+    // above readable.
+    fn route_for_is_menu_reachable(href: &str) -> bool {
+        menu_target_concept(href).is_some()
     }
 
     #[test]
