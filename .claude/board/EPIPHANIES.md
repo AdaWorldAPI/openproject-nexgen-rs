@@ -14,6 +14,74 @@
 
 ## Entries (newest first)
 
+## 2026-07-09 — Clickwege live in the moving joints: traces-not-facts, the five-edge choreography mint, ore/slag refinery (operator ruling + verified gap map)
+**Status:** FINDING (operator ruling 2026-07-09; gap map verified in code this session — 5-reader sweep over ruff / OGAR / op-nexgen / upstream corpus / MedCare-rs. OGAR board mirror pending.)
+**Scope:** ruff `ruff_ruby_spo` × OGAR `ogar-vocab`/`ogar-from-ruff` × `op-server/{nav,viewfilter,board}.rs` × corpus `config/routes.rb` + `app/models/workflow.rb` × MedCare-rs parity
+
+Operator, in substance: *the Clickwege are not in the schema — they live in
+the moving joints. ORM gives nouns (what exists/relates/persists), AR gives
+verbs (what can move, what mutates together, what becomes legal after state
+changes), Clickwege give choreography — and choreography must be harvested
+from motion, not tables. The hard extraction is joint → intent: harvest
+Clickweg candidates as TRACES, not facts ("user sees button X because view
+renders helper Y → route Z → controller A → mutates model B, if policy C
+and state D"), and OGAR mints NavigationEdge / ActionEdge / MutationEdge /
+GuardEdge / StateTransitionEdge. The residue is never handwritten Rust —
+every failed/uncertain click path becomes another recipe; the refinery gets
+cleaner with every project. The 723 generated files are a cache; the real
+artifact is the harvested semantic graph.*
+
+Verified against code (receipts abridged):
+
+| proposed edge | fact ore today (ruff) | mint target today (OGAR) | joint gap |
+|---|---|---|---|
+| NavigationEdge | YES — `NavigatesTo` ×3 shapes (ERB click / `redirect_to` / menu-DSL) + `InvokesAction` (`ruff_ruby_spo/{navigation,menu,actions}.rs`) | ABSENT as edge — `ogar-from-rails::RailAction` is a vertex, not a connection | **routes.rb never parsed**: `InvokesAction`'s object is the helper STEM, never resolved `controller#action` (`actions.rs:102-104`) = ledger gap (b) |
+| ActionEdge | YES — controller DO-arm live (`extract_tree_with` → `lift_actions` → `ActionDef`) | `ActionDef` node-attached; `predicate: String`; `RecipeConceptId` Phase 2 unwired (grep `ogar-from-ruff` = 0 hits) | route-kind discriminant (b) + codebook wire (c) |
+| MutationEdge | YES — `WritesField`/`WritesIfBlank`/`Calls` (closed 24-verb `AR_MUTATORS`) | `ActionDef.writes` name-level; `EnterEffect{field,to_value}` string-encoded | written VALUES not captured; effects node-attached, not edge-shaped |
+| GuardEdge | **ABSENT** — `permit`/`params.require` = 0 matches in ruff; `before_action :authorize` degrades to untyped `HasDslCall` | `Guard 0x02XX` recipe family = VALIDATION guards only; no permission concept; `required_role` lives downstream in lance-graph-ogar | **gap (d)** — permission-DECLARATION arm. Corpus verdict MIXED: declarations are static ore (`config/initializers/permissions.rb` `AccessControl.map` = permission→{controller:[actions]}; contract `attribute …, permission:` DSL; `Accounts::Authorization` concern) — grants (`role_permissions` rows) are DB. Prior art: RESIDUAL-THREE-BUCKETS B2 rows + OGAR CLASSID-RBAC-KEYSTONE-SPEC (doctrine, no arm) |
+| StateTransitionEdge | **ABSENT** — no state-machine arm; `enum :x` harvests the state COLUMN, not transitions | **doc-only** — `results_in: Option<StateTransition>` (OGAR-AST-CONTRACT.md:88) has NO crate type (grep = 0); `StateMachineDecl` named-unbuilt | **gap (e)** — transition CONTENT is DB rows (`workflows` table: type×role×old_status→new_status, `db/migrate/tables/workflows.rb:33-44`); code holds only hook locations (`base_contract.rb:168 validate_status_transition`). Landing zone: the existing `ogar-hydrator-postgres` proposal |
+
+Composition state: **no multi-hop trace exists anywhere today.** ruff emits
+isolated per-file facts and delegates every cross-strata join to callers
+(`navigation.rs:9-13`); OGAR names the split explicitly — "shape vs
+choreography", choreography = the runtime invocation log, never a static
+type (`docs/ADAPTERS-AND-ACTORS.md:76`); op-nexgen's `navigates_to ⋈
+writes_field` join is verified ∅ (nav-only + mask-only layers; `AnonymousRbac`
+hardcoded; board affordances hand-written). The one fully-traced corpus
+example — watch/unwatch: view helper → `watch_path` → `routes.rb:287-289`
+constraint-object route → `watchers_controller` `before_action` guards →
+`add_watcher` row insert — is STATIC at every hop except the guard's
+*answer*. Joint → intent is harvestable; grants/state content needs the
+hydrator. That residue is precisely the operator's "daily migration grind
+becomes the fuel."
+
+Consequences:
+1. **Traces, not facts.** The `Triple` already carries NARS `{f,c}` — a
+   trace is a typed CHAIN of triples with composed confidence. Low-confidence
+   chains ARE the "flag uncertain residue → review once → recipe library
+   grows" flywheel; the proposer emits trace candidates, nothing hand-codes
+   a click path.
+2. **Mint constraint (canon).** The five edge kinds would be OGAR's first
+   edge-shaped behavioural types. Per V3-TRANSPILER-ADR they land as
+   GUID-reference tenants / triplet-mode `[SpoTriple; 4]` facets — never a
+   resurrected EdgeBlock.
+3. **Gap ledger extended:** (a) writes/calls CLOSED · (b) routes.rb stratum
+   OPEN — and measured: 1311 lines of heavily customized DSL (route
+   concerns, lambda constraints, constraint objects, catch-alls); the D3
+   cross-file trap confirmed (menu is Rails-central) · (c) recipe codebook
+   HALF-CLOSED (Phase 2 unwired) · **(d) permission-declaration arm** ·
+   **(e) DB-resident choreography content → hydrator**.
+4. **MedCare parity CONFIRMED** — same refinery in the C# coat: 56,812
+   structural + 97,176 body triples, WinForms `navigates_to`/`selects_view`
+   choreography plane, `FORM_TO_NODE` the one hand-authored seam, recipe
+   residue 99.6–99.7% recoverable / 5 essential (vs Rails 98.4% / 1 —
+   explicit cross-citation in the MedCare handover). The pattern generalizes
+   across language coats; only the adapters differ.
+5. **723 files = cache, graph = artifact** — verified literally: generated
+   ActionDef bodies are `// TODO: port` stubs (3,427 counted); the durable
+   artifact is the harvested graph + the transpile LEDGER. The emit is
+   re-derivable; the ontology is not.
+
 ## 2026-07-05 — Recipe codebook Phase 1 SHIPPED upstream (`ogar-vocab::recipe`); gap (c) half-closes
 **Status:** FINDING (mirrors OGAR `E-RECIPE-CODEBOOK-MINTED-P1`)
 **Scope:** OGAR `ogar-vocab::recipe` × `.claude/knowledge/RAILS-COVERAGE-KIT.md` §5 gap (c)
