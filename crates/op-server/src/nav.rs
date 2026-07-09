@@ -160,6 +160,13 @@ pub const MENU_ROOT: u8 = 0;
 /// into the menu-inclusive positions (+1 shift). `menu_nav_edges_match_derived`
 /// cross-checks this table against [`menu`] + [`NAV_EDGES`] so it cannot
 /// drift.
+///
+/// **Baked mirror of the harvest** (same relationship as [`NAV_EDGES`]'s own
+/// doc note above): the `Menu → <screen>` half is the hand-authored
+/// equivalent of what `op_codegen_pipeline::nav_harvest::harvest_menu_klickweg`
+/// produces from the OpenProject Rails source via the `ruff_ruby_spo`
+/// menu-DSL harvest (ruff #71) — proven on a synthetic fixture by
+/// `nav_harvest_probe::menu_harvest_reproduces_the_menu_rooted_klickweg`.
 pub const MENU_NAV_EDGES: &[ComputeEdge] = &[
     // Menu → ProjectWorkItem  (the "Board" tab, href "/")
     ComputeEdge {
