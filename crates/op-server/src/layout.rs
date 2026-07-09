@@ -12,9 +12,15 @@
 //! This module is op-local and needs no upstream change: it mints the region
 //! mask with the same `from_universe_present` brick every skin uses, composes
 //! the regions it selects, and proves the region tree interns acyclically +
-//! bijectively via [`crate::viewfilter::ViewRegistry`]. Steps 3–5 (the Rails
-//! menu-DSL harvest that *fills* the left menu, the widget ClassView types,
-//! and the OGAR codegen emit) are the documented follow-ups.
+//! bijectively via [`crate::viewfilter::ViewRegistry`]. Step 3 (the Rails
+//! menu-DSL harvest) has landed (`ruff_ruby_spo::extract_menu_edges`, ruff
+//! #71) and is bridged in `op-codegen-pipeline::nav_harvest::harvest_menu_klickweg`
+//! — see that module's docs for why [`nav::menu`] stays the **hand-authored
+//! baked mirror** here rather than a live harvest call (`op-server` is the
+//! deployed binary and does not carry a Rails source tree at request time;
+//! the same baked-mirror relationship already holds between `nav::NAV_EDGES`
+//! and the inter-screen harvest). Steps 4–5 (the widget ClassView types and
+//! the OGAR codegen emit) remain open follow-ups.
 
 use lance_graph_contract::class_view::WideFieldMask;
 
@@ -111,8 +117,10 @@ fn region_concept(name: &str) -> &'static str {
 /// ([`nav::menu`]) render as live links; the deferred dead lanes
 /// ([`nav::NOT_YET_NAVIGABLE`]) render as greyed, disabled items so the side
 /// menu *shows the full nav surface*, including what is not yet built (honest
-/// about the structure). When the Rails menu-DSL harvest (step 3) lands, this
-/// list is generated from the harvested menu shape rather than `nav::menu`.
+/// about the structure). [`nav::menu`] is the hand-authored baked mirror of
+/// `op-codegen-pipeline::nav_harvest::harvest_menu_klickweg` (ruff #71's
+/// menu-DSL arm) — see the module docs above for why the mirror stays baked
+/// rather than a live harvest call.
 #[must_use]
 pub fn left_menu_html() -> String {
     let mut out = String::from("<nav class=\"sidemenu\" aria-label=\"Main\">");
