@@ -16,7 +16,8 @@
 use std::path::PathBuf;
 
 use op_codegen_pipeline::nav_harvest::{
-    concept_for, harvest_klickweg_with_report, klickweg_pairs, OPENPROJECT_SCREENS,
+    concept_for, harvest_klickweg_with_report, harvest_menu_klickweg_with_report, klickweg_pairs,
+    OPENPROJECT_SCREENS,
 };
 use ruff_ruby_spo::NavShape;
 
@@ -90,4 +91,34 @@ fn every_screen_bridges_to_a_classview_concept() {
     assert_eq!(concept_for("work_packages"), Some("ProjectWorkItem"));
     assert_eq!(concept_for("projects"), Some("Project"));
     assert_eq!(concept_for("not_a_screen"), None);
+}
+
+/// The menu-DSL harvest (ruff #71) reproduces `op-server::nav::MENU_NAV_EDGES`'
+/// `Menu → <screen>` half: exactly `("menu", "work_packages")` and
+/// `("menu", "projects")`, both shape `MenuItem`, from the synthetic
+/// `lib/redmine/default_menu.rb` fixture.
+#[test]
+fn menu_harvest_reproduces_the_menu_rooted_klickweg() {
+    let (edges, report) = harvest_menu_klickweg_with_report(&fixture_root());
+    let pairs = klickweg_pairs(&edges);
+
+    let expected: std::collections::BTreeSet<(String, String)> =
+        [("menu", "work_packages"), ("menu", "projects")]
+            .iter()
+            .map(|(s, t)| ((*s).to_string(), (*t).to_string()))
+            .collect();
+
+    assert_eq!(
+        pairs, expected,
+        "harvested menu klickweg must be exactly menu -> {{work_packages, projects}}; got {edges:?}"
+    );
+    assert!(
+        edges.iter().all(|e| e.shape == NavShape::MenuItem),
+        "every menu-harvested edge must carry the MenuItem shape: {edges:?}"
+    );
+
+    // The ledger accounts for the fixture: 1 menu-DSL file, 2 pushes, both
+    // resolving (no unknown targets in the fixture).
+    assert_eq!(report.files_with_menu_items, 1, "{report:?}");
+    assert_eq!(report.raw_menu_pushes, 2, "{report:?}");
 }
