@@ -23,12 +23,23 @@
 //! `op-server::nav::SCREEN_UNIVERSE`), so the connectivity graph is identical
 //! under it — a `(work_packages → projects)` harvested edge IS the
 //! `(ProjectWorkItem → Project)` ClassView edge.
+//!
+//! ## The menu-rooted twin ([`harvest_menu_klickweg`])
+//!
+//! [`harvest_menu_klickweg`] runs the sibling `Redmine::MenuManager`-DSL
+//! harvest (ruff #71, `NavShape::MenuItem`) and returns the same
+//! [`RubyNavEdge`] shape, source fixed to the literal `"menu"` root. This is
+//! the harvested source of `op-server::nav::MENU_NAV_EDGES` — currently
+//! hand-authored from `nav::menu()`'s hardcoded `[("Board", "/"), ("Projects",
+//! "/projects")]` tab list. `nav_harvest_probe` proves the harvest reproduces
+//! `Menu → work_packages` and `Menu → projects` on the synthetic fixture.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
 use ruff_ruby_spo::{
-    extract_nav_edges, extract_nav_edges_with_report, NavScanReport, NavVocab, RubyNavEdge,
+    extract_menu_edges, extract_menu_edges_with_report, extract_nav_edges,
+    extract_nav_edges_with_report, MenuScanReport, NavScanReport, NavVocab, RubyNavEdge,
 };
 
 /// The OpenProject board's served screens, as Rails resource stems — the
@@ -57,6 +68,22 @@ pub fn harvest_klickweg(app_root: &Path) -> Vec<RubyNavEdge> {
 #[must_use]
 pub fn harvest_klickweg_with_report(app_root: &Path) -> (Vec<RubyNavEdge>, NavScanReport) {
     extract_nav_edges_with_report(app_root, &openproject_vocab())
+}
+
+/// Harvest the menu-rooted klickweg edges (`"menu" → <screen>`) from a Rails
+/// `app_root`, restricted to the OpenProject served screens
+/// ([`OPENPROJECT_SCREENS`]). The harvested source of
+/// `op-server::nav::MENU_NAV_EDGES`' `Menu → <screen>` half.
+#[must_use]
+pub fn harvest_menu_klickweg(app_root: &Path) -> Vec<RubyNavEdge> {
+    extract_menu_edges(app_root, &openproject_vocab())
+}
+
+/// Like [`harvest_menu_klickweg`] but also returns the [`MenuScanReport`]
+/// ledger (`.rb` files scanned, files with menu items, raw `.push` calls).
+#[must_use]
+pub fn harvest_menu_klickweg_with_report(app_root: &Path) -> (Vec<RubyNavEdge>, MenuScanReport) {
+    extract_menu_edges_with_report(app_root, &openproject_vocab())
 }
 
 /// The distinct `(source, target)` screen pairs of a harvested edge set — the
