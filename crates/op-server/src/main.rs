@@ -20,6 +20,7 @@ use op_db::{Database, DatabaseConfig};
 
 mod board;
 mod health;
+mod layout;
 mod metrics;
 mod nav;
 mod viewfilter;
@@ -99,6 +100,21 @@ async fn main() -> anyhow::Result<()> {
     // bucket God-object overflow path equivalent to the direct mint on
     // today's bases, so the >256-field path is verified before it is
     // ever needed.
+    // Layout regions (Layer 0 of the UI-as-ClassView model): the page's
+    // region set (header / left-menu / content / footer …) is a masked
+    // ClassView whose regions intern under a page node — the same stack the
+    // route skins use. Affirmed here so a mis-composed page chrome is loud.
+    let mut regions = layout::region_registry(&layout::default_region_mask());
+    let regions_ok = regions.verify_stack_order() && regions.verify_bijective();
+    if regions_ok {
+        info!(
+            region_nodes = regions.len(),
+            "Layout regions interned (page = masked ClassView of regions, stack + bijection hold)"
+        );
+    } else {
+        tracing::warn!("Layout region tree self-check FAILED");
+    }
+
     let mut views = board::view_registry();
     let stack_ordered = views.verify_stack_order();
     let stack_bijective = views.verify_bijective();

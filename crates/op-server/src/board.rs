@@ -33,6 +33,7 @@ use op_db::{
 };
 
 use crate::health::AppState;
+use crate::layout;
 use crate::nav;
 use crate::viewfilter;
 
@@ -1686,6 +1687,39 @@ fn parse_project_update(form: &HashMap<String, String>) -> UpdateProjectDto {
 /// top of the `html_list_view` spine markup (`.ogar-list`, `table.list`,
 /// `tr.group`, `.progress`).
 fn page_shell(title: &str, body_html: &str) -> String {
+    // Layer-0 region composition: which chrome regions render is a masked
+    // ClassView (crate::layout). `content` is always `body_html`; the header,
+    // side menu, right menu, and footer are gated by the region mask.
+    let regions = layout::default_region_mask();
+    let header_region = if layout::region_on(&regions, "header") {
+        format!(
+            "<nav class=\"topnav\"><a href=\"/\" class=\"topnav-brand\">OpenProject RS</a>{}</nav>",
+            topnav_menu_links(),
+        )
+    } else {
+        String::new()
+    };
+    let left_menu_region = if layout::region_on(&regions, "left_menu") {
+        format!(
+            "<aside class=\"sidemenu-region\">{}</aside>",
+            layout::left_menu_html()
+        )
+    } else {
+        String::new()
+    };
+    let right_menu_region = if layout::region_on(&regions, "right_menu") {
+        "<aside class=\"sidemenu-region rightmenu\"></aside>".to_string()
+    } else {
+        String::new()
+    };
+    let footer_region = if layout::region_on(&regions, "footer") {
+        format!(
+            "<footer class=\"page-footer\">{}</footer>",
+            layout::footer_html()
+        )
+    } else {
+        String::new()
+    };
     format!(
         r#"<!doctype html>
 <html lang="en">
@@ -1781,6 +1815,20 @@ fn page_shell(title: &str, body_html: &str) -> String {
   .progress .progress-bar {{ height: 100%; background: #36b37e; }}
   .progress .progress-label {{ position: absolute; left: 108px; top: -3px; font-size: 0.75rem; color: #6b778c; }}
   td.nodata {{ text-align: center; color: #6b778c; padding: 2rem; }}
+  .page-grid {{ display: flex; align-items: stretch; min-height: calc(100vh - 2.4rem); }}
+  aside.sidemenu-region {{ flex: 0 0 13rem; background: #fff; border-right: 1px solid #dfe1e6; padding: 0.75rem 0; }}
+  .sidemenu ul {{ list-style: none; margin: 0; padding: 0; }}
+  .sidemenu-primary a {{ display: block; padding: 0.5rem 1.25rem; color: #172b4d; font-weight: 600; }}
+  .sidemenu-primary a:hover {{ background: #ebecf0; text-decoration: none; }}
+  .sidemenu-soon-label {{ padding: 0.75rem 1.25rem 0.25rem; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: #6b778c; }}
+  .sidemenu-soon li span {{ display: block; padding: 0.35rem 1.25rem; color: #a5adba; font-size: 0.85rem; cursor: not-allowed; }}
+  .page-content {{ flex: 1 1 auto; min-width: 0; }}
+  footer.page-footer {{ padding: 0.75rem 1.5rem; background: #091e42; color: #7a869a; font-size: 0.75rem; }}
+  @media (prefers-color-scheme: dark) {{
+    aside.sidemenu-region {{ background: #22272b; border-right-color: #3a3f45; }}
+    .sidemenu-primary a {{ color: #b6c2cf; }}
+    .sidemenu-primary a:hover {{ background: #2c333a; }}
+  }}
   @media (prefers-color-scheme: dark) {{
     body {{ background: #1d2125; color: #b6c2cf; }}
     table.list {{ background: #22272b; }}
@@ -1794,11 +1842,13 @@ fn page_shell(title: &str, body_html: &str) -> String {
 </style>
 </head>
 <body>
-<nav class="topnav"><a href="/" class="topnav-brand">OpenProject RS</a>{menu_links}</nav>
-{body_html}
+{header}<div class="page-grid">{left_menu}<div class="page-content">{body_html}</div>{right_menu}</div>{footer}
 </body>
 </html>"#,
-        menu_links = topnav_menu_links(),
+        header = header_region,
+        left_menu = left_menu_region,
+        right_menu = right_menu_region,
+        footer = footer_region,
     )
 }
 
@@ -2183,6 +2233,29 @@ mod tests {
 
         let names: Vec<&str> = columns.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, vec!["subject", "project", "done_ratio"]);
+    }
+
+    /// The composed page shell carries the Layer-0 regions: the top-nav
+    /// header, the left side menu (primary links + the "Coming soon"
+    /// deferred lanes), the content, and the footer — the chrome that was
+    /// "completely missing" from the read-only preview. `right_menu` is off
+    /// by default, so it must NOT appear.
+    #[test]
+    fn page_shell_composes_layout_regions() {
+        let html = page_shell("T", "<main><p>content here</p></main>");
+        assert!(html.contains("class=\"topnav\""), "header region");
+        assert!(html.contains("class=\"page-grid\""), "region grid");
+        assert!(
+            html.contains("class=\"sidemenu-region\""),
+            "left side menu present"
+        );
+        assert!(
+            html.contains("Coming soon"),
+            "deferred lanes shown in side menu"
+        );
+        assert!(html.contains("content here"), "main content region");
+        assert!(html.contains("class=\"page-footer\""), "footer region");
+        assert!(!html.contains("rightmenu"), "right_menu is off by default");
     }
 
     /// `stacked_mask` (via `wp_stacked_skin`) drops `project` from the
