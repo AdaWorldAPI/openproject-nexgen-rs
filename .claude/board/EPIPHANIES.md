@@ -14,6 +14,33 @@
 
 ## Entries (newest first)
 
+## 2026-07-10 — Gap (b) CLOSED: the routes.rb harvest arm ships (ruff #73) — helper stem → controller#action is now resolvable
+**Status:** FINDING (shipped + gated on the real corpus; ruff PR #73, branch `claude/openproject-transcode-status-c6e8in`)
+**Scope:** ruff `ruff_ruby_spo::routes` × `ruff_spo_triplet::Predicate` × the E-CLICKWEG-CHOREOGRAPHY-1 gap ledger (entry below)
+
+The routes.rb stratum — gap (b) from the 2026-07-09 choreography ruling
+("HTTP verb / member-collection / return shape, the one missing Action-kind
+fact source") — is closed. A new `ruff_ruby_spo::routes` AST-walk arm resolves
+a route-helper **stem (+ verb) → `controller#action`** (`RoutesTo` +
+`RouteScope`, 2 additive Authoritative predicates, count-lock 71→73), so the
+`InvokesAction`/`NavigatesTo` stems that "resolved to nothing" now join. Built
+council-first (5 savants → consolidate → 3 reviewers → v3 freeze; R1 the
+correctness-adversary caught 6 corpus-anchored P0 Rails-semantics bugs BEFORE
+implementation) then gated centrally against the live corpus: 29 files, 1625
+declared routes, 1534 emitted, `escaped_other` exactly `["use_doorkeeper"]`.
+Central review added four real-corpus fixes (namespace-path controller
+fallback so a bare `get action:` in `namespace :admin;:settings` resolves to
+`admin/settings#…` instead of leaking the verb into `escaped_other`; measured
+`escaped_dynamic=13`; `as:`-verbatim collection name; `except:`-respecting
+spot-check). Full account: `.claude/ruff-expansions/2026-07-10-routes-arm-spec.md`
+(v3 contract + SHIPPED note).
+
+**Gap ledger now:** (a) writes/calls CLOSED · **(b) routes.rb stratum CLOSED
+(this arm)** · (c) recipe codebook Phase 2 unwired · (d) permission-declaration
+arm · (e) DB-resident choreography content → hydrator. The remaining open arms
+(d)+(e) are the guard/state strata the corpus reality-check found to be
+DB-resident or declaration-static; (c) is the OGAR-side codebook wire.
+
 ## 2026-07-09 — Clickwege live in the moving joints: traces-not-facts, the five-edge choreography mint, ore/slag refinery (operator ruling + verified gap map)
 **Status:** FINDING (operator ruling 2026-07-09; gap map verified in code this session — 5-reader sweep over ruff / OGAR / op-nexgen / upstream corpus / MedCare-rs. OGAR board mirror pending.)
 **Scope:** ruff `ruff_ruby_spo` × OGAR `ogar-vocab`/`ogar-from-ruff` × `op-server/{nav,viewfilter,board}.rs` × corpus `config/routes.rb` + `app/models/workflow.rb` × MedCare-rs parity
