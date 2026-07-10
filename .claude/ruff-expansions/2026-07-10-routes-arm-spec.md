@@ -588,3 +588,28 @@ unknown kwarg (`work_package_split_view:`) or a non-controller `defaults:`
 hash next to a literal `action:`; a tighter literal-check could emit facts for
 those instead of declining. Filed as a follow-up, not a fact bug (declining is
 safe; emitting a wrong fact is not).
+
+---
+
+# 2026-07-10 — codex review follow-up MERGED (ruff PR #74)
+
+Two codex P2 comments on the merged #73 — both real bugs in the W3
+migration-replay (`schema.rs`), both fixed in #74 (branch restarted from main
+per the merged-PR protocol):
+
+1. **`def down` rollback bodies were being replayed.** `def up`/`def change`
+   describe the schema *after* the migration; `def down` reverses it. The
+   replay scanned both halves, so an add-in-`up` + remove-in-`down` netted the
+   column away. Fix: a Ruby block-depth tracker skips `def down` bodies.
+   **Pinned-fact correction:** the OpenProject `WorkPackage` baseline+replay
+   column count is **33, not 31** — `create_work_package_semantic_ids`'s
+   `def up` adds `sequence_number`/`identifier` and its `def down` removes
+   them; Rails applies only `up`, so they are RETAINED. The old "net to zero"
+   (31) was the bug. Corpus schema gate + drift fuse re-pinned 31 → 33.
+2. **Parenthesized `add_column(:t, :c, :type)` was silently dropped** —
+   `parse_add_column` didn't `strip_call_parens` like its siblings. Fixed.
+
+Both got regression tests. This closes the review loop on the routes-arm PR
+arc (ruff #72 nav-plane → #73 routes-arm + W3 → #74 codex fixes, all merged).
+The routes.rb harvest arm (gap b) is shipped and hardened; W3's migration-
+replay is corrected. Gap ledger unchanged: (b) CLOSED; (c)/(d)/(e) open.
