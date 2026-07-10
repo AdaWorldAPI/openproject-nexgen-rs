@@ -535,3 +535,56 @@ Gate: `cargo test -p ruff_ruby_spo -p ruff_spo_triplet` green · `cargo clippy
 
 **v3 is frozen. Implementation follows this contract exactly; deviations
 require a new dated section, not an inline edit.**
+
+---
+
+# 2026-07-10 — SHIPPED (ruff PR #73)
+
+The routes.rb harvest arm landed per this frozen v3 contract. Sonnet grinder
+implemented (chunked `tee -a` after two single-write attempts died on the
+flaky-connection infra); the Opus orchestrator gated centrally in the shared
+`target/` and fixed four issues the subagent's own fixtures didn't exercise —
+each verified against the real corpus, none a spec defect:
+
+1. **`escaped_other` verb leakage → namespace-path controller fallback.** A
+   bare `get "plugin/:id", action: :show_plugin` inside `namespace :admin;
+   namespace :settings` (no controller frame) was dumping the verb name into
+   `escaped_other` (the unknown-DSL bucket). Rails resolves it to the module
+   scope path — `admin/settings#show_plugin` (verified: the real handler is
+   `app/controllers/admin/settings_controller.rb`). `ambient_controller` now
+   falls back to `controller_prefix` when only namespace frames exist;
+   `escaped_other` is now exactly `["use_doorkeeper"]`.
+2. **`escaped_dynamic` measured = 13, not R3's pre-registered 2.** R3's
+   grep-estimate counted the two `.each` loop *sites*; the faithful walker
+   counts every route *declaration* it conservatively declines (interpolated
+   `.each` bodies + module routes carrying a non-literal-shaped `action:`/path
+   alongside benign unknown kwargs like `work_package_split_view:` /
+   `defaults:` hashes — calendar 4, team_planner 4, boards 1, backlogs 1). All
+   counted, none silently dropped (honest denominator). Tightening their
+   classification so more emit a fact is tracked below as follow-up polish.
+3. **`as:` verbatim collection name.** `resources :foos, as: :bar` → `bar`
+   (Rails guide: `as: 'images'` → `images_path`, not re-pluralized), not
+   `bars`. Implementation was correct; the subagent's own test asserted the
+   wrong `bars` — test corrected.
+4. **3-level-nesting spot-check.** The v3 §F1 list named
+   `project_meeting_agenda_item_outcome` (show), but the innermost
+   `resources :outcomes, except: %i[index show]` removes that helper. The
+   walker correctly respects `except:`; the spot-check now uses
+   `new_project_meeting_agenda_item_outcome` (which exists + is used in-app).
+
+**Measured corpus fuse (pinned):** 29 files · 1625 declared · 1534 emitted ·
+42 stemless · 0 duplicate conflicts · escaped {redirects=19, mounts=9, procs=1,
+via_all=6, dynamic=13} · other=`["use_doorkeeper"]`. Tests 149 (ruby) + 133
+(triplet), clippy-clean on the 4 touched files, per-file fmt-clean.
+
+**Gap ledger after this arm:** (a) writes/calls CLOSED · **(b) routes.rb
+stratum CLOSED** (this arm — stem→controller#action now resolvable) · (c)
+recipe codebook Phase 2 unwired · (d) permission-declaration arm · (e)
+DB-resident choreography content → hydrator.
+
+**Follow-up polish (tech-debt, not blocking):** the 13 `escaped_dynamic`
+includes module routes conservatively declined only because of a benign
+unknown kwarg (`work_package_split_view:`) or a non-controller `defaults:`
+hash next to a literal `action:`; a tighter literal-check could emit facts for
+those instead of declining. Filed as a follow-up, not a fact bug (declining is
+safe; emitting a wrong fact is not).
