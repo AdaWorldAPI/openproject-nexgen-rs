@@ -347,3 +347,191 @@ the §3 algorithm still mishandles — prove it from
 (boundary + closed-vocab discipline + Gate allowlist consistency); R3
 test-sufficiency (which v2 clause has no §6/§7 test). Fixes land as a dated
 v3 section; implementation follows frozen v3 only.
+
+---
+
+# v3 — FROZEN implementation contract (3-reviewer pass folded, 2026-07-10)
+
+> This section supersedes v2 §3/§6/§7/§8 where it conflicts. Implementer
+> reads the v2 body for structure + this v3 delta for the corrected rules.
+> R1 found 6 P0 / 5 P1 / 1 P2 (all corpus-anchored, helper call sites
+> grep-confirmed); R2 2 P1 + 5 P2; R3 test-traceability + pre-registered
+> census. The path did NOT change — faithful Rails stem generation is
+> sharper than v2 assumed. Correctness rule of the arm: **a stem we emit
+> MUST be one Rails actually generates, else emit no triple and count it.**
+
+## A. Structural change (absorbs P0 #2 + #3) — token/pair on the frame
+
+`Resources`/`Resource` frames carry a precomputed pair, NOT raw plural/singular:
+```
+Resources { collection_token, member_token, shallow: bool }
+Resource  { collection_token, member_token }   // singleton
+```
+- `Resources`: `member_token = singularize(name)`;
+  `collection_token = (singularize(name) == name) ? format!("{name}_index") : name`
+  (Rails `Mapper::Resource#collection_name`: plural==singular → `_index`).
+  Corpus: `resources :news` → `news_index` (confirmed `project_news_index_path`);
+  `:admin`, `:wiki`, `:activity`, `:gantt` identical.
+- `Resource` (singleton): `member_token = name`; `collection_token = name`
+  (Rails `SingletonResource` aliases collection_name to singular — P0 #3).
+  `controller` still pluralizes (unchanged).
+- ALL Collection-style stems (index/create/collection verb-calls) use
+  `collection_token`; ALL Member/new/edit stems use `member_token`.
+
+## B. P0 fixes (mandatory — wrong-fact-at-scale)
+
+**B1 (P0 #1) — absolute `controller:` value.** On resources/resource/verb-calls:
+if the `controller:` value starts with `/`, strip the slash and use it
+VERBATIM, discarding `controller_prefix` and all `module:` frames; else
+controller = `{controller_prefix}{value}`, the value replacing the
+resource-derived name entirely even if multi-segment (`news/comments`).
+51 corpus sites.
+
+**B2 (P0 #4) — `controller:` kwarg on verb calls.** In BOTH member/collection
+and standalone target resolution, a per-call `controller:` kwarg ranks WITH
+`to:`/fat-arrow (before ambient/innermost-resource controller) and combines
+with `action:`. Apply B1's `/`-rule to its value. Corpus: `humanize_schedule,
+controller: "recurring_meetings/schedule"` → `recurring_meetings/schedule#humanize_schedule`.
+
+**B3 (P0 #5) — non-resource kwargs on resources/resource wrap a scope.** Any
+kwarg outside `{as, controller, path, only, except, param, concerns, shallow}`
+is replayed as an enclosing `Scope` frame carrying that kwarg (Rails
+`apply_common_behavior_for` slice). At minimum `module:` MUST be honored:
+`resources :types, module: "work_package_types"` → controller
+`work_package_types/types`, helper unprefixed.
+
+**B4 (P0 #6) — naked verb in a `resources` (plural) block is NESTED, not
+collection.** Rails `nested{}`: name = parent-first
+`{hp}{parent_incl_this_singular}_{action_seg}`, scope path is member-like →
+emit `RouteScope` = `"member"`. (The `Resource` singleton half of v2's naked-verb
+rule stays Member-style — correct.) Corpus: `get "/roadmap" => "versions#index"`
+inside `resources :projects` → `project_roadmap` (confirmed
+`project_roadmap_path`). A bare-`/` string here → collection candidate =
+`collection_token` (see B5/C3).
+
+**B5 (P0, folded from #2) — the `_index` double-emission is resolved by A**:
+`resources :news` emits index/show on DISTINCT stems (`news_index` get /
+`news` get), no collision. Any residual true (stem,verb) duplicate → C4.
+
+## C. P1 fixes
+
+**C1 (P1 #7) — Rails auto-names slash/word string paths.** A String first arg
+matching `^/?[-a-z0-9_/]+$` (NO `:` `(` `*` `.`) derives a stem: strip leading
+`/`, map `/` and `-` → `_`, compose per scope (standalone `{hp}{derived}`;
+collection candidate `[derived, hp, collection_token]`; bare `/` contributes
+nothing → collection stem = `collection_token`). ONLY paths with dynamic
+(`:x`), glob (`*x`), or format (`.x`) segments fall to `entries_without_stem`.
+Corpus: `/api/docs`→`api_docs` (confirmed), `/watch`→`watch`, `put "/" =>
+"roles#bulk_update"` in a collection → `roles`.
+
+**C2 (P1 #8) — `as: ""`** (empty) omits the action segment entirely (no
+leading `_`); result intentionally collides with the canonical stem → resolved
+by C4 order. Corpus: `get "(/:tab)" => "work_packages#show", on: :member,
+as: ""` → `work_package` (dup-skips canonical show).
+
+**C3 (P1 #9) — declaration order + `resolve` tie-break.** Walk emits entries in
+declaration order EXCEPT a resources/resource's canonical routes emit AFTER its
+block body (Rails registers block customs first, canonicals shadow-skip on
+name collision). `RouteTable::resolve` returns the FIRST entry for (stem,verb).
+A later same-(stem,verb) entry with a DIFFERENT `controller#action` increments
+a new `duplicate_stem_conflicts: usize` counter, stays in `entries`, but emits
+NO second `RoutesTo` triple (preserves §2 "one triple per (stem,verb)").
+
+**C4 (P1 #10) — multi-name `resources :a, :b`.** N positional Symbol args replay
+the whole declaration (kwargs + block) once per name. Non-literal names in the
+list → `escaped_dynamic`. Corpus: `resources :activity, :activities`.
+
+**C5 (P1 #11) — non-literal `action:`/`to:` values → `escaped_dynamic`** (extends
+v2's counter beyond name/path/as/controller). A `concern` block with a block
+param (`do |options|`) replays ONLY if every route-relevant kwarg in its body
+is literal; else the whole replay is `escaped_dynamic`. Corpus:
+`concern :with_split_view do |options| get "…", action: options.fetch(...)`.
+
+## D. P2 fix
+
+**D1 (P2 #12) — `only:`/`except:` accept Symbol, String, `%i[]`, `%[]`, or array
+of either; coerce every element via to_sym.** Corpus: `only: %[show]` (String).
+
+## E. R2 gate/wiring fixes
+
+**E1 (P1) — §8 triple.rs allowlist wording.** Replace with: "2 variants incl.
+their `as_str`/`from_str`/`ALL`/`default_provenance` arms + the
+`// ───── Rails routes.rb stratum (config-as-data) ─────` plane header + rename
+`predicate_count_locked_at_71`→`_at_73` with appended house-style comment entry
++ the `InvokesAction` doc-comment drive-by (triple.rs:514) ONLY."
+
+**E2 (P2) — lib.rs registration is PRIVATE mod + curated re-export** (sibling
+convention, lib.rs:37-66): `mod routes;` + `pub use routes::{RouteEntry,
+RouteVerb, RouteScopeKind, RouteTable, RouteScanReport, extract_routes,
+extract_routes_with_report};`. NOT `pub mod`.
+
+**E3 (P2) — `From<ActionVerb>` path** = `crate::actions::ActionVerb`
+(the `actions` mod is private; impl lives in routes.rs, orphan-rule-clean).
+
+**E4 (P2) — `IRREGULAR` + `pluralize` are routes.rs-LOCAL** (schema.rs's
+`IRREGULAR` is fn-local; only `singularize` visibility changes). Duplicate the
+irregular pairs into routes.rs.
+
+**E5 (P2) — `RouteScope` object = `entry.scope.as_str()`**, never a re-typed
+literal (one doc sentence, mirrors `HasVisibility`).
+
+**E6 (P1, honesty note) — verb-ambiguity of triple-only joins.** §2 gains:
+"triple-only joins are verb-ambiguous on multi-verb stems (canonical
+show/update/destroy share a stem); the verb-carrying join is
+`RouteTable::resolve(stem, verb)` frontend-side. An `invokes_with_verb` fact is
+explicitly deferred." `concerns:`-kwarg path stays spec'd (standard Rails, ~10
+LOC, test-covered).
+
+## F. R3 test/fuse fixes (§6/§7 replace)
+
+**F1 — PRE-REGISTERED census bounds** (measured 2026-07-10; replace v2 §7(b)
+"pin at first green run"). The fuse asserts, and these may only NARROW after
+first run, never widen:
+- `files_scanned == 29`
+- `escaped_mounts == 9`
+- `escaped_via_all == 6`
+- `escaped_dynamic == 2` (the `.each` sites config/routes.rb:326, :551; `==`, not `>=`)
+- `declared_routes >= 974` (156 `resources` + 110 `resource` + 708 verb-calls)
+- spot-checks resolve: `news_index`+get→`news#index`; `work_packages`+get→
+  `work_packages#index`; `hover_card_work_package`+get→`work_packages/hover_card#show`;
+  `reassign_work_packages_bulk`+match→bulk target; `menu_project_gantt_index`+get;
+  `project_meeting_agenda_item_outcome`+get; `api_docs`+get→`api_docs#index`;
+  root: `home`+get→`homescreen#index` AND the 2nd root (account#login) → C3 tie-break
+- `escaped_other` matches a pinned allowlist
+- NO emitted stem matches `/[#{}]/` and none equals `workspace_types`/`diff_revision`
+  (the `.each` would-be-guesses) — false-positive guard for B/C1
+
+**F2 — new unit fixtures** (add to §6): F(a) join test — actions + routes from
+one fixture, assert `RoutesTo` subject set ∩ `InvokesAction` object set
+byte-equal for a member action (§2's raison d'être, was untested); F(b)
+absolute `/`-controller; F(c) `_index` collection (news/admin/gantt); F(d)
+singleton collection singular; F(e) `module:` scope-wrap; F(f) naked-verb-nesting
+(projects→roadmap); F(g) multi-name replay; F(h) auto-named slash path
+(`/api/docs`); F(i) `as: ""`; F(j) (stem,verb) duplicate → `duplicate_stem_conflicts`
+++, single triple, `resolve` returns first; F(k) `.each` fixture: `entries_emitted`
+delta == 0, no `#{`/lvar residue; F(l) `defaults:{controller:}` → escaped_dynamic;
+F(m) unknown call dedup in `escaped_other`; F(n) block-param concern → literal
+replays / non-literal escaped_dynamic; F(o) `controller: "/abs"` NOT double-prefixed.
+
+**F3 — `declared_routes` identity** (define the field): `declared_routes ==
+entries_emitted-sites + entries_without_stem + all escaped_*`. Assert the
+identity in F1 and the corpus fuse.
+
+**F4 — gate is per-file rustfmt** (§8): `rustfmt --edition 2021 --check` over
+the exact edit allowlist; doc-comment/plane-header clauses are review-only —
+SAY so.
+
+## G. FROZEN edit allowlist + gate (supersedes §8)
+
+Files (nothing else moves; base = ruff `3510f05` = main#72 + W3):
+- `crates/ruff_ruby_spo/src/routes.rs` — NEW (the arm + `#[cfg(test)]` incl. the env-gated fuse)
+- `crates/ruff_ruby_spo/src/lib.rs` — register (private mod + curated re-export, E2)
+- `crates/ruff_ruby_spo/src/schema.rs` — `pub(crate) singularize` ONLY (E4)
+- `crates/ruff_spo_triplet/src/triple.rs` — 2 variants per E1 (+arms +plane header +count-lock 71→73 +InvokesAction doc drive-by)
+
+Gate: `cargo test -p ruff_ruby_spo -p ruff_spo_triplet` green · `cargo clippy
+-p ruff_ruby_spo -p ruff_spo_triplet` clean · per-file `rustfmt --check` on the
+4 files · the corpus fuse (F1) green under `RAILS_CORPUS_SRC=/home/user/openproject`.
+
+**v3 is frozen. Implementation follows this contract exactly; deviations
+require a new dated section, not an inline edit.**
