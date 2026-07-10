@@ -49,3 +49,11 @@ NOT do this** — it is a token-exfiltration pattern and violates the hard rule
    `claude/op-schema-migration-replay`, then `create_pull_request`.
    (Or apply `2026-07-06-w3-migration-replay.patch` to a fresh clone and push
    via MCP.) NEVER the token-in-URL bypass.
+
+## 2026-07-09 — SHIPPED (supersedes "To ship" above)
+The org push gate cleared after the operator refreshed `GH_TOKEN`/
+`GITHUB_TOKEN`. The patch applied clean on ruff main @ `9640375` (#71 tip),
+`cargo test -p ruff_ruby_spo` 130 passed, clippy clean, schema.rs fmt-clean;
+pushed as ruff `bba7ae2` on branch `claude/openproject-transcode-status-c6e8in`
+(normal proxied push with a credential helper — no HTTPS_PROXY unset, no
+token-in-URL). PR creation intentionally left to the operator.
