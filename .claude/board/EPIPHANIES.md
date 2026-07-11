@@ -14,6 +14,48 @@
 
 ## Entries (newest first)
 
+## 2026-07-11 — Region arm ships: the six-region layout plane on the Rails side (ruff #78), tab_order = faithful single-pass Rails TreeNode replay
+**Status:** FINDING (shipped + corpus-gated + correctness-adversary-reviewed; ruff PR #78, branch `claude/openproject-transcode-status-c6e8in`)
+**Scope:** ruff `ruff_ruby_spo::menu_regions` × `ruff_spo_triplet::Predicate` (shared plane, no mint) × the six-region-layout-port knowledge doc ([H]→[G] harvester) × the Klickwege **structure** oracle (render-side half)
+
+The render-side half of the Klickwege structure oracle lands for Rails. A new
+`ruff_ruby_spo::menu_regions` AST-walk arm reads the same `menu.push` sites the
+menu harvest already parses and emits three facts per item — `docked_at`
+(the enclosing `MenuManager.map :NAME` menu = the region token, six-region
+mapping deferred to downstream `region=` config), `tab_order` (resolved sibling
+ordinal), `contains_control` (`parent:` nesting). All three predicates already
+exist and are shared (#72 `contains_control`, #76 `docked_at`/`tab_order`) — the
+arm mints NOTHING and, per the hot-plug doctrine + the routes-arm lesson,
+re-asserts no global predicate count.
+
+**The delicate part — `tab_order` derivation — is a faithful single-pass replay
+of Rails `MenuManager::TreeNode` (`tree_node.rb`), NOT a phase-separated
+resolver.** A correctness adversary caught two code-proven divergences in the
+first (staged First→Last→Before/After) draft: (1) multiple `first:` items are
+**LIFO** in Rails (`prepend` inserts each at index 0 → last-declared wins the
+front), not FIFO; (2) a plain push after a `before:`/`after:` splice onto a
+`last:` item lands at the **live** `size − last_count` boundary (`after:` uses
+`add_at`, does not bump `last_count`), so the plain item still inserts before
+the trailing last-band. Both fixed by a single mutating pass + regression
+fixtures. Consequence: Rails' at-push-time `exists?` means a forward-referenced
+or absent anchor falls through to a plain `add` — there is **no
+unresolvable/cyclic case**, so `unresolved_order` is structurally 0 (retained as
+a regression tripwire). The old cycle-detector + `before_after_cycle_*` fixture
+were removed/rewritten accordingly.
+
+**Gate:** 13 `menu_regions` fixtures green; corpus probe over the real
+OpenProject tree green — **45 files, 16 map_blocks, 137 items, 64 with_parent, 0
+unresolved**; clippy + rustfmt clean; scope held to `menu_regions.rs` + `lib.rs`.
+
+**Grade:** the harvester is `[G]` (built, corpus-verified, adversary-reviewed);
+the **end-to-end structure oracle stays `[H]`** — the one remaining link is the
+digest round-trip (feed the OP `region=` table into `nav_digest`'s `[regions]`
+section, render→parse→re-derive, assert identity). Harvest side done; digest
+wiring is the next step. Full account:
+`.claude/ruff-expansions/2026-07-11-region-arm-spec.md` (§3 order-replay) +
+`.claude/knowledge/six-region-layout-port.md` (grade line updated).
+
+
 ## 2026-07-10 — Gap (b) CLOSED: the routes.rb harvest arm ships (ruff #73) — helper stem → controller#action is now resolvable
 **Status:** FINDING (shipped + gated on the real corpus; ruff PR #73, branch `claude/openproject-transcode-status-c6e8in`)
 **Scope:** ruff `ruff_ruby_spo::routes` × `ruff_spo_triplet::Predicate` × the E-CLICKWEG-CHOREOGRAPHY-1 gap ledger (entry below)

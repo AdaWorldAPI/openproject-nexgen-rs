@@ -7,9 +7,21 @@
 > six-region render equation) and this repo's `2026-07-10-routes-arm-spec.md`
 > (RoutesTo/RouteScope — the routes half of the structure oracle).
 >
-> **Status: [H] — analogous, unbuilt on the Ruby side.** The pattern is proven
-> `[G]` for C#/WinForms (ruff #76); this doc ports it to Rails and grades what
-> it takes to reach `[G]` here. No code shipped by this doc — it is the map.
+> **Status: [G] harvester — built, corpus-verified, adversary-reviewed
+> (ruff PR #78); [H] end-to-end oracle — the digest round-trip is the one
+> remaining gate.** The pattern was proven `[G]` for C#/WinForms (ruff #76);
+> the Rails region arm now ships in `ruff_ruby_spo::menu_regions`
+> (`docked_at`/`tab_order`/`contains_control`, reusing the shared predicate
+> plane — no mint). Corpus probe over the real OpenProject tree is green: 45
+> files, 16 `map_blocks`, 137 items, 64 with `parent:`, **0 unresolved**. The
+> `tab_order` derivation is a faithful single-pass replay of Rails
+> `MenuManager::TreeNode` (a correctness adversary caught two phase-separation
+> divergences — `first:` LIFO and the `after:`-onto-`last:` live-boundary
+> case — both fixed with regression fixtures). What is still `[H]`: the
+> **structure-parity round-trip** (feed the `region=` table into
+> `nav_digest`'s `[regions]` section, render the frame, re-parse, re-derive,
+> assert identity — §5's render→parse→re-derive test). Harvest side done;
+> digest wiring is the last link to full `[G]`.
 >
 > **Source of the pattern:** ruff PR #76 (region-grammar plane) +
 > `ruff_csharp_spo` harvester (`docked_at`/`tab_order`/`opens_popup`) +
