@@ -6,8 +6,10 @@
 > corrections are folded in below and flagged `[v2]`. Base = ruff main
 > `4806298`, branch `claude/openproject-transcode-status-c6e8in`.
 >
-> **Status: READY (council-consolidated).** The delicate subject decision is
-> resolved (see §2). Two P0s and two P1s the council raised are addressed.
+> **Status: SHIPPED (ruff `c6c1cb6`).** Council-consolidated, implemented, and
+> gated centrally (3 crates green, corpus probe green, convergence proof green,
+> count-lock untouched). The delicate subject decision (§2) resolved to canonical
+> dot + shared `RegionSubject` codec; all P0/P1 findings addressed.
 
 ## 0. Council consolidation — what changed from v1 `[v2]`
 
