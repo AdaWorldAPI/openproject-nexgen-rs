@@ -15,7 +15,7 @@
 ## Entries (newest first)
 
 ## 2026-07-11 — Region-subject drift is a THREE-producer codec problem, not a two-arm separator vote (council on the RegionFact collapse spec)
-**Status:** FINDING (2-reviewer council: convergence-architect WORTH-EXPLORING-SOON + baton-handoff-auditor CATCH-CRITICAL, both consolidated into spec v2; NOT yet implemented)
+**Status:** FINDING → SHIPPED (2-reviewer council consolidated into spec v2; implemented + gated + pushed ruff `c6c1cb6` on branch `claude/openproject-transcode-status-c6e8in`: shared `ruff_spo_triplet::region` codec, all three arms migrated, convergence proof green)
 **Scope:** ruff `ruff_spo_triplet::{nav_digest, triple}` × `ruff_ruby_spo::menu_regions` (#78) × `ruff_python_spo::odoo_regions` (#79) × `ruff_csharp_spo::harvester` (#76, ndjson) × the six-region structure oracle
 
 Casting a 2-reviewer council at the proposed "collapse the two region arms onto
