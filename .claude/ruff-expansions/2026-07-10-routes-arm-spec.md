@@ -613,3 +613,38 @@ Both got regression tests. This closes the review loop on the routes-arm PR
 arc (ruff #72 nav-plane → #73 routes-arm + W3 → #74 codex fixes, all merged).
 The routes.rb harvest arm (gap b) is shipped and hardened; W3's migration-
 replay is corrected. Gap ledger unchanged: (b) CLOSED; (c)/(d)/(e) open.
+
+---
+
+# 2026-07-11 — count-lock fuse reframed by the OGAR hot-plug doctrine (ruff #77)
+
+Post-merge, #76 (region-grammar plane) bumped the shared predicate count-lock
+73 → 76 and updated `ruff_spo_triplet`'s canonical lock, but the routes arm's
+`triple_shape_and_predicate_roundtrip` test still hardcoded `ALL.len() == 73` —
+so main went red (two crates asserting one global count). Fixed in ruff **#77**:
+the routes test now proves only its own two variants (`RoutesTo`/`RouteScope`)
+roundtrip and does NOT re-assert the total.
+
+**Doctrine (read this session):** `OGAR/.claude/knowledge/hotplug-consumer-migration.md`
+(PRs #174/#175/#176/#178) — the plug-and-play pattern. A consumer declares a
+`HOT_PLUG` const (its hot classids + covered capabilities) and one activation
+test; `capability_registry::resolve_hotplug` returns vocab rows + capabilities
+by the classid join, with five named drift arms (`UnknownClassid` /
+`NoCapabilitiesFor` / `UnexpectedConsumer` / `Uncovered` / `Undeclared`) firing
+at the consumer boundary in the consumer's own binary. Motto:
+*"wenn's knallt, dann einmal — nicht 200 Pins monitoren."* A cross-crate
+re-assertion of a shared global count is exactly the "monitor N pins"
+anti-pattern this retires — vocabulary drift is caught by classid/capability
+resolution, not a global integer every arm duplicates. The residual `COUNT_FUSE`
+didn't vanish; it *consolidated* to the lance-graph **bridge** side
+(`rust-test.yml` mirror-parity vs the real OGAR sibling). So #77 moved the ruff
+side into the same shape: remove the scattered assertion, keep drift-detection
+in its single owned home.
+
+**Forward:** the doc's future-synergy #1 (ActionDef plug-and-play from ruff:
+`ruff_*_spo` harvest → fuzzy-recipe codebook → `lift_actions` → domain table
+auto-derives) is the path on which the routes arm's `RoutesTo`/`RouteScope`
+predicates become an *input* to `resolve_hotplug` — at which point the global
+`predicate_count_locked_*` is fully vestigial. That retirement belongs to the
+crate's owning session (`ruff_spo_triplet`), not this one; scope of the update
+here is my own arm (routes.rs comment, ruff #77 `cd254f8`).
