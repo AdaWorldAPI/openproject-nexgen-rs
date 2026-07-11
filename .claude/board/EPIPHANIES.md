@@ -14,6 +14,39 @@
 
 ## Entries (newest first)
 
+## 2026-07-11 — The menu QUAD: harvest (location, purpose, identity, action), lower via the radix-trie ontology (knowledge transfer of ruff #81)
+**Status:** FINDING ([H] map — knowledge-transfer doc written, unbuilt on the Ruby side; ruff #81 is the [G] C# precedent)
+**Scope:** ruff `ruff_spo_triplet` (`part_of`+`purpose`, #81) × `ruff_ruby_spo::menu_regions` (the harvest to extend) × OGAR facet/radix-trie canon (the lowering target) × `RoutesTo` (#73, the identity/action resolver)
+
+Reframing (operator): the menu harvest is not "add two predicates" — it is
+**harvest each menu node as a `(location, purpose, identity, action)`
+quadruplet and lower it into the existing ontology like a radix trie.** #81
+supplied the two missing axes (`part_of`=location, `purpose`=role); `identity`
+is `surfaces_concept`→classid, `action` is `navigates_to`/`opens_popup`.
+
+The load-bearing move: **location is NOT a stored ordinal.** The V3 LE-contract
+§3 forbids a position slot in a facet, so menu location is the `part_of`
+**rail**, projected — walking `part_of` leaf→root yields the radix-trie menu
+ADDRESS by construction (OGAR FAN_OUT=16, HHTL HEEL/HIP/TWIG cascade), a
+ClassView projection, never a byte. So a menu node lowers to ONE content-blind
+4+12 OGAR facet: `classid(identity) + radix-address(location) + role(purpose) +
+edge(action)`.
+
+Rails is the RICH consumer: it **declares** three of the four axes the C# arm
+had to infer — `part_of` is the literal `parent:` kwarg (not a first-opener
+heuristic), and `purpose` is the RESTful `action:` in the push opts
+(`index`→list, `show`→detail, `new`/`edit`→form) — same closed vocab, different
+signal than C#'s control composition. The one new harvest step: `menu_regions`
+currently drops the `{controller:, action:}` positional; `purpose` needs it.
+
+Honest deltas: `part_of` (child→parent rail) and `contains_control`
+(parent→child tree) are DISTINCT and both emitted — opposite directions, two
+axes; `purpose` from action-name is an Inferred heuristic; location stays
+projected, never stored (resist a `menu_order`/`depth` field). Full map + the
+[H]→[G] probe (walk `part_of`, assert the radix address matches rendered menu
+nesting): `.claude/knowledge/menu-quad-rail-port.md`.
+
+
 ## 2026-07-11 — Region-subject drift is a THREE-producer codec problem, not a two-arm separator vote (council on the RegionFact collapse spec)
 **Status:** FINDING → SHIPPED (2-reviewer council consolidated into spec v2; implemented + gated + pushed ruff `c6c1cb6` on branch `claude/openproject-transcode-status-c6e8in`: shared `ruff_spo_triplet::region` codec, all three arms migrated, convergence proof green)
 **Scope:** ruff `ruff_spo_triplet::{nav_digest, triple}` × `ruff_ruby_spo::menu_regions` (#78) × `ruff_python_spo::odoo_regions` (#79) × `ruff_csharp_spo::harvester` (#76, ndjson) × the six-region structure oracle
