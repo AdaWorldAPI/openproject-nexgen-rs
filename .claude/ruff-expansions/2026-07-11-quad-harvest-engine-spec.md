@@ -6,9 +6,76 @@
 > small config declaring where its four signals live. Base = ruff main
 > (post #81, `44e27e4`), branch `claude/openproject-transcode-status-c6e8in`.
 >
-> **Status: DRAFT — pending council (convergence-architect + baton-handoff-
-> auditor).** Same shape as the region-collapse that just shipped: extract the
-> reusable core, leave each frontend's *harvest* as a thin config + adapter.
+> **Status: SHIPPED — engine + Rails (ruff `c6bcbd5`); Odoo staged.**
+> Council-consolidated (convergence-architect OPPORTUNITY-NOW + baton
+> CATCH-CRITICAL, both folded into §0.v2). The reusable `quad` engine
+> (count-based `classify_purpose` + `MenuQuad` bare-node lift + the C# parity
+> test) and the Rails config/adapter shipped + gated (166+165+51 green,
+> count-lock 78 untouched). Odoo config (§5 step 3 — new `<menuitem parent=>`
+> parse) is the remaining follow-up.
+
+## 0.v2 — council consolidation (SUPERSEDES conflicting text below)
+
+1. **The engine is COUNT-based, not existential** (convergence-architect, the
+   load-bearing fix). C#'s `form` rule is `count(input-controls) ≥ 2` — a
+   substring-"any-hit" model fires `form` at 1 input (a regression vs the C#
+   golden). Corrected shape (this is what §2 builds):
+   ```rust
+   pub struct PurposeRule {
+       pub needles: &'static [&'static str], // a token hits if it CONTAINS any needle
+       pub role: PurposeRole,
+       pub min_hits: usize,                  // matching tokens required; 1 = existential
+   }
+   pub fn classify_purpose(tokens: &[&str], rules: &[PurposeRule], fallback: PurposeRole)
+       -> PurposeRole {
+       for r in rules {
+           let hits = tokens.iter().filter(|t| r.needles.iter().any(|n| t.contains(n))).count();
+           if hits >= r.min_hits { return r.role; }
+       }
+       fallback
+   }
+   ```
+   `min_hits: 1` is byte-identical to existential — Rails/Odoo never exercise
+   the count path; C#'s table (chart:1, list:1, form:2, action:1) transcribes
+   exactly. THIS is what makes "one engine, four configs" literal.
+2. **Drop `LocationSource`.** It is a 1:1 rename of `Provenance {Authoritative,
+   Inferred}` (declared parent → Authoritative, inferred first-opener →
+   Inferred). Use the tier directly; the resolution *strategy* lives in the
+   per-frontend adapter, not the shared type.
+3. **The quad node subject is a BARE `{ns}:{name}` IRI — NOT `RegionSubject`**
+   (baton P0, the CATCH-CRITICAL). The shipped grammar for `part_of` /
+   `surfaces_concept` / `navigates_to` is bare-screen (C# golden
+   `csharp:OrderScreen part_of csharp:MainScreen`; Rails `navigation.rs:105`
+   emits `navigates_to` as bare `{ns}:{name}`). A dotted `{screen}.{node}`
+   would fork the predicate into two grammars AND break the intra-arm join (the
+   quad's `surfaces_concept` must join the nav arm's). So `MenuQuad` carries a
+   single `node: String` bare IRI; `RegionSubject` stays region-arm-only (the
+   region plane is control-granular *within* a menu screen — a different plane).
+   This also dissolves the Odoo dotted-`module.xmlid` risk: a menuitem id is an
+   opaque bare node, never `rsplit`.
+4. **Add `PurposeRole::ALL`** (mirroring `Predicate::ALL`) so vocab-validity is
+   machine-derived, not a hand-maintained list. Do NOT re-assert a role *count*
+   in the ruby/csharp arms (the "monitor N pins" anti-pattern the count-lock
+   comment forbids).
+5. **C# conformance = a pure-Rust engine-MODEL parity test, not ndjson-alphabet
+   validation** (convergence-architect + baton P1). Encode C#'s `ClassifyPurpose`
+   rules as a `PurposeRule[min_hits]` slice, feed a fixture of control-type
+   token-sets through `classify_purpose`, and assert parity against C#'s known
+   outputs. That test passes ONLY if the engine model can BE the C# classifier —
+   which, with `min_hits`, it is. No dotnet needed (dotnet is unavailable here).
+   Cross-arm *semantic* parity (does C# classify a 2-input screen the same way
+   Rails would?) is explicitly NOT covered — a `truth-architect`/corpus question,
+   deferred.
+
+**Build order (v2):** (1) `quad` engine + the C# parity test [this pass];
+(2) Rails config + adapter — read `action:`, emit the quad with bare `{ns}:{item}`
+nodes [this pass, the operator's "apply" ask]; (3) Odoo config — NEW parse of
+`<menuitem parent=>` in `odoo_nav` (currently reads `action=` only), bare
+menuitem-id nodes [follow-up]; (4) — no separate C# code change (parity test in
+step 1 is the conformance).
+
+---
+
 
 ## 1. The quad (recap) and the four-frontend signal table (grounded)
 

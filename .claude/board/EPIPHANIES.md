@@ -14,6 +14,43 @@
 
 ## Entries (newest first)
 
+## 2026-07-11 — Menu-quad harvest engine SHIPPED: config over reusable (ruff c6bcbd5), Rails arm live
+**Status:** FINDING (shipped + gated; ruff `c6bcbd5`, branch `claude/openproject-transcode-status-c6e8in`; Odoo config staged)
+**Scope:** ruff `ruff_spo_triplet::quad` (reusable core) × `ruff_ruby_spo::menu_regions` (Rails config) × `ruff_csharp_spo` (parity-proven) × the menu-quad-rail knowledge transfer
+
+The operator directive "make C#/Rails/Odoo/Python a config over reusable" is
+realized: one reusable menu-quad engine in `ruff_spo_triplet::quad`, each
+frontend a config over it. Two-reviewer council (convergence-architect
+OPPORTUNITY-NOW + baton-handoff-auditor CATCH-CRITICAL) shaped it; both findings
+folded in before code.
+
+Reusable core: `PurposeRole` (7-role vocab + `ALL` + `is_valid`); a **count-based**
+`classify_purpose` over `PurposeRule { needles, role, min_hits }` — the
+convergence-architect's load-bearing correction: an existential "any-hit" model
+fires C#'s `form` at 1 input (a regression), but `min_hits:1` is byte-identical
+to substring-only (Rails/Odoo) and `min_hits:2` expresses C#'s ≥2-input form
+threshold exactly. `MenuQuad::to_triples` emits `part_of`/`purpose`/optional
+`surfaces_concept` with the **bare `{ns}:{name}`** subject — the baton P0: reusing
+the region plane's `{screen}.{control}` `RegionSubject` would fork the predicate
+into two grammars and break the intra-arm join; the shipped `navigates_to`
+(Rails `navigation.rs`) + C# golden are already bare, so the quad matches them.
+`LocationSource` was dropped (a 1:1 rename of `Provenance`). A pure-Rust C#
+engine-MODEL parity test transcribes `ClassifyPurpose` into a `PurposeRule[min_hits]`
+table and asserts the shared engine reproduces its outputs (incl. the count
+rule) — C# is genuinely a config over the same engine, no dotnet.
+
+Rails arm live: `RAILS_PURPOSE` (index→list, show→detail, new/edit→form; fallback
+Action) over the shared engine; the harvest now reads the previously-dropped
+target `action:` (bare `controller:` → `index`); `to_quad`/`extract_menu_quads`
+emit the quad with bare `{ns}:{item}` nodes + Authoritative `part_of` (Rails
+declares the parent). Region/layout plane untouched.
+
+No mint (reuses #81 `part_of`/`purpose`; count-lock 78 untouched). Follow-ups:
+Odoo config (new `<menuitem parent=>` parse in `odoo_nav`, currently reads
+`action=` only) + the OGAR radix lowering (walk `part_of` → address). Spec:
+`.claude/ruff-expansions/2026-07-11-quad-harvest-engine-spec.md` (v2, SHIPPED).
+
+
 ## 2026-07-11 — The menu QUAD: harvest (location, purpose, identity, action), lower via the radix-trie ontology (knowledge transfer of ruff #81)
 **Status:** FINDING ([H] map — knowledge-transfer doc written, unbuilt on the Ruby side; ruff #81 is the [G] C# precedent)
 **Scope:** ruff `ruff_spo_triplet` (`part_of`+`purpose`, #81) × `ruff_ruby_spo::menu_regions` (the harvest to extend) × OGAR facet/radix-trie canon (the lowering target) × `RoutesTo` (#73, the identity/action resolver)
