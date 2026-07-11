@@ -14,6 +14,48 @@
 
 ## Entries (newest first)
 
+## 2026-07-11 — Region-subject drift is a THREE-producer codec problem, not a two-arm separator vote (council on the RegionFact collapse spec)
+**Status:** FINDING (2-reviewer council: convergence-architect WORTH-EXPLORING-SOON + baton-handoff-auditor CATCH-CRITICAL, both consolidated into spec v2; NOT yet implemented)
+**Scope:** ruff `ruff_spo_triplet::{nav_digest, triple}` × `ruff_ruby_spo::menu_regions` (#78) × `ruff_python_spo::odoo_regions` (#79) × `ruff_csharp_spo::harvester` (#76, ndjson) × the six-region structure oracle
+
+Casting a 2-reviewer council at the proposed "collapse the two region arms onto
+one shared `RegionFact`+lift" refactor surfaced that the interesting boundary is
+NOT the DTO (both councils blessed the DTO+lift union as behaviour-preserving,
+no-mint, count-lock-clean) but the **subject IRI**. Three findings:
+
+1. **There are THREE producers on the region plane, not two.**
+   `ruff_csharp_spo/harvester/Program.cs:377` (#76 origin) emits
+   `{ns}:{class}.{control}` (dot) as ndjson, agreeing with Rails #78's
+   `{ns}:{menu}.{item}` (dot). Only Odoo #79 emits `{screen}::{control}` (`::`,
+   no ns). Any subject-convention decision that ignores the C# ndjson arm is a
+   latent 3-way baton drop.
+
+2. **The shipped consumer already picked dot — and it's a LIVE in-repo
+   consumer.** `ruff_spo_triplet::nav_digest::build_nav_digest`
+   (`nav_digest.rs:24-45`) parses region subjects `strip_ns(':')` then
+   `split_once('.')` — the dot grammar, with a golden test. Rails+C# parse
+   correctly today; Odoo's `::` never did. So v1's "canonicalize on `::`, change
+   Rails" recommendation was backwards: it would REGRESS the two working arms.
+   The lower-friction arm to migrate is **Odoo**, onto dot.
+
+3. **The real invariant is a subject CODEC, not a separator.** The drift's root
+   cause is the absence of a shared encode/decode helper — each arm hand-formats,
+   the digest hand-parses. Fix = extract `RegionSubject { screen, control }` with
+   `to_iri`/`from_iri` used by BOTH the shared lift AND `nav_digest`, decoding via
+   **`rsplit_once('.')`** (the LAST dot): controls carry no dot on any of the
+   three frontends, so rsplit recovers `(screen, control)` correctly even though
+   Odoo screens contain the `.xml` dot. The single load-bearing consumer change
+   is `split_once`→`rsplit_once` in `screen_of`/`control_of`.
+
+Chosen canonical = **dot** (minimal blast radius: C#+Rails+digest unchanged, only
+Odoo + the decoder migrate). `::` was rejected as it strands the out-of-repo C#
+ndjson arm. Fenced edge: a dotted Odoo related-field control
+(`currency_id.symbol`) would mis-rsplit — gated by a `dotted_control==0` corpus
+assertion; if a real one surfaces, escalate to `::` + a filed C# harvester
+follow-up. Full spec (v2, council-consolidated, implementable):
+`.claude/ruff-expansions/2026-07-11-region-fact-collapse-spec.md`.
+
+
 ## 2026-07-11 — Region arm ships: the six-region layout plane on the Rails side (ruff #78), tab_order = faithful single-pass Rails TreeNode replay
 **Status:** FINDING (shipped + corpus-gated + correctness-adversary-reviewed; ruff PR #78, branch `claude/openproject-transcode-status-c6e8in`)
 **Scope:** ruff `ruff_ruby_spo::menu_regions` × `ruff_spo_triplet::Predicate` (shared plane, no mint) × the six-region-layout-port knowledge doc ([H]→[G] harvester) × the Klickwege **structure** oracle (render-side half)
