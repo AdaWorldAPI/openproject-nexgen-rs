@@ -3,9 +3,71 @@
 > The keystone lane: set `MenuQuad::identity_concept` (dormant `None` today) so a
 > menu node carries a concept token the consumer resolves to a classid — the
 > quad's identity axis + the gate that re-opens the staged Lane B (OGAR facet
-> wiring). Grounded in the identity scout. Needs **council** — the config-vs-
-> derive tension + the tier/refusal semantics are the crux. Base = ruff main
-> `498ff55`.
+> wiring). Grounded in the identity scout. Base = ruff main `498ff55`.
+>
+> **Status: READY v2 (council-consolidated: convergence-architect OPPORTUNITY-NOW
+> + truth-architect).** Decisive answer to the crux: **ONE predicate
+> `surfaces_concept`, NO mint, tier-carried honesty.** The corrections below
+> SUPERSEDE §2's tier-unification and §5.1's "harvester can't know" claim.
+
+## v2 — COUNCIL CONSOLIDATION (build to THIS)
+
+**Both councils converge; the reconciling fact (convergence-architect): the vocab
+already has `Provenance::OpenProjectExtracted (0.95, 0.88)`** — minted for exactly
+"deterministic OpenProject-Rails fact with a small unresolvable residual," which
+IS the `controller→singularize→model` case. No `derives_concept` mint (DROP — it
+forks the source-agnostic consumer resolver for zero gain).
+
+1. **`MenuQuad` gains `identity_tier: Provenance`** (mirroring the existing
+   `part_of_tier`), and `to_triples` emits `SurfacesConcept` at `self.identity_tier`
+   — **fixing the hardcoded `Provenance::Authoritative` at `quad.rs:163`** (the
+   structural over-claim blocker). `identity_concept: Option<String>` stays.
+2. **Per-arm tiers (NOT one tier — §2's unification was the error):**
+   - C# `roomAliases` config → **Authoritative** (unchanged).
+   - Odoo `res_model` → **Authoritative** — it's a DECLARED literal read verbatim
+     from `<field name="res_model">account.move</field>`, no inflection.
+   - Rails `controller→singularize→model`, **roster-verified** → **`OpenProjectExtracted (0.95, 0.88)`**.
+3. **The roster cross-check makes the derived tier honest (truth-architect
+   finding 3 — my §5.1 "harvester can't know" was FALSE).** The schema arm already
+   harvests the real model roster (`schema::model_name_for_table` over the
+   migration tables). The identity binding MUST cross-check each derived model
+   token against that roster and emit `surfaces_concept` ONLY for a **match**.
+   This is what licenses `OpenProjectExtracted`: emitted Rails tokens are
+   verified against the actual model set, not unverified guesses.
+4. **4-bucket conservation ledger** (replaces §3's 2-bucket):
+   - `without_concept` — no `controller:`/`res_model` (identity dormant BY DESIGN).
+   - `with_concept_declared` — Odoo `res_model` / C# config (Authoritative).
+   - `with_concept_derived_matched` — Rails token ∈ roster (OpenProjectExtracted, EMITTED).
+   - `with_concept_derived_unmatched` — Rails token ∉ roster (NOT emitted; the
+     visible failure-rate bucket — irregular plurals, namespaced controllers).
+5. **Fix the inflection edge cases (truth-architect finding 4):** a namespaced
+   controller `admin/settings` today splits on `_` not `/` → garbage token
+   `Admin/setting`. Split on `/` (take the last path segment) BEFORE singularize.
+   The roster cross-check is the safety net for remaining irregular plurals
+   (∉ roster → `derived_unmatched`, not emitted) — but fix the `/` case since
+   `admin/*` controllers are common in OP.
+6. **Doc-comment honesty update (both councils):** amend `SurfacesConcept`'s doc
+   at `triple.rs:560-565` from "the config IS the claim" to: *object token sourced
+   from corpus-owner config (Authoritative) OR a declared `res_model`
+   (Authoritative) OR a roster-verified derived model name (OpenProjectExtracted);
+   the provenance tier records which.* Leaving it config-only is doctrine drift.
+
+**Convergence with the existing path (not a bypass):** the Rails token shape
+(`WorkPackage`) is byte-identical to the `PortSpec::class_id` key; the harvester
+emits the token, the consumer resolves-or-refuses (source-agnostic). No classid
+minted on the harvest side.
+
+**This unblocks Lane B:** the promoted CRUD spine (`work_packages`/`projects`/
+`time_entries`) is the load-bearing nav core; once these carry `surfaces_concept`,
+Lane B's `mint_menu_facets` resolves a non-zero classid → no classid-0 collision.
+
+**Build order:** (1) `quad.rs` `identity_tier` field + emit fix; (2)
+`odoo_quad.rs` res_model read → Authoritative; (3) `menu_regions.rs` controller
+capture + `/`-aware singularize + roster cross-check + 4-bucket ledger +
+OpenProjectExtracted emit; (4) `triple.rs` doc-comment (NO mint). Gate centrally.
+
+---
+
 
 ## 0. What the scout established (with citations)
 
