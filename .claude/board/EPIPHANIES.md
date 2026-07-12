@@ -14,6 +14,20 @@
 
 ## Entries (newest first)
 
+## 2026-07-11 — Four-lane autonomous burst: Odoo quad + round-trip probe SHIPPED (ruff b18a8d6), radix-lowering verified, GuardEdge STAGED
+**Status:** FINDING (lanes 1+3 shipped + gated; lane 2 verified; lane 4d staged behind OQ-GUARD-1; ruff branch `claude/openproject-transcode-status-c6e8in`)
+**Scope:** ruff `ruff_python_spo::odoo_quad` + `ruff_ruby_spo::menu_regions` (probe) + `ruff_spo_triplet::{quad, nav_digest}` × the menu-quad plane × the OGAR `(part_of:is_a)` action-rail
+
+Autonomous four-lane drive (Sonnet-5 for the two grindwork builds, run in parallel; Opus councils + gating):
+
+- **Lane 1 — Odoo quad config (SHIPPED, Sonnet).** `odoo_quad::extract_menu_quads`: `<menuitem parent=..>` → declared `part_of` (Authoritative), target action `view_mode` → `purpose` via the shared `classify_purpose`/`ODOO_PURPOSE`, bare `{ns}:{id}` nodes (dotted `module.xmlid` fine — opaque node, no RegionSubject split). Now all THREE Rust arms (Rails/Odoo, + C# parity-proven) emit the quad through one engine. 5 tests.
+- **Lane 3 — real-corpus round-trip probe (SHIPPED, Sonnet).** The [H]→[G] structure-oracle gate: `corpus_probe_menu_quad_round_trip_over_openproject` harvests real OP menu quads → `build_nav_digest` → asserts each `part_of` edge's `[menu-quad]` `loc=` radix address equals an independently-walked root-first chain carrying the parent as prefix (the address IS the walked rail). GREEN on the real corpus. Honest finding: `action=root` can't occur for a menu-quad-only triple set (needs `navigates_to` out-edges) → parentless nodes assert `leaf`.
+- **Lane 2 — radix lowering (VERIFIED done).** Sibling #82/#83 shipped `nav_digest::menu_address` (walk `part_of` → classid radix address) + the `[menu-quad]` section, 3 tests incl. cycle-termination + order-independence. OGAR already carries the `(part_of:is_a)` action-rail (`ogar-render-askama`). Remaining is cross-repo WIRING (op-nexgen ndjson → OGAR facets), not a gap.
+- **Lane 4d — GuardEdge permission (STAGED, no mint).** convergence-architect WORTH-EXPLORING-SOON: the axis + bare-node grammar are right, but the corpus `if:`-proc permission signal is majority-BOOLEAN (∧/∨) and a flat `requires_permission` would silently conjunct disjunctions — a correctness defect for permanent RBAC vocab. Gated behind `OQ-GUARD-1` (measure the boolean-structure distribution + the `allowed_to(recv,:sym)` 2nd-positional miss) before any mint. The "don't dilute" discipline: no permanent predicate on a signal that can't represent the logic. Spec: `2026-07-11-guard-edge-permission-spec.md` (STAGED).
+
+Gate for the shipped lanes: 169 + 167 + 56 tests green (both corpus probes), count-lock 78 untouched, clippy + fmt clean.
+
+
 ## 2026-07-11 — Menu-quad harvest engine SHIPPED: config over reusable (ruff c6bcbd5), Rails arm live
 **Status:** FINDING (shipped + gated + MERGED via ruff #84 into main `7b0304f`; commit `c6bcbd5`; Odoo config staged)
 **Scope:** ruff `ruff_spo_triplet::quad` (reusable core) × `ruff_ruby_spo::menu_regions` (Rails config) × `ruff_csharp_spo` (parity-proven) × the menu-quad-rail knowledge transfer
