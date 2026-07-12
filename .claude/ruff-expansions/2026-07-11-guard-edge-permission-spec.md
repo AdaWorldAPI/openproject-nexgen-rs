@@ -10,7 +10,7 @@
 > *appears in* the guard, never necessity, so it is correct across single/conjunction/
 > mixed AND the lone disjunction without mis-encoding. All three council OPPORTUNITY-NOW
 > conditions met (disjunctions rare · receiver-style extracted · dynamic counted).
-> **SHIPPED — ruff PR #86.** Mint `guarded_by_permission` (78→79, single count-site,
+> **MERGED — ruff PR #86 into main `498ff55`.** Mint `guarded_by_permission` (78→79, single count-site,
 > Inferred) + the `if:`-proc harvest (bare-node subject, receiver-style handled,
 > dynamic not fabricated). Gate: 169+167 green incl. 5 guard fixtures + real-corpus
 > probe; count-lock 79; clippy+fmt clean.
