@@ -14,6 +14,58 @@
 
 ## Entries (newest first)
 
+## 2026-07-12 — Menu-quad IDENTITY axis bound (`surfaces_concept`, tier-carried, no mint) — SHIPPED
+**Status:** FINDING (built + gated + PR'd; ruff #87, base main `498ff55`)
+**Scope:** ruff `ruff_spo_triplet::{quad, triple}` × `ruff_python_spo::odoo_quad` × `ruff_ruby_spo::{menu_regions, schema}`
+
+The Klickwege menu quad's 4th axis (identity) is no longer dormant. A menu node
+now carries `surfaces_concept` — the concept token the consumer resolves to a
+classid via `PortSpec::class_id`, **source-agnostic on the harvester side**.
+
+**The crux, council-decided (convergence-architect + truth-architect):** ONE
+predicate `surfaces_concept`, **NO mint** (`predicate_count_locked_at_79`
+unchanged), honesty carried per-emission by the `Provenance` tier — NOT by a new
+`derives_concept` predicate (which would fork the source-agnostic consumer
+resolver for zero gain). The reconciling fact: the vocab already has
+`OpenProjectExtracted (0.95, 0.88)`, minted for exactly "deterministic OP-Rails
+fact with a small unresolvable residual" = the `controller→singularize→model`
+case.
+
+**Per-arm tiers (the tier-unification error caught by the council):**
+- Odoo `res_model` (`account.move`) → **Authoritative** — a DECLARED literal read
+  verbatim from `<field name="res_model">`, no inflection.
+- Rails `controller → /-aware singularize → model`, **roster-verified** →
+  **OpenProjectExtracted**. The roster cross-check (`schema::model_roster`, a
+  lightweight migration-table sniff) is what LICENSES the derived tier: a token
+  that doesn't name a real table-backed model is a visible refusal, never a
+  fabricated concept. (This corrected the v1 spec's false "harvester can't know
+  the roster" claim.)
+- C# `roomAliases` config → Authoritative (untouched precedent).
+
+**The structural fix:** `to_triples` emitted `SurfacesConcept` at a hardcoded
+`Provenance::Authoritative`; `MenuQuad` gained `identity_tier` (mirroring
+`part_of_tier`) and now emits at `self.identity_tier` — the over-claim blocker.
+
+**`/`-aware inflection:** a namespaced controller `admin/settings` splits on `/`
+(last path segment `settings → Setting`), not the naive `_`-split garbage
+`Admin/setting`. Roster cross-check is the safety net for remaining irregular
+plurals.
+
+**4-bucket conservation ledger** (`without_concept` / `with_concept_declared` /
+`with_concept_derived_matched` / `with_concept_derived_unmatched`). Real OP
+corpus: **137 items → 23 without_concept + 0 declared + 41 derived_matched + 73
+derived_unmatched** (conservation holds). A ~30% concept-bearing fraction is
+CORRECT by design — most menu items are not resource-CRUD screens; refusal is the
+correctness property. The CRUD spine (`work_packages`/`projects`/`time_entries`)
+resolves against the roster.
+
+**Gate:** 404 tests green (170+177+57), count-lock 79, clippy no-new-warnings +
+fmt clean. **This satisfies Lane B's sole gate** ("build identity FIRST"): the
+promoted CRUD spine now carries a resolvable `surfaces_concept` → a bound
+identity resolves to a non-zero classid → no classid-0 default-bucket collision.
+Lane B (OGAR facet wiring) is now UNBLOCKED — build per its de-risked §v2 on a
+fresh base after #87 merges.
+
 ## 2026-07-11 — Lane B (menu-quad → OGAR facet) STAGED: design de-risked, build gated on identity
 **Status:** FINDING (2-reviewer council: convergence-architect SHAPE=OPPORTUNITY/TIMING=WORTH-EXPLORING + baton CATCH-LATENT; STAGED — do not build Slice 1 standalone)
 **Scope:** ruff `ruff_spo_address::{mint_with_classid, forest, ranks, Facet}` × OGAR `ogar-from-ruff::mint` × `ruff_spo_triplet::{quad, nav_digest}` × `lance-graph-contract::facet::FacetCascade` × op-nexgen consumer
