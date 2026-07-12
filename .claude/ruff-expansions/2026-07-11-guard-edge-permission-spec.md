@@ -1,13 +1,17 @@
 # SPEC — the GuardEdge permission arm (`requires_permission`) — DRAFT, needs a MINT + council
 
-> **Status: STAGED — do NOT mint yet (convergence-architect WORTH-EXPLORING-SOON,
-> ~65%).** The guard axis + bare-node grammar are the right shape, but the
-> corpus permission signal is majority-BOOLEAN (∧/∨); a flat `requires_permission`
-> would silently conjunct disjunctions — a correctness defect for a permanent RBAC
-> predicate. Gate: `OQ-GUARD-1` — measure the boolean-structure distribution of the
-> menu `if:`-proc guards (single / conjunction / disjunction / mixed / dynamic) +
-> the `allowed_to(recv, :sym)` 2nd-positional count, BEFORE minting. Consider
-> `guarded_by_permission` (visibility-honest) if disjunction-encoding is deferred.
+> **Status: GREENLIT — mint `guarded_by_permission` (OQ-GUARD-1 measured, building).**
+> The probe ran on the real OP corpus: 126 pushes, 90 with `if:`; permission-bearing
+> = single 2 / conjunction 0 / **disjunction 1** / mixed 7 / dynamic 2; 11 distinct
+> symbols; receiver-style 2. Only **1 pure disjunction / 90** (~1%, well under the
+> ≲10% mint threshold — the architect had eyeballed ~4, but the multi-condition ones
+> bin as `mixed`). **Encoding resolved:** mint the visibility-honest
+> **`guarded_by_permission`** (NOT `requires_permission`) — it asserts a permission
+> *appears in* the guard, never necessity, so it is correct across single/conjunction/
+> mixed AND the lone disjunction without mis-encoding. All three council OPPORTUNITY-NOW
+> conditions met (disjunctions rare · receiver-style extracted · dynamic counted).
+> Now building (mint 78→79 single count-site, Inferred; harvest reuses the probe walk).
+> [SUPERSEDES the STAGED status + the `requires_permission` name throughout below.]
 >
 > Gap-ledger arm (d) from the 2026-07-09 choreography ruling: the **GuardEdge**
 > — "what becomes legal after policy C" — the permission condition on a click
