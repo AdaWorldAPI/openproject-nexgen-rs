@@ -4,9 +4,76 @@
 > `purpose` / `surfaces_concept` / `navigates_to`) is emitted by ruff (Rails +
 > Odoo) and lowered to a text digest by `nav_digest::menu_address`. This spec
 > wires it into a real **OGAR facet** — the `(classid, radix-address)` the
-> transpile substrate mints. Grounded in the Lane-B scout (read-only map). Needs
-> **council** — the axis-homonym is a live hazard. Base = ruff main `15d3433` +
-> OGAR main.
+> transpile substrate mints. Grounded in the Lane-B scout (read-only map).
+> Base = ruff main `15d3433` + OGAR main.
+>
+> **Status: STAGED — design de-risked, build gated on identity (2-reviewer
+> council).** convergence-architect: SHAPE = OPPORTUNITY-NOW but TIMING =
+> WORTH-EXPLORING-SOON; baton-handoff-auditor: CATCH-LATENT (no P0 — nothing
+> built; byte-layout + classid-authority CLEAN — but 4 latent drops to fold in
+> before any build). Consolidated verdict in §v2 below. **Do NOT build Slice 1
+> standalone.**
+
+## v2 — COUNCIL CONSOLIDATION (STAGE; supersedes §2–§4 where they conflict)
+
+**Why STAGE (both reviewers agree):** Slice 1 (address-only, `classid=0`) does
+NOT earn its keep TODAY — (1) the classid resolver is a **no-op** on menu nodes
+(they're screens `openproject:work_packages`, not port models, and
+`identity_concept: None`, so every node → classid 0); (2) **no consumer** reads
+the minted facet (op-nexgen nav goes through `RubyNavEdge`, not facets); (3) it
+is **thinner** than the already-shipped `nav_digest::menu_address` (which lowers
+to real classid paths where concepts exist). The zero-fallback ladder makes
+`classid=0` *honest*, not *valuable*. → **Gate: build the identity binding
+(Slice 2 — menu item → `surfaces_concept` concept) FIRST or concurrently, OR
+name a concrete op-nexgen consumer that needs the positional-only address.**
+
+**The de-risked design (fold ALL of this into the build when the gate opens):**
+
+1. **Extract `mint_from_parents(po_parent, ia_parent, classid_of) -> Mint` in
+   `ruff_spo_address`** (convergence-architect's superior seam). Stages 2–4 of
+   `mint_with_classid` (`forest`→`ranks`→`Facet::from_parts`) are already
+   predicate-agnostic; the convergence is at the parent-maps→Mint boundary, NOT
+   a predicate front. `mint_with_classid` = "parse structural → `mint_from_parents`";
+   `mint_menu` = "parse menu → `mint_from_parents`". Conflation impossible-by-
+   construction (each owns its parse; disjoint predicate strings).
+2. **Edge direction INVERTS** (both reviewers, load-bearing): structural
+   `has_field` does `insert(o, s)` (object=child); menu `part_of` has
+   subject=child/object=parent → `insert(s, o)`. A silent flip inverts the whole
+   menu tree and passes every "it compiles" check. Explicit + a fixture asserting
+   root/leaf orientation.
+3. **`is_a ≡ [0;6]` as a STRUCTURAL invariant, not a comment** (baton P1, the
+   16-byte collision). Menu facets must write is_a all-zero literally (never run
+   is_a ranking) + an **injectivity test** asserting no menu facet shares 16
+   bytes with any structural facet in the `classid=0` bucket. (Staging behind
+   Slice 2 — non-zero classid — dissolves this entirely; preferred.)
+4. **classid resolves the node's `surfaces_concept` OBJECT, NOT `classid_for_node`**
+   (baton P1). `classid_for_node` keys on `model_of(node-name)` (first-dot split)
+   — menu screen names aren't port models → always 0/mis-stamp. Build a
+   node→concept map from the `SurfacesConcept` triples, resolve *that object*
+   through `PortSpec::class_id`.
+5. **Do NOT reuse `nav_digest::menu_address`** (both reviewers, DROP). It's a
+   category mismatch — String/`u16` label-path vs `[u8;6]`/`u32` rank-chain — and
+   `ruff_spo_address` already depends on `ruff_spo_triplet`, so homing a shared
+   helper in `ruff_spo_address` would cycle the graph. The minter reuses
+   `ruff_spo_address`'s own `forest`/`ranks`. If a cycle-guarded traversal helper
+   is genuinely shared, it lives in `ruff_spo_triplet` ONLY.
+6. **Strike the `soc`-lints-this claim** (baton P1, false): `soc` reads
+   `has_field`/`has_function`/`field_type` god-class cardinality only; it never
+   touches `part_of` and cannot fire on axis conflation. The real guard is the
+   separate-forest structure + the is_a≡0 injectivity test (#3).
+
+**CLEAN (verified, no action):** `Facet ↔ FacetCascade` byte-layout identical
+both directions (baton B1); single classid authority via `PortSpec::class_id`,
+no `*Bridge`/codebook-copy (baton B5); rank-corruption from the homonym is
+**already structurally impossible** (disjoint predicate strings — the separate-
+entry design is sufficient against the worst fear).
+
+**Next actor:** whoever wires `identity_concept` (the three-axis concept gate)
+opens this gate; then build with §v2.1–6 folded in. Until then this spec is the
+de-risked blueprint, not a build order.
+
+---
+
 
 ## 0. The seam + the gap (from the scout, with citations)
 

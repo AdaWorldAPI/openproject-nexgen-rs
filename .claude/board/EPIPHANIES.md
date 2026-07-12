@@ -14,6 +14,17 @@
 
 ## Entries (newest first)
 
+## 2026-07-11 — Lane B (menu-quad → OGAR facet) STAGED: design de-risked, build gated on identity
+**Status:** FINDING (2-reviewer council: convergence-architect SHAPE=OPPORTUNITY/TIMING=WORTH-EXPLORING + baton CATCH-LATENT; STAGED — do not build Slice 1 standalone)
+**Scope:** ruff `ruff_spo_address::{mint_with_classid, forest, ranks, Facet}` × OGAR `ogar-from-ruff::mint` × `ruff_spo_triplet::{quad, nav_digest}` × `lance-graph-contract::facet::FacetCascade` × op-nexgen consumer
+
+The Lane-B scout + 2-reviewer council de-risked the menu-quad→OGAR-facet wiring but ruled it **premature to build now**. The facet minter (`ruff_spo_address::mint_with_classid` → 16-byte `FacetCascade`) exists; the `part_of` HOMONYM (class-membership vs menu-tree) is real BUT its worst fear (rank corruption) is **already structurally impossible** — the two mints read disjoint predicate strings (`has_field`/`has_function` vs `part_of`), byte-layout is identical (baton B1 CLEAN), classid authority single-sourced (baton B5 CLEAN).
+
+**Why STAGE:** Slice 1 (address-only, classid=0) doesn't earn its keep — the classid resolver is a no-op on menu nodes (screens, not port models; `identity_concept: None` → every node classid 0), NO consumer reads the facet, and it's thinner than the shipped `nav_digest::menu_address`. The zero-fallback ladder makes classid=0 honest, not valuable. **Gate: wire `identity_concept` (the concept gate) FIRST, or name a positional-address consumer.**
+
+**De-risked design captured (build when the gate opens):** extract `mint_from_parents(po,ia,classid_of)` in `ruff_spo_address` (the real convergence seam, not a predicate parameter); separate `mint_menu` owning its parse; **edge direction INVERTS** (menu subject=child → `insert(s,o)`, vs structural `insert(o,s)` — silent flip inverts the tree); **`is_a ≡ [0;6]` structural invariant + injectivity test** (baton P1: else classid-0 menu facets 16-byte-collide with unmapped structural in the default bucket); **classid resolves the node's `surfaces_concept` object, NOT `classid_for_node`** (which keys on the node NAME → 0 for screens); **do NOT reuse `nav_digest::menu_address`** (String/u16 vs [u8;6]/u32 category mismatch + would cycle the crate graph); **strike the false `soc`-lints-this claim** (soc reads god-class cardinality only). Spec: `.claude/ruff-expansions/2026-07-11-menu-quad-ogar-facet-wiring-spec.md` §v2 (STAGED blueprint).
+
+
 ## 2026-07-11 — Four-lane autonomous burst: Odoo quad + round-trip probe SHIPPED (ruff b18a8d6), radix-lowering verified, GuardEdge STAGED
 **Status:** FINDING (lanes 1+3 MERGED via ruff #85 into main `15d3433`; lane 2 verified; lane 4d staged behind OQ-GUARD-1 — now running)
 **Scope:** ruff `ruff_python_spo::odoo_quad` + `ruff_ruby_spo::menu_regions` (probe) + `ruff_spo_triplet::{quad, nav_digest}` × the menu-quad plane × the OGAR `(part_of:is_a)` action-rail
