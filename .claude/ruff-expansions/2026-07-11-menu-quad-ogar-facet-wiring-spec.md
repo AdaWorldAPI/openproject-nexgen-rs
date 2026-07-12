@@ -7,12 +7,16 @@
 > transpile substrate mints. Grounded in the Lane-B scout (read-only map).
 > Base = ruff main `15d3433` + OGAR main.
 >
-> **Status: STAGED — design de-risked, build gated on identity (2-reviewer
-> council).** convergence-architect: SHAPE = OPPORTUNITY-NOW but TIMING =
-> WORTH-EXPLORING-SOON; baton-handoff-auditor: CATCH-LATENT (no P0 — nothing
-> built; byte-layout + classid-authority CLEAN — but 4 latent drops to fold in
-> before any build). Consolidated verdict in §v2 below. **Do NOT build Slice 1
-> standalone.**
+> **Status: UNBLOCKED — gate satisfied (identity SHIPPED, ruff PR #87).** The
+> sole gate ("build the identity binding FIRST or concurrently") is met: the
+> CRUD spine now carries a roster-verified `surfaces_concept`, so slice-4's
+> node→concept→classid resolve returns a non-zero classid (no classid-0
+> collision). Build Slice 1+2 together per §v2's de-risked design on a fresh
+> base AFTER #87 merges. [was: STAGED — design de-risked, build gated on
+> identity (2-reviewer council).] convergence-architect: SHAPE = OPPORTUNITY-NOW
+> but TIMING = WORTH-EXPLORING-SOON; baton-handoff-auditor: CATCH-LATENT (no
+> P0 — nothing built; byte-layout + classid-authority CLEAN — but 4 latent
+> drops to fold in before any build). Consolidated verdict in §v2 below.
 
 ## v2 — COUNCIL CONSOLIDATION (STAGE; supersedes §2–§4 where they conflict)
 

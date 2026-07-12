@@ -5,7 +5,13 @@
 > quad's identity axis + the gate that re-opens the staged Lane B (OGAR facet
 > wiring). Grounded in the identity scout. Base = ruff main `498ff55`.
 >
-> **Status: READY v2 (council-consolidated: convergence-architect OPPORTUNITY-NOW
+> **Status: SHIPPED (ruff PR #87, base main `498ff55`).** Built to §v2 below.
+> Gate green: 404 tests, count-lock 79 (no mint), clippy+fmt clean. Real OP
+> corpus ledger: 137 items → 23 without_concept + 41 derived_matched + 73
+> derived_unmatched (conservation holds). Satisfies Lane B's sole gate. Board:
+> `.claude/board/EPIPHANIES.md` 2026-07-12 entry.
+>
+> **[was] READY v2 (council-consolidated: convergence-architect OPPORTUNITY-NOW
 > + truth-architect).** Decisive answer to the crux: **ONE predicate
 > `surfaces_concept`, NO mint, tier-carried honesty.** The corrections below
 > SUPERSEDE §2's tier-unification and §5.1's "harvester can't know" claim.
