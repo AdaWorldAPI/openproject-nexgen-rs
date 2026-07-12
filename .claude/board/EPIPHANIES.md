@@ -15,7 +15,7 @@
 ## Entries (newest first)
 
 ## 2026-07-11 — Menu-quad harvest engine SHIPPED: config over reusable (ruff c6bcbd5), Rails arm live
-**Status:** FINDING (shipped + gated; ruff `c6bcbd5`, branch `claude/openproject-transcode-status-c6e8in`; Odoo config staged)
+**Status:** FINDING (shipped + gated + MERGED via ruff #84 into main `7b0304f`; commit `c6bcbd5`; Odoo config staged)
 **Scope:** ruff `ruff_spo_triplet::quad` (reusable core) × `ruff_ruby_spo::menu_regions` (Rails config) × `ruff_csharp_spo` (parity-proven) × the menu-quad-rail knowledge transfer
 
 The operator directive "make C#/Rails/Odoo/Python a config over reusable" is
@@ -85,7 +85,7 @@ nesting): `.claude/knowledge/menu-quad-rail-port.md`.
 
 
 ## 2026-07-11 — Region-subject drift is a THREE-producer codec problem, not a two-arm separator vote (council on the RegionFact collapse spec)
-**Status:** FINDING → SHIPPED (2-reviewer council consolidated into spec v2; implemented + gated + pushed ruff `c6c1cb6` on branch `claude/openproject-transcode-status-c6e8in`: shared `ruff_spo_triplet::region` codec, all three arms migrated, convergence proof green)
+**Status:** FINDING → SHIPPED → MERGED (ruff #84 into main `7b0304f`; commit `c6c1cb6`; shared `ruff_spo_triplet::region` codec, all three arms migrated, convergence proof green)
 **Scope:** ruff `ruff_spo_triplet::{nav_digest, triple}` × `ruff_ruby_spo::menu_regions` (#78) × `ruff_python_spo::odoo_regions` (#79) × `ruff_csharp_spo::harvester` (#76, ndjson) × the six-region structure oracle
 
 Casting a 2-reviewer council at the proposed "collapse the two region arms onto
