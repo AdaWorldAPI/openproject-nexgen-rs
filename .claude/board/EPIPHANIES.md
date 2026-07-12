@@ -15,7 +15,7 @@
 ## Entries (newest first)
 
 ## 2026-07-11 — Four-lane autonomous burst: Odoo quad + round-trip probe SHIPPED (ruff b18a8d6), radix-lowering verified, GuardEdge STAGED
-**Status:** FINDING (lanes 1+3 shipped + gated; lane 2 verified; lane 4d staged behind OQ-GUARD-1; ruff branch `claude/openproject-transcode-status-c6e8in`)
+**Status:** FINDING (lanes 1+3 MERGED via ruff #85 into main `15d3433`; lane 2 verified; lane 4d staged behind OQ-GUARD-1 — now running)
 **Scope:** ruff `ruff_python_spo::odoo_quad` + `ruff_ruby_spo::menu_regions` (probe) + `ruff_spo_triplet::{quad, nav_digest}` × the menu-quad plane × the OGAR `(part_of:is_a)` action-rail
 
 Autonomous four-lane drive (Sonnet-5 for the two grindwork builds, run in parallel; Opus councils + gating):
