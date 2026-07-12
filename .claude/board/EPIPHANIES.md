@@ -14,6 +14,31 @@
 
 ## Entries (newest first)
 
+## 2026-07-12 — Identity ledger: dynamic controllers are a 5th bucket (codex P2 on ruff #87)
+**Status:** FINDING (fixed in ruff e335d4a; corrects the 4-bucket ledger + corpus numbers in the entry below)
+**Scope:** ruff `ruff_ruby_spo::menu_regions`
+
+The codex reviewer on #87 caught a real ledger-honesty gap: a menu item with a
+DYNAMIC `controller:` value (the each-loop `controller: options[:controller]`
+case) records `has_controller == true` but `controller == None`, and
+`bind_identities` matched only on `controller` — so it counted these as
+`WithoutConcept` ("no controller target at all"), hiding a controller-bearing
+target as intentionally concept-less.
+
+Fix: three controller states via the `has_controller`/`controller` pair —
+absent (`WithoutConcept`), present-but-dynamic (new `DynamicController` →
+`with_dynamic_controller` bucket), present-and-static (derive + roster). The
+ledger is now **5-bucket**. Nothing is emitted for a dynamic controller (no
+static token), but it is a visible non-emission that names the next arm
+(each-loop expansion) instead of hiding in `without_concept`.
+
+**Corrected corpus numbers** (supersede the entry below's `23 without_concept`):
+137 items → **11 without_concept + 12 with_dynamic_controller** + 0 declared +
+41 derived_matched + 73 derived_unmatched (conservation holds; now asserted in
+the corpus probe). Lesson: a "no target" bucket must be gated on the presence
+signal (`has_controller`), not just the resolved value — else unresolvable
+targets masquerade as absent ones.
+
 ## 2026-07-12 — Menu-quad IDENTITY axis bound (`surfaces_concept`, tier-carried, no mint) — SHIPPED
 **Status:** FINDING (built + gated + PR'd; ruff #87, base main `498ff55`)
 **Scope:** ruff `ruff_spo_triplet::{quad, triple}` × `ruff_python_spo::odoo_quad` × `ruff_ruby_spo::{menu_regions, schema}`
