@@ -1,12 +1,24 @@
 [toolchain]
-# AdaWorldAPI ecosystem-wide pin: rust 1.95.
+channel = "1.97.1"
+# The pinned version is the `channel` line ABOVE — deliberately not restated in
+# this comment, so a bump cannot leave stale prose behind.
 #
-# Matches the pin in `AdaWorldAPI/surrealdb` and `AdaWorldAPI/ndarray`.
-# See `.claude/sprints/c16d-toolchain-pin/STATE` for the sprint context.
+# Bump log (append one line per bump):
+#   → 1.95     Sprint c16d toolchain pin (see `.claude/sprints/c16d-toolchain-pin/STATE`).
+#              Matched `AdaWorldAPI/surrealdb` and `AdaWorldAPI/ndarray` at the time.
+#   → 1.97.1   2026-08-10. Ecosystem realignment — lance-graph, OGAR, woa-rs and
+#              MedCare-rs moved to 1.97.1 in the lance-9 / DataFusion-54 sweep
+#              (lance-graph b2b08b07), and ndarray followed. This repo's only
+#              lance-family dependency is `lance-graph-contract` (git,
+#              branch=main), so no dependency version moves with this pin.
 #
-# Don't add a patch number to the channel string (`1.95.1` etc.) — that
-# is not a valid toolchain identifier and breaks rust-analyzer plus the
-# `rustup show` path. Specifying only the minor version already routes
-# to the latest patch automatically.
-channel = "1.95"
+# On patch numbers: the previous comment stated that a patch-numbered channel
+# ("1.95.1") "is not a valid toolchain identifier". That is not correct — an
+# explicit patch IS valid, and lance-graph / OGAR / woa-rs / MedCare-rs all pin
+# that way. The real trade is exact reproducibility (explicit patch) vs
+# auto-tracking the latest patch of a minor line. The ecosystem chose explicit;
+# this file now follows it. Corrected rather than deleted, so the reasoning is
+# visible to whoever wrote the original caution.
+#
+# Never auto-track `stable` — bump explicitly when a future version is reviewed.
 components = ["rustfmt", "clippy"]
