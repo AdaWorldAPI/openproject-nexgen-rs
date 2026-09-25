@@ -4,9 +4,9 @@
 # =============================================================================
 # Stage 1: Build
 # =============================================================================
-# Toolchain MUST match the workspace `rust-version` (Cargo.toml → 1.95);
+# Toolchain MUST match rust-toolchain.toml (1.98.1);
 # an older base (this was pinned at 1.85) fails the build outright.
-FROM rust:1.95-slim-bookworm AS builder
+FROM rust:1.98.1-slim-bookworm AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
