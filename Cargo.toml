@@ -30,7 +30,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.95"
+rust-version = "1.98"
 authors = ["OpenProject RS Contributors"]
 license = "GPL-3.0"
 repository = "https://github.com/example/openproject-rs"
@@ -62,7 +62,10 @@ garde = { version = "0.18", features = ["derive"] }
 
 # Authentication
 jsonwebtoken = "9.2"
-argon2 = "0.5"
+# argon2 0.6 from the AdaWorldAPI/password-hashes fork, same source and
+# features as OGAR's `ogar-auth` (`ndarray-simd` = block compression on
+# `ndarray::simd::U64x8`).
+argon2 = { git = "https://github.com/AdaWorldAPI/password-hashes", branch = "master", default-features = false, features = ["alloc", "password-hash", "ndarray-simd"] }
 oauth2 = "4.4"
 
 # Error handling

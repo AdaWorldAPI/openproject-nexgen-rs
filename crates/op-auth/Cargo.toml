@@ -12,6 +12,10 @@ axum.workspace = true
 tokio.workspace = true
 jsonwebtoken.workspace = true
 argon2.workspace = true
+# Salt entropy for argon2's `hash_password_with_salt` (the workspace argon2 dep
+# disables the `password-hash/getrandom` feature, i.e. no `SaltString::generate`
+# — same reasoning as OGAR's `ogar-auth::password::hash_password`).
+getrandom = "0.2"
 oauth2.workspace = true
 serde.workspace = true
 chrono.workspace = true
