@@ -100,15 +100,16 @@ impl ApiKeyService {
                 hex::encode(hasher.finalize())
             }
             HashAlgorithm::Argon2 => {
-                // For Argon2, use the argon2 crate
-                use argon2::{
-                    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
-                    Argon2,
-                };
-                let salt = SaltString::generate(&mut OsRng);
-                let argon2 = Argon2::default();
-                argon2
-                    .hash_password(plaintext.as_bytes(), &salt)
+                // For Argon2, use the argon2 crate. Salt entropy comes from the
+                // platform CSPRNG via `getrandom` directly (the workspace argon2
+                // dep has `password-hash/getrandom` disabled, so there is no
+                // `SaltString::generate`) — mirrors OGAR's
+                // `ogar-auth::password::hash_password`.
+                use argon2::{password_hash::PasswordHasher, Argon2};
+                let mut salt_bytes = [0u8; 16];
+                getrandom::getrandom(&mut salt_bytes).expect("CSPRNG unavailable");
+                Argon2::default()
+                    .hash_password_with_salt(plaintext.as_bytes(), &salt_bytes)
                     .expect("Failed to hash password")
                     .to_string()
             }
@@ -124,7 +125,7 @@ impl ApiKeyService {
             }
             HashAlgorithm::Argon2 => {
                 use argon2::{
-                    password_hash::{PasswordHash, PasswordVerifier},
+                    password_hash::{phc::PasswordHash, PasswordVerifier},
                     Argon2,
                 };
                 match PasswordHash::new(stored_hash) {
@@ -247,6 +248,20 @@ mod tests {
 
         assert!(service.verify_key(plaintext, &hash));
         assert!(!service.verify_key("wrong-key", &hash));
+    }
+
+    #[test]
+    fn test_hash_and_verify_argon2() {
+        let service = ApiKeyService::new().with_argon2();
+        let plaintext = "my-secret-api-key";
+        let hash = service.hash_key(plaintext);
+
+        assert!(hash.starts_with("$argon2id$v=19$"), "{hash}");
+        assert!(service.verify_key(plaintext, &hash));
+        assert!(!service.verify_key("wrong-key", &hash));
+        // A fresh salt per hash: the same key never hashes to the same string.
+        assert_ne!(hash, service.hash_key(plaintext));
+        assert!(!service.verify_key(plaintext, "not a phc string"));
     }
 
     #[test]
