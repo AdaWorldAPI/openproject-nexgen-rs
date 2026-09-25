@@ -62,7 +62,11 @@ garde = { version = "0.18", features = ["derive"] }
 
 # Authentication
 jsonwebtoken = "9.2"
-argon2 = "0.5"
+# argon2 0.6 from the AdaWorldAPI/password-hashes fork, the same source as
+# OGAR's `ogar-auth`. `ndarray-simd` is left off: it pulls ndarray master,
+# which needs rustc 1.98 against this workspace's 1.95 pin, and API-key
+# hashing is not a hot path.
+argon2 = { git = "https://github.com/AdaWorldAPI/password-hashes", branch = "master", default-features = false, features = ["alloc", "password-hash"] }
 oauth2 = "4.4"
 
 # Error handling
