@@ -77,6 +77,11 @@ pub trait Entity: Identifiable + Timestamped + Send + Sync {
 ///   end
 /// end
 /// ```
+// `#[async_trait]` expands each async method into a `#[must_use]` fn returning a
+// boxed future, which is itself `#[must_use]`; clippy 1.99 started reporting that
+// expansion as `double_must_use`. The attribute is generated, not written here,
+// so there is nothing in this source to remove.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait Service<Input, Output> {
     /// Perform the service operation
@@ -120,6 +125,11 @@ pub trait UserContext: Send + Sync {
 }
 
 /// Trait for repository pattern (data access)
+// `#[async_trait]` expands each async method into a `#[must_use]` fn returning a
+// boxed future, which is itself `#[must_use]`; clippy 1.99 started reporting that
+// expansion as `double_must_use`. The attribute is generated, not written here,
+// so there is nothing in this source to remove.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait Repository<T: Entity>: Send + Sync {
     /// Find by primary key
