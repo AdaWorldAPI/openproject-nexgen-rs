@@ -5,5 +5,5 @@
 #
 # (An earlier note here said a patch number such as `1.95.1` is not a valid
 # channel. It is: rustup accepts `1.98.1`, and the sibling repos pin it.)
-channel = "1.98.1"
+channel = "1.99.0"
 components = ["rustfmt", "clippy"]
