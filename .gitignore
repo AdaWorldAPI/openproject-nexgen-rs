@@ -2,3 +2,14 @@ target/
 
 # Sprint C0 orchestration logs / A2A bus (ephemeral)
 .sprint/
+
+# No tracked Cargo.lock (fleet rule). A lock is only ever permitted to freeze
+# EXTERNAL dependencies, and a Cargo.lock freezes everything — so tracking one
+# silently converts every floating internal dep into a rev pin. Measured on the
+# lock removed in this commit: `Cargo.toml` asked for
+# `ruff = { git = ..., branch = "main" }` while the lock held
+# `1fa73b939cad65706f09502c2374ced664f8f8d9` — the BASE of ruff PR #73, i.e.
+# before the whole Klickwege arc (#73-#88) the pipeline depends on. OGAR was
+# frozen at 90ba79f6 and lance-graph at 5284755c the same way.
+# Internal deps float on their branch; external pins live in Cargo.toml.
+Cargo.lock
