@@ -304,7 +304,9 @@ mod tests {
         assert_eq!(metrics.http_requests_4xx.load(Ordering::Relaxed), 1);
         assert_eq!(metrics.http_requests_5xx.load(Ordering::Relaxed), 1);
         assert_eq!(
-            metrics.http_request_duration_ms_total.load(Ordering::Relaxed),
+            metrics
+                .http_request_duration_ms_total
+                .load(Ordering::Relaxed),
             160
         );
     }
