@@ -144,11 +144,11 @@ fn skin(basis: &[String], order: &'static [&'static str]) -> Skin {
     let present = WideFieldMask::from_universe_present(&universe, &universe)
         .expect("class basis is well under the 256-field SOC cap");
     // The ViewFilter (one brick, three sources): rbac ∩ present ∩ view.
-    // Anonymous demo posture → FieldMask::FULL → identity today; when a
+    // Anonymous demo posture → every addressable position today; when a
     // role store lands, columns drop per role with no change here.
     Skin {
         order,
-        mask: viewfilter::view_filter(viewfilter::current_rbac_field_mask(), &present, &view),
+        mask: viewfilter::view_filter(&viewfilter::current_rbac_field_mask(), &present, &view),
     }
 }
 

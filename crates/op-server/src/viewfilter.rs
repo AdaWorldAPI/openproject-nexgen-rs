@@ -8,8 +8,9 @@
 //! three sources that are the SAME mask under three names:
 //!
 //! 1. **RBAC `field_mask`** — `lance_graph_contract::rbac::ClassRbac::
-//!    field_mask(role, class)` (`FieldMask`, the 64-field tier; `FULL` =
-//!    unrestricted). What the *role* may see.
+//!    field_mask(role, class)` ([`WideFieldMask`]). What the *role* may see:
+//!    exactly the positions it names. There is no "unrestricted" value; a
+//!    role that may see everything names every position.
 //! 2. **`ClassView` facet gate** — which fields the class *has* in memory
 //!    (the basis-presence mask). What *exists*.
 //! 3. **View field-set** — which fields this *skin* shows (hand-authored
@@ -75,29 +76,28 @@ pub fn widen_rbac(mask: FieldMask) -> WideFieldMask {
 
 /// The ViewFilter: `rbac ∩ present ∩ view`.
 ///
-/// `rbac == FieldMask::FULL` means *unrestricted* (the [`ClassRbac`]
-/// default) and is applied as identity rather than widened — `FULL` is a
-/// 64-bit literal, and literally widening it would wrongly truncate a
-/// basis with more than 64 fields. A narrower mask is widened positionally
-/// ([`widen_rbac`]) and intersected.
+/// A plain intersection. `rbac` is never read as "unrestricted": a role sees
+/// the positions it names and nothing else, so an empty mask shows nothing
+/// and the 64-bit [`FieldMask::FULL`] (widened) shows only positions 0..64.
 #[must_use]
 pub fn view_filter(
-    rbac: FieldMask,
+    rbac: &WideFieldMask,
     present: &WideFieldMask,
     view: &WideFieldMask,
 ) -> WideFieldMask {
-    let shown = present.intersect(view);
-    if rbac == FieldMask::FULL {
-        shown
-    } else {
-        shown.intersect(&widen_rbac(rbac))
-    }
+    present.intersect(view).intersect(rbac)
 }
+
+/// How many positions the anonymous demo role is granted: every position a
+/// [`WideFieldMask`] can address (the 256-field SoC cap).
+pub const ANONYMOUS_FIELD_SPAN: usize = 256;
 
 /// The demo-posture RBAC provider: the anonymous board
 /// (`OP_ALLOW_ANONYMOUS`) expressed AS a [`ClassRbac`] impl rather than a
-/// bypass — one role (`"anonymous"`), read-anything grants, and the
-/// trait's default `field_mask` ([`FieldMask::FULL`] = unrestricted).
+/// bypass — one role (`"anonymous"`), read-anything grants, and an explicit
+/// field grant of every addressable position ([`ANONYMOUS_FIELD_SPAN`]).
+/// It overrides the trait's default `field_mask`, which covers only the
+/// first 64 positions.
 /// When a real role store lands it replaces THIS provider; the render
 /// path through [`view_filter`] does not change.
 pub struct AnonymousRbac;
@@ -120,17 +120,28 @@ impl ClassRbac for AnonymousRbac {
         // serves. Real deployments replace the provider, not this line.
         role == "anonymous"
     }
+
+    fn field_mask(
+        &self,
+        role: lance_graph_contract::rbac::RoleId,
+        _class: lance_graph_contract::rbac::ClassId,
+    ) -> WideFieldMask {
+        if role == "anonymous" {
+            WideFieldMask::full_for(ANONYMOUS_FIELD_SPAN)
+        } else {
+            WideFieldMask::EMPTY
+        }
+    }
 }
 
 /// The RBAC field mask for the current request context — resolved through
 /// the REAL [`ClassRbac`] trait path ([`rbac_field_mask`]) against the
 /// demo [`AnonymousRbac`] provider, so the render path's contract is the
-/// production contract already. Today this yields [`FieldMask::FULL`]
-/// (the trait default), which [`view_filter`] applies as identity —
-/// today's output is byte-identical; a narrower provider drops columns
-/// with zero changes at the render call sites.
+/// production contract already. Today this is the anonymous grant (every
+/// addressable position), so the output is byte-identical; a narrower
+/// provider drops columns with zero changes at the render call sites.
 #[must_use]
-pub fn current_rbac_field_mask() -> FieldMask {
+pub fn current_rbac_field_mask() -> WideFieldMask {
     rbac_field_mask(&AnonymousRbac, "anonymous", 0)
 }
 
@@ -143,7 +154,7 @@ pub fn rbac_field_mask<R: ClassRbac>(
     rbac: &R,
     role: lance_graph_contract::rbac::RoleId,
     class_id: lance_graph_contract::rbac::ClassId,
-) -> FieldMask {
+) -> WideFieldMask {
     rbac.field_mask(role, class_id)
 }
 
@@ -385,14 +396,39 @@ mod tests {
 
     // ── ViewFilter ────────────────────────────────────────────────
 
-    /// FULL rbac is identity: the filter is exactly present ∩ view —
-    /// today's anonymous demo posture renders byte-identically.
+    /// The anonymous grant shows the whole view: today's demo posture
+    /// renders byte-identically.
     #[test]
-    fn full_rbac_is_identity() {
+    fn the_anonymous_grant_shows_the_view() {
         let present = mask_of(UNIVERSE, UNIVERSE);
         let view = mask_of(UNIVERSE, &["subject", "done_ratio"]);
-        let filtered = view_filter(FieldMask::FULL, &present, &view);
+        let filtered = view_filter(&current_rbac_field_mask(), &present, &view);
         assert_eq!(filtered, view);
+    }
+
+    /// No "unrestricted" shortcut: the trait default (`FieldMask::FULL`
+    /// widened) covers positions 0..64 only, so on a wide class it hides
+    /// position 70, while the anonymous grant shows it.
+    #[test]
+    fn full_is_not_unrestricted_on_a_wide_class() {
+        let names: Vec<String> = (0..100).map(|i| format!("f{i}")).collect();
+        let universe: Vec<&str> = names.iter().map(String::as_str).collect();
+        let present = mask_of(&universe, &universe);
+        let view = mask_of(&universe, &["f3", "f70"]);
+        let default = WideFieldMask::from(FieldMask::FULL);
+        let shown = view_filter(&default, &present, &view);
+        assert!(shown.has(3) && !shown.has(70));
+        let shown = view_filter(&current_rbac_field_mask(), &present, &view);
+        assert!(shown.has(3) && shown.has(70));
+    }
+
+    /// An empty role mask shows nothing, never the full view.
+    #[test]
+    fn an_empty_grant_shows_nothing() {
+        let present = mask_of(UNIVERSE, UNIVERSE);
+        let view = mask_of(UNIVERSE, UNIVERSE);
+        assert!(view_filter(&WideFieldMask::EMPTY, &present, &view).is_empty());
+        assert!(AnonymousRbac.field_mask("someone-else", 0).is_empty());
     }
 
     /// A narrower role mask drops fields from the projection: role may
@@ -402,8 +438,8 @@ mod tests {
     fn narrow_rbac_drops_fields() {
         let present = mask_of(UNIVERSE, UNIVERSE);
         let view = mask_of(UNIVERSE, &["subject", "done_ratio"]);
-        let rbac = FieldMask(0b0011); // positions 0..=1 only
-        let filtered = view_filter(rbac, &present, &view);
+        let rbac = widen_rbac(FieldMask(0b0011)); // positions 0..=1 only
+        let filtered = view_filter(&rbac, &present, &view);
         assert!(filtered.has(0), "subject (pos 0) allowed and shown");
         assert!(!filtered.has(2), "done_ratio (pos 2) shown but not allowed");
         assert_eq!(filtered.count(), 1);
@@ -415,7 +451,7 @@ mod tests {
     fn present_gate_drops_absent_fields() {
         let present = mask_of(UNIVERSE, &["subject", "project"]);
         let view = mask_of(UNIVERSE, &["subject", "done_ratio"]);
-        let filtered = view_filter(FieldMask::FULL, &present, &view);
+        let filtered = view_filter(&current_rbac_field_mask(), &present, &view);
         assert!(filtered.has(0));
         assert!(!filtered.has(2), "done_ratio not present in the facet");
     }
