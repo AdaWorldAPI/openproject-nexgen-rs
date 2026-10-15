@@ -55,30 +55,14 @@
 
 use lance_graph_contract::class_view::{WideFieldMask, WideMaskCapError};
 use lance_graph_contract::rbac::ClassRbac;
-use lance_graph_contract::FieldMask;
 
 // ── ViewFilter: rbac ∩ present ∩ view ────────────────────────────────
-
-/// Widen the RBAC 64-field [`FieldMask`] tier to a [`WideFieldMask`].
-///
-/// This is *positional* data (the RBAC mask's bit `i` already means basis
-/// position `i` — same position convention as `ClassView::fields`), so
-/// `from_positions` is the correct constructor here: the off-brick
-/// anti-pattern was minting **name membership** via
-/// `from_positions(mask_positions(..))`, which skips the SoC guard;
-/// widening an existing positional mask across the width tiers is exactly
-/// what `from_positions` is for.
-#[must_use]
-pub fn widen_rbac(mask: FieldMask) -> WideFieldMask {
-    let positions: Vec<u8> = (0..64u8).filter(|i| mask.0 & (1u64 << i) != 0).collect();
-    WideFieldMask::from_positions(&positions)
-}
 
 /// The ViewFilter: `rbac ∩ present ∩ view`.
 ///
 /// A plain intersection. `rbac` is never read as "unrestricted": a role sees
 /// the positions it names and nothing else, so an empty mask shows nothing
-/// and the 64-bit [`FieldMask::FULL`] (widened) shows only positions 0..64.
+/// and the 64-bit [`lance_graph_contract::FieldMask::FULL`] (widened) shows only positions 0..64.
 #[must_use]
 pub fn view_filter(
     rbac: &WideFieldMask,
@@ -387,12 +371,27 @@ pub fn buckets_match_direct(universe: &[&str], present: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lance_graph_contract::FieldMask;
 
     fn mask_of(universe: &[&str], present: &[&str]) -> WideFieldMask {
         WideFieldMask::from_universe_present(universe, present).unwrap()
     }
 
     const UNIVERSE: &[&str] = &["subject", "project", "done_ratio", "description"];
+
+    /// Widen the RBAC 64-field [`FieldMask`] tier to a [`WideFieldMask`].
+    ///
+    /// This is *positional* data (the RBAC mask's bit `i` already means basis
+    /// position `i` — same position convention as `ClassView::fields`), so
+    /// `from_positions` is the correct constructor here: the off-brick
+    /// anti-pattern was minting **name membership** via
+    /// `from_positions(mask_positions(..))`, which skips the SoC guard;
+    /// widening an existing positional mask across the width tiers is exactly
+    /// what `from_positions` is for.
+    fn widen_rbac(mask: FieldMask) -> WideFieldMask {
+        let positions: Vec<u8> = (0..64u8).filter(|i| mask.0 & (1u64 << i) != 0).collect();
+        WideFieldMask::from_positions(&positions)
+    }
 
     // ── ViewFilter ────────────────────────────────────────────────
 
