@@ -2,3 +2,6 @@ target/
 
 # Sprint C0 orchestration logs / A2A bus (ephemeral)
 .sprint/
+
+# No tracked Cargo.lock (no pins, 2026-10-16): builds resolve the latest heads.
+Cargo.lock
