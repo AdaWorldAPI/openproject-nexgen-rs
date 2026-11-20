@@ -1,29 +1,29 @@
 {
   "app": "openproject",
   "per_origin": {
-    "Klickwege": 104
+    "Klickwege": 137
   },
   "per_reason": [
     {
       "by_origin": {
-        "Klickwege": 43
+        "Klickwege": 69
       },
-      "count": 43,
+      "count": 69,
       "examples": [
         {
+          "file": "app/contracts/attachments/create_contract.rb",
+          "line": 49,
+          "subject": "K9:Attachments::CreateContract#validate::filesize_below_allowed_maximum"
+        },
+        {
           "file": "app/contracts/custom_fields/update_contract.rb",
-          "line": 35,
+          "line": 34,
           "subject": "K9:CustomFields::UpdateContract#validate::unique_job"
         },
         {
-          "file": "app/contracts/scim_clients/base_contract.rb",
-          "line": 43,
-          "subject": "K9:ScimClients::BaseContract#validates::jwt_sub"
-        },
-        {
-          "file": "app/contracts/user_preferences/base_contract.rb",
-          "line": 36,
-          "subject": "K9:UserPreferences::BaseContract#validates::settings"
+          "file": "app/contracts/groups/base_contract.rb",
+          "line": 51,
+          "subject": "K9:Groups::BaseContract#validate::validate_avatar_color_correctness"
         }
       ],
       "reason": "class_macro_guard_lambda",
@@ -32,9 +32,9 @@
     },
     {
       "by_origin": {
-        "Klickwege": 37
+        "Klickwege": 41
       },
-      "count": 37,
+      "count": 41,
       "examples": [],
       "reason": "route_declaration_escaped",
       "remedy": "RuffOreExtension",
@@ -52,24 +52,24 @@
     },
     {
       "by_origin": {
-        "Klickwege": 7
+        "Klickwege": 8
       },
-      "count": 7,
+      "count": 8,
       "examples": [
         {
+          "file": "app/controllers/admin/settings/work_package_custom_fields_controller.rb",
+          "line": 38,
+          "subject": "Admin::Settings::WorkPackageCustomFieldsController#before_action:{ find_custom_field }"
+        },
+        {
           "file": "app/controllers/custom_styles_controller.rb",
-          "line": 43,
+          "line": 42,
           "subject": "CustomStylesController#before_action:UNGUARDED_ACTIONS"
         },
         {
           "file": "app/controllers/custom_styles_controller.rb",
-          "line": 45,
+          "line": 44,
           "subject": "CustomStylesController#skip_before_action:UNGUARDED_ACTIONS"
-        },
-        {
-          "file": "app/controllers/users_controller.rb",
-          "line": 78,
-          "subject": "UsersController#before_action:-> { enforce_user_limit flash_now: true }"
         }
       ],
       "reason": "access_filter_unresolved",
@@ -78,13 +78,13 @@
     },
     {
       "by_origin": {
-        "Klickwege": 4
+        "Klickwege": 6
       },
-      "count": 4,
+      "count": 6,
       "examples": [
         {
           "file": "modules/auth_saml/app/contracts/saml/providers/base_contract.rb",
-          "line": 74,
+          "line": 77,
           "subject": "K9:Saml::Providers::BaseContract#validates::allowed_clock_drift"
         },
         {
@@ -93,9 +93,9 @@
           "subject": "K9:Backlogs::Projects::BacklogSettingsContract#validates::sprint_sharing"
         },
         {
-          "file": "modules/openid_connect/app/contracts/openid_connect/providers/base_contract.rb",
-          "line": 43,
-          "subject": "K9:OpenIDConnect::Providers::BaseContract#validates::oidc_provider"
+          "file": "modules/backlogs/app/contracts/backlogs/projects/backlog_settings_contract.rb",
+          "line": 59,
+          "subject": "K9:Backlogs::Projects::BacklogSettingsContract#validates::estimation_unit"
         }
       ],
       "reason": "class_macro_value_unresolved",
@@ -104,8 +104,8 @@
     }
   ],
   "per_remedy": {
-    "GenericRule": 43,
-    "RuffOreExtension": 61
+    "GenericRule": 69,
+    "RuffOreExtension": 68
   },
-  "total": 104
+  "total": 137
 }

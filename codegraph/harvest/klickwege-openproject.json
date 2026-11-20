@@ -12,29 +12,29 @@
       "unit": "route files"
     },
     {
-      "declarations": 1620,
-      "emitted_as_ore": 1570,
-      "escaped": 50,
-      "facts": 50,
-      "scanned_files": 29,
+      "declarations": 1930,
+      "emitted_as_ore": 1876,
+      "escaped": 54,
+      "facts": 54,
+      "scanned_files": 32,
       "stratum": "K1",
       "unit": "route declarations"
     },
     {
-      "declarations": 653,
-      "emitted_as_ore": 646,
-      "escaped": 7,
-      "facts": 7,
-      "scanned_files": 1706,
+      "declarations": 722,
+      "emitted_as_ore": 714,
+      "escaped": 8,
+      "facts": 8,
+      "scanned_files": 2128,
       "stratum": "K2/filters",
       "unit": "filter macro calls"
     },
     {
-      "declarations": 851,
-      "emitted_as_ore": 804,
-      "escaped": 47,
-      "facts": 47,
-      "scanned_files": 355,
+      "declarations": 1026,
+      "emitted_as_ore": 951,
+      "escaped": 75,
+      "facts": 75,
+      "scanned_files": 423,
       "stratum": "K9",
       "unit": "class macro calls"
     }
