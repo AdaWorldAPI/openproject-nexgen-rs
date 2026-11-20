@@ -1,0 +1,20 @@
+# Second Rails corpus, measured with the same compiler and no code change.
+# Corpus mode only (`rails-compile --corpus`): no slice is compiled.
+output = "target/openproject-unused"
+
+[app]
+name = "openproject"
+namespace = "openproject"
+source_env = "OPENPROJECT_SRC"
+# config/application.rb: config.load_defaults 6.1
+rails_load_defaults = "6.1"
+autoload_roots = ["app/models", "app/models/concerns", "lib/open_project", "modules/auth_saml/app/models", "modules/avatars/app/models", "modules/backlogs/app/models", "modules/bim/app/models", "modules/boards/app/models", "modules/budgets/app/models", "modules/calendar/app/models", "modules/costs/app/models", "modules/documents/app/models", "modules/github_integration/app/models", "modules/gitlab_integration/app/models", "modules/grids/app/models", "modules/job_status/app/models", "modules/ldap_departments/app/models", "modules/ldap_groups/app/models", "modules/meeting/app/models", "modules/my_page/app/models", "modules/openid_connect/app/models", "modules/overviews/app/models", "modules/recaptcha/app/models", "modules/reporting/app/models", "modules/resource_management/app/models", "modules/storages/app/models", "modules/two_factor_authentication/app/models", "modules/webhooks/app/models", "modules/wikis/app/models", "modules/xls_export/app/models"]
+migrations = []
+framework_roots = ["ActiveRecord::Base", "ApplicationRecord"]
+
+[slice]
+models = []
+verbatim_file = "verbatim.txt"
+
+[klickwege]
+access = { controller_roots = ["app/controllers", "modules"], filter_macros = ["before_action", "prepend_before_action", "append_before_action", "skip_before_action"] }

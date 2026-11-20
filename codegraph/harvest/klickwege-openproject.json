@@ -1,0 +1,33 @@
+{
+  "app": "openproject",
+  "identity": "declarations == emitted_as_ore + escaped, per stratum; seed strata also unresolved_values == facts",
+  "strata": [
+    {
+      "declarations": 1,
+      "emitted_as_ore": 1,
+      "escaped": 0,
+      "facts": 0,
+      "scanned_files": 1,
+      "stratum": "K1/files",
+      "unit": "route files"
+    },
+    {
+      "declarations": 1620,
+      "emitted_as_ore": 1570,
+      "escaped": 50,
+      "facts": 50,
+      "scanned_files": 29,
+      "stratum": "K1",
+      "unit": "route declarations"
+    },
+    {
+      "declarations": 653,
+      "emitted_as_ore": 646,
+      "escaped": 7,
+      "facts": 7,
+      "scanned_files": 1267,
+      "stratum": "K2/filters",
+      "unit": "filter macro calls"
+    }
+  ]
+}
