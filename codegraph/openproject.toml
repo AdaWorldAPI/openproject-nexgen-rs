@@ -17,7 +17,7 @@ models = []
 verbatim_file = "verbatim.txt"
 
 [klickwege]
-access = { controller_roots = ["app/controllers", "modules"], filter_macros = ["before_action", "prepend_before_action", "append_before_action", "skip_before_action"] }
+access = { controller_roots = ["app/controllers", "modules/*/app/controllers"], filter_macros = ["before_action", "prepend_before_action", "append_before_action", "skip_before_action"] }
 
 [[klickwege.class_macros]]
 stratum = "K9"
