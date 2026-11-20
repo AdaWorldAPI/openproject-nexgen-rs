@@ -40,9 +40,9 @@
     },
     {
       "declarations": 1359,
-      "emitted_as_ore": 882,
-      "escaped": 477,
-      "facts": 477,
+      "emitted_as_ore": 971,
+      "escaped": 388,
+      "facts": 388,
       "scanned_files": 423,
       "stratum": "K10/crosswalk",
       "unit": "contract functions and attributes"

@@ -1,14 +1,14 @@
 {
   "app": "openproject",
   "per_origin": {
-    "Klickwege": 612
+    "Klickwege": 523
   },
   "per_reason": [
     {
       "by_origin": {
-        "Klickwege": 185
+        "Klickwege": 182
       },
-      "count": 185,
+      "count": 182,
       "examples": [
         {
           "file": "app/contracts/ai/text_actions/base_contract.rb",
@@ -32,9 +32,9 @@
     },
     {
       "by_origin": {
-        "Klickwege": 147
+        "Klickwege": 114
       },
-      "count": 147,
+      "count": 114,
       "examples": [
         {
           "file": "app/contracts/automations/execute_contract.rb",
@@ -47,40 +47,14 @@
           "subject": "K10/crosswalk:Automations::ExecuteContract#automation_conditions_fulfilled:work_package_id"
         },
         {
-          "file": "app/contracts/custom_fields/base_contract.rb",
-          "line": 102,
-          "subject": "K10/crosswalk:CustomFields::BaseContract#validate_project_admin_flag_enterprise:public_send"
+          "file": "app/contracts/custom_options/create_contract.rb",
+          "line": 46,
+          "subject": "K10/crosswalk:CustomOptions::CreateContract#validate_additional_project_values_allowed:project_id"
         }
       ],
       "reason": "crosswalk_loose_read",
       "remedy": "RuffOreExtension",
       "stage": "Ore"
-    },
-    {
-      "by_origin": {
-        "Klickwege": 87
-      },
-      "count": 87,
-      "examples": [
-        {
-          "file": "app/contracts/attachments/create_contract.rb",
-          "line": 53,
-          "subject": "K10/crosswalk:Attachments::CreateContract#filesize_below_allowed_maximum:filesize"
-        },
-        {
-          "file": "app/contracts/attachments/create_contract.rb",
-          "line": 93,
-          "subject": "K10/crosswalk:Attachments::CreateContract#attachment_allowlist:Array"
-        },
-        {
-          "file": "app/contracts/attachments/validate_replacements.rb",
-          "line": 49,
-          "subject": "K10/crosswalk:Attachments::ValidateReplacements#error_if_attachment_assigned:errors,model"
-        }
-      ],
-      "reason": "crosswalk_loose_predicate",
-      "remedy": "GenericRule",
-      "stage": "GenericRule"
     },
     {
       "by_origin": {
@@ -110,9 +84,9 @@
     },
     {
       "by_origin": {
-        "Klickwege": 58
+        "Klickwege": 51
       },
-      "count": 58,
+      "count": 51,
       "examples": [
         {
           "file": "app/contracts/admin_only_contract.rb",
@@ -131,6 +105,32 @@
         }
       ],
       "reason": "crosswalk_model_unresolved",
+      "remedy": "GenericRule",
+      "stage": "GenericRule"
+    },
+    {
+      "by_origin": {
+        "Klickwege": 41
+      },
+      "count": 41,
+      "examples": [
+        {
+          "file": "app/contracts/attachments/create_contract.rb",
+          "line": 53,
+          "subject": "K10/crosswalk:Attachments::CreateContract#filesize_below_allowed_maximum:filesize"
+        },
+        {
+          "file": "app/contracts/concerns/authorizes_variant_authoring.rb",
+          "line": 51,
+          "subject": "K10/crosswalk:AuthorizesVariantAuthoring#owning_project:try"
+        },
+        {
+          "file": "app/contracts/concerns/requires_enterprise_guard.rb",
+          "line": 42,
+          "subject": "K10/crosswalk:RequiresEnterpriseGuard#has_enterprise:enterprise_action"
+        }
+      ],
+      "reason": "crosswalk_loose_predicate",
       "remedy": "GenericRule",
       "stage": "GenericRule"
     },
@@ -208,8 +208,8 @@
     }
   ],
   "per_remedy": {
-    "GenericRule": 214,
-    "RuffOreExtension": 398
+    "GenericRule": 161,
+    "RuffOreExtension": 362
   },
-  "total": 612
+  "total": 523
 }
