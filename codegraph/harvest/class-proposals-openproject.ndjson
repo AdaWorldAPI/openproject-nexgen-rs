@@ -1,0 +1,4 @@
+{"s":"model=WorkPackage&guard=writable=false","p":"shares_witness","o":"writable_together","f":1.0,"c":0.93333334}
+{"s":"model=WorkPackage&guard=self_calls: leaf_or_manually_scheduled?; receiver_reads: ","p":"shares_witness","o":"writable_together","f":1.0,"c":0.93333334}
+{"s":"model=WorkPackage&permission=assign_versions","p":"shares_witness","o":"writable_together","f":1.0,"c":0.93333334}
+{"s":"model=WorkPackage&reads=project","p":"shares_witness","o":"writable_together","f":1.0,"c":0.93333334}

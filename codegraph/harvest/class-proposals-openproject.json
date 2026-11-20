@@ -1,0 +1,1793 @@
+{
+  "app": "openproject",
+  "applied": false,
+  "config": {
+    "k": 1,
+    "min_support": 2,
+    "oracle_trace": "../oracle/work-package-contract-trace.json"
+  },
+  "coverage": {
+    "attributes_classified": 501,
+    "models": 74,
+    "oracle": {
+      "cases": 14,
+      "cases_without_model": 0,
+      "trace": "../oracle/work-package-contract-trace.json",
+      "verdicts": {
+        "guard/co-varies": 2,
+        "guard/not covered": 6,
+        "permission/co-varies": 1,
+        "permission/not covered": 1,
+        "reads/co-varies": 1
+      }
+    },
+    "permission_values_not_literal": 0,
+    "proposals": 11,
+    "proposals_by_feature": {
+      "guard": 8,
+      "permission": 2,
+      "reads": 1
+    },
+    "redeclared": 1,
+    "rows": 500,
+    "skipped_in_modules": 0,
+    "unclustered": 470
+  },
+  "dictionaries": {
+    "block": [
+      "none",
+      "attached"
+    ],
+    "guard": [
+      "none",
+      "writable=true",
+      "writable=false",
+      "self_calls: can_create_or_manage_users?, editing_self?; receiver_reads: ",
+      "self_calls: can_change_self?, can_create_or_manage_users?; receiver_reads: ",
+      "self_calls: can_change_own_mail?, user; receiver_reads: new_record?",
+      "self_calls: editing_self?, user; receiver_reads: ",
+      "self_calls: can_create_or_manage_users?; receiver_reads: ",
+      "self_calls: user; receiver_reads: ",
+      "self_calls: closed_version_and_status?; receiver_reads: status_id_change",
+      "self_calls: leaf_or_manually_scheduled?; receiver_reads: ",
+      "self_calls: default_attributes_admin_writable?; receiver_reads: ",
+      "self_calls: ; receiver_reads: new_record?",
+      "self_calls: ; receiver_reads: manual?, new_record?",
+      "self_calls: only_admin_context_window_changed?; receiver_reads: ",
+      "self_calls: ; receiver_reads: recurring?"
+    ],
+    "model": [
+      "none",
+      "AI::TextAction",
+      "Attachment",
+      "AttributeHelpText",
+      "Automation",
+      "CustomField",
+      "CustomOption",
+      "EmojiReaction",
+      "EnterpriseTrial",
+      "FormConfiguration",
+      "Group",
+      "Import::Jira",
+      "Journal",
+      "Label",
+      "Member",
+      "Message",
+      "News",
+      "Notification",
+      "OAuthClient",
+      "PlaceholderUser",
+      "ProjectCustomFieldProjectMapping",
+      "ProjectCustomFieldSection",
+      "ProjectCustomFieldTypeMapping",
+      "ProjectQuery",
+      "Project",
+      "PushSubscription",
+      "Query",
+      "Relation",
+      "Reminder",
+      "Role",
+      "ScimClient",
+      "UserCustomFieldSection",
+      "UserNonWorkingTime",
+      "User",
+      "Version",
+      "View",
+      "WikiPage",
+      "WorkPackage",
+      "Workflow",
+      "Saml::Provider",
+      "Sprint",
+      "Bim::Bcf::Comment",
+      "Bim::Bcf::Issue",
+      "Bim::Bcf::Viewpoint",
+      "Budget",
+      "CostEntry",
+      "HourlyRate",
+      "Rate",
+      "TimeEntry",
+      "Document",
+      "ITSM::EmailMessage",
+      "ITSM::EmailThread",
+      "LlmConnection",
+      "LlmModel",
+      "SemanticIndex",
+      "MeetingAgendaItem",
+      "MeetingOutcome",
+      "MeetingParticipant",
+      "MeetingSection",
+      "Meeting",
+      "RecurringMeeting",
+      "OpenIDConnect::Provider",
+      "Repositories::GitlabProvider",
+      "ResourceAllocation",
+      "ResourcePlanner",
+      "SquashTMIntegration::ProjectLink",
+      "SquashTMIntegration::Server",
+      "SquashTMIntegration::WorkPackageLink",
+      "Storages::FileLink",
+      "Storages::LastProjectFolder",
+      "Storages::ProjectStorage",
+      "Storages::Storage",
+      "Wikis::InternalProvider",
+      "Wikis::RelationPageLink",
+      "Wikis::XWikiProvider"
+    ],
+    "permission": [
+      "none",
+      "add_messages",
+      "edit_messages",
+      "change_work_package_status,edit_work_packages",
+      "assign_versions",
+      "manage_subtasks",
+      "view_project_phases",
+      "add_work_packages",
+      "assign_versions,change_work_package_status,edit_work_packages,manage_subtasks,move_work_packages",
+      "log_time"
+    ],
+    "reads": [
+      "none",
+      "actions",
+      "conditions",
+      "custom_field",
+      "active?,invited?",
+      "lock_version,lock_version_changed?",
+      "project",
+      "schedule_automatically?",
+      "journal_notes",
+      "journal_internal,project"
+    ]
+  },
+  "identity": "attributes classified == rows + skipped in modules + redeclared; per model, rows == clustered + unclustered; truth only where the oracle compared cases",
+  "kind": "class_proposals",
+  "models": [
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "AI::TextAction",
+      "rows": 4,
+      "unclustered": [
+        "AI::TextActions::BaseContract#label",
+        "AI::TextActions::BaseContract#prompt",
+        "AI::TextActions::BaseContract#usage_scope",
+        "AI::TextActions::BaseContract#injects_type_template"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Attachment",
+      "rows": 10,
+      "unclustered": [
+        "Attachments::CreateContract#file",
+        "Attachments::CreateContract#filename",
+        "Attachments::CreateContract#filesize",
+        "Attachments::CreateContract#digest",
+        "Attachments::CreateContract#description",
+        "Attachments::CreateContract#content_type",
+        "Attachments::CreateContract#charset",
+        "Attachments::CreateContract#container",
+        "Attachments::CreateContract#container_type",
+        "Attachments::CreateContract#author"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "AttributeHelpText",
+      "rows": 4,
+      "unclustered": [
+        "AttributeHelpTexts::BaseContract#type",
+        "AttributeHelpTexts::BaseContract#attribute_name",
+        "AttributeHelpTexts::BaseContract#caption",
+        "AttributeHelpTexts::BaseContract#help_text"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Automation",
+      "rows": 4,
+      "unclustered": [
+        "Automations::CuContract#name",
+        "Automations::CuContract#description",
+        "Automations::CuContract#actions",
+        "Automations::CuContract#conditions"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Bim::Bcf::Comment",
+      "rows": 4,
+      "unclustered": [
+        "Bim::Bcf::Comments::BaseContract#issue",
+        "Bim::Bcf::Comments::BaseContract#viewpoint",
+        "Bim::Bcf::Comments::BaseContract#reply_to",
+        "Bim::Bcf::Comments::CreateContract#journal"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Bim::Bcf::Issue",
+      "rows": 3,
+      "unclustered": [
+        "Bim::Bcf::Issues::BaseContract#index",
+        "Bim::Bcf::Issues::CreateContract#uuid",
+        "Bim::Bcf::Issues::CreateContract#work_package"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Bim::Bcf::Viewpoint",
+      "rows": 4,
+      "unclustered": [
+        "Bim::Bcf::Viewpoints::CreateContract#uuid",
+        "Bim::Bcf::Viewpoints::CreateContract#issue",
+        "Bim::Bcf::Viewpoints::CreateContract#snapshot",
+        "Bim::Bcf::Viewpoints::CreateContract#json_viewpoint"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Budget",
+      "rows": 9,
+      "unclustered": [
+        "Budgets::BaseContract#subject",
+        "Budgets::BaseContract#description",
+        "Budgets::BaseContract#fixed_date",
+        "Budgets::BaseContract#project",
+        "Budgets::BaseContract#base_amount",
+        "Budgets::BaseContract#new_material_budget_item_attributes",
+        "Budgets::BaseContract#new_labor_budget_item_attributes",
+        "Budgets::BaseContract#existing_material_budget_item_attributes",
+        "Budgets::BaseContract#existing_labor_budget_item_attributes"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "CostEntry",
+      "rows": 12,
+      "unclustered": [
+        "CostEntries::BaseContract#project_id",
+        "CostEntries::BaseContract#entity_id",
+        "CostEntries::BaseContract#entity_type",
+        "CostEntries::BaseContract#cost_type_id",
+        "CostEntries::BaseContract#user_id",
+        "CostEntries::BaseContract#units",
+        "CostEntries::BaseContract#overridden_costs",
+        "CostEntries::BaseContract#comments",
+        "CostEntries::BaseContract#spent_on",
+        "CostEntries::BaseContract#tyear",
+        "CostEntries::BaseContract#tmonth",
+        "CostEntries::BaseContract#tweek"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "CustomField",
+      "rows": 15,
+      "unclustered": [
+        "CustomFields::BaseContract#admin_only",
+        "CustomFields::BaseContract#custom_field_section_id",
+        "CustomFields::BaseContract#field_format",
+        "CustomFields::BaseContract#formula",
+        "CustomFields::BaseContract#has_comment",
+        "CustomFields::BaseContract#is_filter",
+        "CustomFields::BaseContract#is_for_all",
+        "CustomFields::BaseContract#is_required",
+        "CustomFields::BaseContract#multi_value",
+        "CustomFields::BaseContract#name",
+        "CustomFields::BaseContract#possible_values",
+        "CustomFields::BaseContract#project_specific_value_restriction",
+        "CustomFields::BaseContract#searchable",
+        "CustomFields::BaseContract#visible_on_user_card",
+        "CustomFields::BaseContract#type"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "CustomOption",
+      "rows": 6,
+      "unclustered": [
+        "CustomOptions::CreateContract#custom_field_id",
+        "CustomOptions::CreateContract#value",
+        "CustomOptions::CreateContract#position",
+        "CustomOptions::CreateContract#default_value",
+        "CustomOptions::CreateContract#project_id",
+        "CustomOptions::UpdateContract#value"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Document",
+      "rows": 6,
+      "unclustered": [
+        "Documents::BaseContract#project",
+        "Documents::BaseContract#type",
+        "Documents::BaseContract#kind",
+        "Documents::BaseContract#title",
+        "Documents::BaseContract#description",
+        "Documents::BaseContract#content_binary"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "EmojiReaction",
+      "rows": 4,
+      "unclustered": [
+        "EmojiReactions::BaseContract#reaction",
+        "EmojiReactions::BaseContract#user_id",
+        "EmojiReactions::BaseContract#reactable_id",
+        "EmojiReactions::BaseContract#reactable_type"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "EnterpriseTrial",
+      "rows": 6,
+      "unclustered": [
+        "EnterpriseTrials::CreateContract#firstname",
+        "EnterpriseTrials::CreateContract#lastname",
+        "EnterpriseTrials::CreateContract#email",
+        "EnterpriseTrials::CreateContract#company",
+        "EnterpriseTrials::CreateContract#general_consent",
+        "EnterpriseTrials::CreateContract#newsletter_consent"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "FormConfiguration",
+      "rows": 3,
+      "unclustered": [
+        "FormConfigurations::BaseContract#name",
+        "FormConfigurations::BaseContract#description",
+        "FormConfigurations::UpdateContract#is_default"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Group",
+      "rows": 8,
+      "unclustered": [
+        "Groups::BaseContract#name",
+        "Groups::BaseContract#lastname",
+        "Groups::BaseContract#parent_id",
+        "Groups::BaseContract#avatar_color",
+        "Groups::BaseContract#avatar_text",
+        "Groups::BaseContract#avatar_type",
+        "Groups::CreateContract#type",
+        "Groups::CreateContract#organizational_unit"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "HourlyRate",
+      "rows": 1,
+      "unclustered": [
+        "HourlyRates::CreateContract#project_id"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "ITSM::EmailMessage",
+      "rows": 12,
+      "unclustered": [
+        "ITSM::EmailMessages::CreateContract#thread",
+        "ITSM::EmailMessages::CreateContract#journal",
+        "ITSM::EmailMessages::CreateContract#direction",
+        "ITSM::EmailMessages::CreateContract#status",
+        "ITSM::EmailMessages::CreateContract#message_id",
+        "ITSM::EmailMessages::CreateContract#in_reply_to",
+        "ITSM::EmailMessages::CreateContract#referenced_message_ids",
+        "ITSM::EmailMessages::CreateContract#from_address",
+        "ITSM::EmailMessages::CreateContract#from_name",
+        "ITSM::EmailMessages::CreateContract#to_addresses",
+        "ITSM::EmailMessages::CreateContract#cc_addresses",
+        "ITSM::EmailMessages::CreateContract#subject"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "ITSM::EmailThread",
+      "rows": 4,
+      "unclustered": [
+        "ITSM::EmailThreads::CreateContract#work_package",
+        "ITSM::EmailThreads::CreateContract#requester_email",
+        "ITSM::EmailThreads::CreateContract#requester_name",
+        "ITSM::EmailThreads::CreateContract#recipients"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Import::Jira",
+      "rows": 6,
+      "unclustered": [
+        "Import::Jiras::BaseContract#name",
+        "Import::Jiras::BaseContract#url",
+        "Import::Jiras::BaseContract#personal_access_token",
+        "Import::Jiras::BaseContract#auth_method",
+        "Import::Jiras::BaseContract#basic_auth_username",
+        "Import::Jiras::BaseContract#basic_auth_password"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Journal",
+      "rows": 1,
+      "unclustered": [
+        "Journals::UpdateContract#notes"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Label",
+      "rows": 1,
+      "unclustered": [
+        "Labels::BaseContract#name"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "LlmConnection",
+      "rows": 9,
+      "unclustered": [
+        "LlmConnections::BaseContract#llm_features_enabled",
+        "LlmConnections::BaseContract#api_format",
+        "LlmConnections::BaseContract#base_url",
+        "LlmConnections::BaseContract#api_key",
+        "LlmConnections::BaseContract#default_chat_model_id",
+        "LlmConnections::BaseContract#default_embedding_model_id",
+        "LlmConnections::EnvironmentUpdateContract#custom_headers",
+        "LlmConnections::EnvironmentUpdateContract#env_provisioned_at",
+        "LlmConnections::EnvironmentUpdateContract#env_fingerprint"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "LlmModel",
+      "rows": 4,
+      "unclustered": [
+        "LlmModels::BaseContract#display_name",
+        "LlmModels::BaseContract#external_id",
+        "LlmModels::BaseContract#raw_metadata",
+        "LlmModels::CreateContract#llm_connection"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Meeting",
+      "rows": 17,
+      "unclustered": [
+        "Meetings::BaseContract#title",
+        "Meetings::BaseContract#agenda_sorting_mode",
+        "Meetings::BaseContract#location",
+        "Meetings::BaseContract#duration",
+        "Meetings::BaseContract#state",
+        "Meetings::BaseContract#start_date",
+        "Meetings::BaseContract#start_time",
+        "Meetings::BaseContract#start_time_hour",
+        "Meetings::BaseContract#template",
+        "Meetings::BaseContract#notify",
+        "Meetings::BaseContract#sharing",
+        "Meetings::BaseContract#recurrence_start_time",
+        "Meetings::CreateContract#author_id",
+        "Meetings::CreateContract#project_id",
+        "Meetings::CreateContract#recurring_meeting_id",
+        "Meetings::CreateContract#uid",
+        "Meetings::UpdateContract#lock_version"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "MeetingAgendaItem",
+      "rows": 10,
+      "unclustered": [
+        "MeetingAgendaItems::BaseContract#meeting",
+        "MeetingAgendaItems::BaseContract#work_package",
+        "MeetingAgendaItems::BaseContract#meeting_section",
+        "MeetingAgendaItems::BaseContract#position",
+        "MeetingAgendaItems::BaseContract#title",
+        "MeetingAgendaItems::BaseContract#duration_in_minutes",
+        "MeetingAgendaItems::BaseContract#notes",
+        "MeetingAgendaItems::BaseContract#presenter",
+        "MeetingAgendaItems::CreateContract#item_type",
+        "MeetingAgendaItems::UpdateContract#lock_version"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "MeetingOutcome",
+      "rows": 4,
+      "unclustered": [
+        "MeetingOutcomes::BaseContract#work_package",
+        "MeetingOutcomes::BaseContract#notes",
+        "MeetingOutcomes::BaseContract#kind",
+        "MeetingOutcomes::CreateContract#meeting_agenda_item"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "MeetingParticipant",
+      "rows": 4,
+      "unclustered": [
+        "MeetingParticipants::CreateContract#meeting",
+        "MeetingParticipants::CreateContract#user_id",
+        "MeetingParticipants::CreateContract#invited",
+        "MeetingParticipants::CreateContract#attended"
+      ]
+    },
+    {
+      "clustered": 2,
+      "first_in": {
+        "MeetingSections::MoveContract#meeting": "P1",
+        "MeetingSections::UpdateContract#meeting": "P1"
+      },
+      "model": "MeetingSection",
+      "rows": 6,
+      "unclustered": [
+        "MeetingSections::BaseContract#meeting",
+        "MeetingSections::BaseContract#title",
+        "MeetingSections::BaseContract#position",
+        "MeetingSections::BaseContract#backlog"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Member",
+      "rows": 4,
+      "unclustered": [
+        "Members::BaseContract#roles",
+        "Members::CreateContract#project",
+        "Members::CreateContract#user_id",
+        "Members::CreateContract#principal"
+      ]
+    },
+    {
+      "clustered": 5,
+      "first_in": {
+        "Messages::CreateContract#locked": "P2",
+        "Messages::CreateContract#sticky": "P2",
+        "Messages::UpdateContract#forum_id": "P2",
+        "Messages::UpdateContract#locked": "P2",
+        "Messages::UpdateContract#sticky": "P2"
+      },
+      "model": "Message",
+      "rows": 14,
+      "unclustered": [
+        "Messages::AcceptSolutionContract#accepted_solution",
+        "Messages::BaseContract#forum_id",
+        "Messages::BaseContract#parent_id",
+        "Messages::BaseContract#subject",
+        "Messages::BaseContract#content",
+        "Messages::BaseContract#last_reply",
+        "Messages::BaseContract#locked",
+        "Messages::BaseContract#sticky",
+        "Messages::CreateContract#forum_id"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "News",
+      "rows": 4,
+      "unclustered": [
+        "News::BaseContract#title",
+        "News::BaseContract#summary",
+        "News::BaseContract#description",
+        "News::CreateContract#project"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Notification",
+      "rows": 10,
+      "unclustered": [
+        "Notifications::CreateContract#recipient",
+        "Notifications::CreateContract#subject",
+        "Notifications::CreateContract#reason",
+        "Notifications::CreateContract#actor",
+        "Notifications::CreateContract#resource",
+        "Notifications::CreateContract#journal",
+        "Notifications::CreateContract#resource_type",
+        "Notifications::CreateContract#read_ian",
+        "Notifications::CreateContract#mail_reminder_sent",
+        "Notifications::CreateContract#mail_alert_sent"
+      ]
+    },
+    {
+      "clustered": 6,
+      "first_in": {
+        "OAuthClients::BaseContract#client_id": "P3",
+        "OAuthClients::BaseContract#client_secret": "P3",
+        "OAuthClients::BaseContract#integration_id": "P3",
+        "OAuthClients::BaseContract#integration_type": "P3",
+        "OAuthClients::UpdateContract#integration_id": "P4",
+        "OAuthClients::UpdateContract#integration_type": "P4"
+      },
+      "model": "OAuthClient",
+      "rows": 6,
+      "unclustered": []
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "OpenIDConnect::Provider",
+      "rows": 12,
+      "unclustered": [
+        "OpenIDConnect::Providers::BaseContract#display_name",
+        "OpenIDConnect::Providers::BaseContract#oidc_provider",
+        "OpenIDConnect::Providers::BaseContract#slug",
+        "OpenIDConnect::Providers::BaseContract#options",
+        "OpenIDConnect::Providers::BaseContract#limit_self_registration",
+        "OpenIDConnect::Providers::BaseContract#claims",
+        "OpenIDConnect::Providers::BaseContract#acr_values",
+        "OpenIDConnect::Providers::BaseContract#additional_form_action_urls",
+        "OpenIDConnect::Providers::BaseContract#post_logout_redirect_uri",
+        "OpenIDConnect::Providers::BaseContract#groups_claim",
+        "OpenIDConnect::Providers::BaseContract#group_regexes",
+        "OpenIDConnect::Providers::CreateContract#type"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "PlaceholderUser",
+      "rows": 5,
+      "unclustered": [
+        "PlaceholderUsers::BaseContract#name",
+        "PlaceholderUsers::BaseContract#lastname",
+        "PlaceholderUsers::BaseContract#description",
+        "PlaceholderUsers::BaseContract#user_filter",
+        "PlaceholderUsers::CreateContract#type"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Project",
+      "rows": 13,
+      "unclustered": [
+        "Projects::BaseContract#name",
+        "Projects::BaseContract#identifier",
+        "Projects::BaseContract#description",
+        "Projects::BaseContract#public",
+        "Projects::BaseContract#settings",
+        "Projects::BaseContract#active",
+        "Projects::BaseContract#parent",
+        "Projects::BaseContract#status_code",
+        "Projects::BaseContract#status_explanation",
+        "Projects::BaseContract#templated",
+        "Projects::CreateContract#workspace_type",
+        "Projects::CreateContract#template",
+        "Projects::SettingsContract#settings"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "ProjectCustomFieldProjectMapping",
+      "rows": 2,
+      "unclustered": [
+        "ProjectCustomFieldProjectMappings::BaseContract#project_id",
+        "ProjectCustomFieldProjectMappings::BaseContract#custom_field_id"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "ProjectCustomFieldSection",
+      "rows": 4,
+      "unclustered": [
+        "ProjectCustomFieldSections::BaseContract#name",
+        "ProjectCustomFieldSections::BaseContract#position",
+        "ProjectCustomFieldSections::BaseContract#type",
+        "ProjectCustomFieldSections::BaseContract#display_representation"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "ProjectCustomFieldTypeMapping",
+      "rows": 2,
+      "unclustered": [
+        "ProjectCustomFieldTypeMappings::BaseContract#type_variant_id",
+        "ProjectCustomFieldTypeMappings::BaseContract#custom_field_id"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "ProjectQuery",
+      "rows": 5,
+      "unclustered": [
+        "ProjectQueries::BaseContract#name",
+        "ProjectQueries::BaseContract#selects",
+        "ProjectQueries::BaseContract#filters",
+        "ProjectQueries::BaseContract#orders",
+        "ProjectQueries::PublishContract#public"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "PushSubscription",
+      "rows": 7,
+      "unclustered": [
+        "PushSubscriptions::BaseContract#user_id",
+        "PushSubscriptions::BaseContract#session_id",
+        "PushSubscriptions::BaseContract#suspended_at",
+        "PushSubscriptions::BaseContract#endpoint",
+        "PushSubscriptions::BaseContract#browser_name",
+        "PushSubscriptions::BaseContract#browser_version",
+        "PushSubscriptions::BaseContract#platform"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Query",
+      "rows": 22,
+      "unclustered": [
+        "Queries::BaseContract#name",
+        "Queries::BaseContract#project_id",
+        "Queries::BaseContract#starred",
+        "Queries::BaseContract#public",
+        "Queries::BaseContract#display_sums",
+        "Queries::BaseContract#timeline_visible",
+        "Queries::BaseContract#timeline_zoom_level",
+        "Queries::BaseContract#timeline_labels",
+        "Queries::BaseContract#highlighting_mode",
+        "Queries::BaseContract#highlighted_attributes",
+        "Queries::BaseContract#show_hierarchies",
+        "Queries::BaseContract#display_representation",
+        "Queries::BaseContract#include_subprojects",
+        "Queries::BaseContract#column_names",
+        "Queries::BaseContract#filters",
+        "Queries::BaseContract#timestamps",
+        "Queries::BaseContract#sort_criteria",
+        "Queries::BaseContract#group_by",
+        "Queries::BaseContract#ordered_work_packages",
+        "Queries::LoadingContract#filters",
+        "Queries::LoadingContract#orders",
+        "Queries::LoadingContract#selects"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Rate",
+      "rows": 4,
+      "unclustered": [
+        "Rates::BaseContract#user_id",
+        "Rates::BaseContract#valid_from",
+        "Rates::BaseContract#rate",
+        "Rates::BaseContract#type"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "RecurringMeeting",
+      "rows": 20,
+      "unclustered": [
+        "RecurringMeetings::BaseContract#title",
+        "RecurringMeetings::BaseContract#start_time",
+        "RecurringMeetings::BaseContract#start_date",
+        "RecurringMeetings::BaseContract#start_time_hour",
+        "RecurringMeetings::BaseContract#frequency",
+        "RecurringMeetings::BaseContract#monthly_day",
+        "RecurringMeetings::BaseContract#monthly_ordinal",
+        "RecurringMeetings::BaseContract#monthly_weekday",
+        "RecurringMeetings::BaseContract#end_after",
+        "RecurringMeetings::BaseContract#end_date",
+        "RecurringMeetings::BaseContract#iterations",
+        "RecurringMeetings::BaseContract#interval",
+        "RecurringMeetings::BaseContract#time_zone",
+        "RecurringMeetings::BaseContract#notify",
+        "RecurringMeetings::BaseContract#duration",
+        "RecurringMeetings::BaseContract#location",
+        "RecurringMeetings::CreateContract#author_id",
+        "RecurringMeetings::CreateContract#project_id",
+        "RecurringMeetings::CreateContract#uid",
+        "RecurringMeetings::CreateContract#current_schedule_start"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Relation",
+      "rows": 5,
+      "unclustered": [
+        "Relations::BaseContract#relation_type",
+        "Relations::BaseContract#lag",
+        "Relations::BaseContract#description",
+        "Relations::BaseContract#from",
+        "Relations::BaseContract#to"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Reminder",
+      "rows": 5,
+      "unclustered": [
+        "Reminders::BaseContract#creator_id",
+        "Reminders::BaseContract#remindable_id",
+        "Reminders::BaseContract#remindable_type",
+        "Reminders::BaseContract#remind_at",
+        "Reminders::BaseContract#note"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Repositories::GitlabProvider",
+      "rows": 4,
+      "unclustered": [
+        "Repositories::GitlabProviders::BaseContract#name",
+        "Repositories::GitlabProviders::BaseContract#url",
+        "Repositories::GitlabProviders::BaseContract#gitlab_user_id",
+        "Repositories::GitlabProviders::BaseContract#webhook_secret"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "ResourceAllocation",
+      "rows": 10,
+      "unclustered": [
+        "ResourceAllocations::AssignContract#principal_assigned_by",
+        "ResourceAllocations::BaseContract#principal",
+        "ResourceAllocations::BaseContract#placeholder_user",
+        "ResourceAllocations::BaseContract#state",
+        "ResourceAllocations::BaseContract#start_date",
+        "ResourceAllocations::BaseContract#end_date",
+        "ResourceAllocations::BaseContract#allocated_time",
+        "ResourceAllocations::CreateContract#entity",
+        "ResourceAllocations::CreateContract#entity_type",
+        "ResourceAllocations::CreateContract#entity_id"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "ResourcePlanner",
+      "rows": 4,
+      "unclustered": [
+        "ResourcePlanners::BaseContract#name",
+        "ResourcePlanners::CreateContract#project",
+        "ResourcePlanners::CreateContract#public",
+        "ResourcePlanners::UpdateContract#public"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Role",
+      "rows": 2,
+      "unclustered": [
+        "Roles::BaseContract#name",
+        "Roles::CreateContract#type"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Saml::Provider",
+      "rows": 13,
+      "unclustered": [
+        "Saml::Providers::BaseContract#type",
+        "Saml::Providers::BaseContract#display_name",
+        "Saml::Providers::BaseContract#slug",
+        "Saml::Providers::BaseContract#options",
+        "Saml::Providers::BaseContract#metadata_url",
+        "Saml::Providers::BaseContract#idp_entity_id",
+        "Saml::Providers::BaseContract#idp_sso_service_url",
+        "Saml::Providers::BaseContract#additional_form_action_urls",
+        "Saml::Providers::BaseContract#idp_slo_service_url",
+        "Saml::Providers::BaseContract#idp_cert",
+        "Saml::Providers::BaseContract#authn_requests_signed",
+        "Saml::Providers::BaseContract#allowed_clock_drift",
+        "Saml::Providers::BaseContract#limit_self_registration"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "ScimClient",
+      "rows": 5,
+      "unclustered": [
+        "ScimClients::BaseContract#name",
+        "ScimClients::BaseContract#auth_provider",
+        "ScimClients::BaseContract#authentication_method",
+        "ScimClients::BaseContract#jwt_sub",
+        "ScimClients::UpdateContract#authentication_method"
+      ]
+    },
+    {
+      "clustered": 3,
+      "first_in": {
+        "SemanticIndexes::BaseContract#context_token_length": "P5",
+        "SemanticIndexes::BaseContract#embedding_vector_dimensions": "P5",
+        "SemanticIndexes::BaseContract#model_id": "P5"
+      },
+      "model": "SemanticIndex",
+      "rows": 5,
+      "unclustered": [
+        "SemanticIndexes::BaseContract#title",
+        "SemanticIndexes::BaseContract#description"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Sprint",
+      "rows": 5,
+      "unclustered": [
+        "Backlogs::Sprints::BaseContract#name",
+        "Backlogs::Sprints::BaseContract#project_id",
+        "Backlogs::Sprints::BaseContract#start_date",
+        "Backlogs::Sprints::BaseContract#finish_date",
+        "Backlogs::Sprints::BaseContract#goals_attributes"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "SquashTMIntegration::ProjectLink",
+      "rows": 2,
+      "unclustered": [
+        "SquashTMIntegration::ProjectLinks::BaseContract#squashtm_project_id",
+        "SquashTMIntegration::ProjectLinks::CreateContract#project"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "SquashTMIntegration::Server",
+      "rows": 2,
+      "unclustered": [
+        "SquashTMIntegration::Servers::BaseContract#base_url",
+        "SquashTMIntegration::Servers::BaseContract#api_token"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "SquashTMIntegration::WorkPackageLink",
+      "rows": 2,
+      "unclustered": [
+        "SquashTMIntegration::WorkPackageLinks::BaseContract#squashtm_requirement_id",
+        "SquashTMIntegration::WorkPackageLinks::CreateContract#work_package"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Storages::FileLink",
+      "rows": 12,
+      "unclustered": [
+        "Storages::FileLinks::CreateContract#name",
+        "Storages::FileLinks::CreateContract#storage",
+        "Storages::FileLinks::CreateContract#creator",
+        "Storages::FileLinks::CreateContract#container",
+        "Storages::FileLinks::CreateContract#container_type",
+        "Storages::FileLinks::CreateContract#origin_id",
+        "Storages::FileLinks::CreateContract#origin_name",
+        "Storages::FileLinks::CreateContract#origin_created_by_name",
+        "Storages::FileLinks::CreateContract#origin_last_modified_by_name",
+        "Storages::FileLinks::CreateContract#origin_mime_type",
+        "Storages::FileLinks::CreateContract#origin_created_at",
+        "Storages::FileLinks::CreateContract#origin_updated_at"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Storages::LastProjectFolder",
+      "rows": 3,
+      "unclustered": [
+        "Storages::LastProjectFolders::BaseContract#project_storage",
+        "Storages::LastProjectFolders::BaseContract#mode",
+        "Storages::LastProjectFolders::BaseContract#origin_folder_id"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Storages::ProjectStorage",
+      "rows": 5,
+      "unclustered": [
+        "Storages::ProjectStorages::BaseContract#project",
+        "Storages::ProjectStorages::BaseContract#storage",
+        "Storages::ProjectStorages::BaseContract#project_folder_mode",
+        "Storages::ProjectStorages::BaseContract#project_folder_id",
+        "Storages::ProjectStorages::CreateContract#creator"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Storages::Storage",
+      "rows": 3,
+      "unclustered": [
+        "Storages::Storages::BaseContract#provider_type",
+        "Storages::Storages::BaseContract#provider_fields",
+        "Storages::Storages::CreateContract#creator"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "TimeEntry",
+      "rows": 13,
+      "unclustered": [
+        "TimeEntries::BaseContract#project_id",
+        "TimeEntries::BaseContract#entity_id",
+        "TimeEntries::BaseContract#entity_type",
+        "TimeEntries::BaseContract#activity_id",
+        "TimeEntries::BaseContract#ongoing",
+        "TimeEntries::BaseContract#hours",
+        "TimeEntries::BaseContract#comments",
+        "TimeEntries::BaseContract#spent_on",
+        "TimeEntries::BaseContract#tyear",
+        "TimeEntries::BaseContract#tmonth",
+        "TimeEntries::BaseContract#tweek",
+        "TimeEntries::BaseContract#user_id",
+        "TimeEntries::BaseContract#start_time"
+      ]
+    },
+    {
+      "clustered": 4,
+      "first_in": {
+        "Users::BaseContract#firstname": "P6",
+        "Users::BaseContract#lastname": "P6",
+        "Users::BaseContract#ldap_auth_source_id": "P7",
+        "Users::BaseContract#status": "P7"
+      },
+      "model": "User",
+      "rows": 11,
+      "unclustered": [
+        "Users::BaseContract#login",
+        "Users::BaseContract#mail",
+        "Users::BaseContract#admin",
+        "Users::BaseContract#language",
+        "Users::BaseContract#force_password_change",
+        "Users::CreateContract#type",
+        "Users::CreateContract#status"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "UserCustomFieldSection",
+      "rows": 3,
+      "unclustered": [
+        "UserCustomFieldSections::BaseContract#name",
+        "UserCustomFieldSections::BaseContract#position",
+        "UserCustomFieldSections::BaseContract#type"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "UserNonWorkingTime",
+      "rows": 3,
+      "unclustered": [
+        "UserNonWorkingTimes::BaseContract#user_id",
+        "UserNonWorkingTimes::BaseContract#start_date",
+        "UserNonWorkingTimes::BaseContract#end_date"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Version",
+      "rows": 8,
+      "unclustered": [
+        "Versions::BaseContract#name",
+        "Versions::BaseContract#description",
+        "Versions::BaseContract#start_date",
+        "Versions::BaseContract#effective_date",
+        "Versions::BaseContract#status",
+        "Versions::BaseContract#sharing",
+        "Versions::BaseContract#wiki_page_title",
+        "Versions::CreateContract#project_id"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "View",
+      "rows": 2,
+      "unclustered": [
+        "Views::BaseContract#query",
+        "Views::CreateContract#type"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "WikiPage",
+      "rows": 7,
+      "unclustered": [
+        "WikiPages::BaseContract#wiki",
+        "WikiPages::BaseContract#title",
+        "WikiPages::BaseContract#slug",
+        "WikiPages::BaseContract#parent",
+        "WikiPages::BaseContract#text",
+        "WikiPages::BaseContract#protected",
+        "WikiPages::UpdateContract#lock_version"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Wikis::InternalProvider",
+      "rows": 1,
+      "unclustered": [
+        "Wikis::InternalProviders::UpdateContract#enabled"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Wikis::RelationPageLink",
+      "rows": 6,
+      "unclustered": [
+        "Wikis::RelationPageLinks::CreateContract#author",
+        "Wikis::RelationPageLinks::CreateContract#identifier",
+        "Wikis::RelationPageLinks::CreateContract#linkable_type",
+        "Wikis::RelationPageLinks::CreateContract#linkable_id",
+        "Wikis::RelationPageLinks::CreateContract#provider",
+        "Wikis::RelationPageLinks::CreateContract#type"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Wikis::XWikiProvider",
+      "rows": 3,
+      "unclustered": [
+        "Wikis::XWikiProviders::BaseContract#name",
+        "Wikis::XWikiProviders::BaseContract#url",
+        "Wikis::XWikiProviders::GeneralInformationContract#authentication_method"
+      ]
+    },
+    {
+      "clustered": 10,
+      "first_in": {
+        "WorkPackages::BaseContract#assigned_to_id": "P11",
+        "WorkPackages::BaseContract#derived_done_ratio": "P8",
+        "WorkPackages::BaseContract#derived_estimated_hours": "P8",
+        "WorkPackages::BaseContract#derived_remaining_hours": "P8",
+        "WorkPackages::BaseContract#due_date": "P9",
+        "WorkPackages::BaseContract#ignore_non_working_days": "P9",
+        "WorkPackages::BaseContract#observed_in_versions": "P10",
+        "WorkPackages::BaseContract#responsible_id": "P11",
+        "WorkPackages::BaseContract#start_date": "P9",
+        "WorkPackages::BaseContract#target_versions": "P10"
+      },
+      "model": "WorkPackage",
+      "rows": 39,
+      "unclustered": [
+        "WorkPackages::BaseContract#subject",
+        "WorkPackages::BaseContract#description",
+        "WorkPackages::BaseContract#status_id",
+        "WorkPackages::BaseContract#type_id",
+        "WorkPackages::BaseContract#priority_id",
+        "WorkPackages::BaseContract#category_id",
+        "WorkPackages::BaseContract#categories",
+        "WorkPackages::BaseContract#project_id",
+        "WorkPackages::BaseContract#done_ratio",
+        "WorkPackages::BaseContract#estimated_hours",
+        "WorkPackages::BaseContract#remaining_hours",
+        "WorkPackages::BaseContract#parent_id",
+        "WorkPackages::BaseContract#project_phase_definition_id",
+        "WorkPackages::BaseContract#schedule_manually",
+        "WorkPackages::BaseContract#duration",
+        "WorkPackages::BaseContract#budget",
+        "WorkPackages::BaseContract#labels",
+        "WorkPackages::CopyContract#done_ratio",
+        "WorkPackages::CreateContract#author_id",
+        "WorkPackages::CreateContract#status_id",
+        "WorkPackages::CreateContract#schedule_manually",
+        "WorkPackages::CreateNoteContract#journal_notes",
+        "WorkPackages::CreateNoteContract#journal_internal",
+        "WorkPackages::UpdateContract#lock_version",
+        "Backlogs::WorkPackages::MoveBetweenSprintsContract#sprint",
+        "Backlogs::WorkPackages::MoveBetweenSprintsContract#position",
+        "Backlogs::WorkPackages::MoveToBacklogContract#sprint",
+        "Backlogs::WorkPackages::MoveToBacklogContract#backlog_bucket",
+        "Backlogs::WorkPackages::MoveToBacklogContract#position"
+      ]
+    },
+    {
+      "clustered": 0,
+      "first_in": {},
+      "model": "Workflow",
+      "rows": 2,
+      "unclustered": [
+        "Workflows::BaseContract#name",
+        "Workflows::BaseContract#description"
+      ]
+    }
+  ],
+  "proposals": [
+    {
+      "comment": "Class split candidate: 2 attributes of MeetingSection share guard \"writable=false\". Source-structure evidence; nothing is registered, minted or applied.",
+      "confidence": "UNKNOWN",
+      "end": 32,
+      "evidence_class": "SOURCE_STRUCTURE",
+      "fileName": "modules/meeting/app/contracts/meeting_sections/move_contract.rb",
+      "lifecycle": {
+        "run_status": "PARTIAL",
+        "status": "proposed"
+      },
+      "proposal": {
+        "applied": false,
+        "evidence": null,
+        "id": "P1",
+        "kind": "class_split_candidate",
+        "members": [
+          "MeetingSections::MoveContract#meeting",
+          "MeetingSections::UpdateContract#meeting"
+        ],
+        "model": "MeetingSection",
+        "oracle": "not covered",
+        "oracle_detail": {
+          "why": "no case of the trace has a contract that resolves to this model"
+        },
+        "truth": null,
+        "witness": {
+          "code": 2,
+          "feature": "guard",
+          "value": "writable=false"
+        }
+      },
+      "provenance": {
+        "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
+        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "run_status": "PARTIAL",
+        "scope": "corpus",
+        "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
+        "tool": "rails-codegraph"
+      },
+      "qualifier": null,
+      "severity": "info",
+      "start": 32,
+      "symbol": "MeetingSection:P1"
+    },
+    {
+      "comment": "Class split candidate: 5 attributes of Message share permission \"edit_messages\". Source-structure evidence; nothing is registered, minted or applied.",
+      "confidence": "UNKNOWN",
+      "end": 33,
+      "evidence_class": "SOURCE_STRUCTURE",
+      "fileName": "app/contracts/messages/create_contract.rb",
+      "lifecycle": {
+        "run_status": "PARTIAL",
+        "status": "proposed"
+      },
+      "proposal": {
+        "applied": false,
+        "evidence": null,
+        "id": "P2",
+        "kind": "class_split_candidate",
+        "members": [
+          "Messages::CreateContract#locked",
+          "Messages::CreateContract#sticky",
+          "Messages::UpdateContract#forum_id",
+          "Messages::UpdateContract#locked",
+          "Messages::UpdateContract#sticky"
+        ],
+        "model": "Message",
+        "oracle": "not covered",
+        "oracle_detail": {
+          "why": "no case of the trace has a contract that resolves to this model"
+        },
+        "truth": null,
+        "witness": {
+          "code": 2,
+          "feature": "permission",
+          "value": "edit_messages"
+        }
+      },
+      "provenance": {
+        "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
+        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "run_status": "PARTIAL",
+        "scope": "corpus",
+        "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
+        "tool": "rails-codegraph"
+      },
+      "qualifier": null,
+      "severity": "info",
+      "start": 33,
+      "symbol": "Message:P2"
+    },
+    {
+      "comment": "Class split candidate: 4 attributes of OAuthClient share guard \"writable=true\". Source-structure evidence; nothing is registered, minted or applied.",
+      "confidence": "UNKNOWN",
+      "end": 34,
+      "evidence_class": "SOURCE_STRUCTURE",
+      "fileName": "app/contracts/oauth_clients/base_contract.rb",
+      "lifecycle": {
+        "run_status": "PARTIAL",
+        "status": "proposed"
+      },
+      "proposal": {
+        "applied": false,
+        "evidence": null,
+        "id": "P3",
+        "kind": "class_split_candidate",
+        "members": [
+          "OAuthClients::BaseContract#client_id",
+          "OAuthClients::BaseContract#client_secret",
+          "OAuthClients::BaseContract#integration_type",
+          "OAuthClients::BaseContract#integration_id"
+        ],
+        "model": "OAuthClient",
+        "oracle": "not covered",
+        "oracle_detail": {
+          "why": "no case of the trace has a contract that resolves to this model"
+        },
+        "truth": null,
+        "witness": {
+          "code": 1,
+          "feature": "guard",
+          "value": "writable=true"
+        }
+      },
+      "provenance": {
+        "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
+        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "run_status": "PARTIAL",
+        "scope": "corpus",
+        "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
+        "tool": "rails-codegraph"
+      },
+      "qualifier": null,
+      "severity": "info",
+      "start": 34,
+      "symbol": "OAuthClient:P3"
+    },
+    {
+      "comment": "Class split candidate: 2 attributes of OAuthClient share guard \"writable=false\". Source-structure evidence; nothing is registered, minted or applied.",
+      "confidence": "UNKNOWN",
+      "end": 32,
+      "evidence_class": "SOURCE_STRUCTURE",
+      "fileName": "app/contracts/oauth_clients/update_contract.rb",
+      "lifecycle": {
+        "run_status": "PARTIAL",
+        "status": "proposed"
+      },
+      "proposal": {
+        "applied": false,
+        "evidence": null,
+        "id": "P4",
+        "kind": "class_split_candidate",
+        "members": [
+          "OAuthClients::UpdateContract#integration_id",
+          "OAuthClients::UpdateContract#integration_type"
+        ],
+        "model": "OAuthClient",
+        "oracle": "not covered",
+        "oracle_detail": {
+          "why": "no case of the trace has a contract that resolves to this model"
+        },
+        "truth": null,
+        "witness": {
+          "code": 2,
+          "feature": "guard",
+          "value": "writable=false"
+        }
+      },
+      "provenance": {
+        "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
+        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "run_status": "PARTIAL",
+        "scope": "corpus",
+        "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
+        "tool": "rails-codegraph"
+      },
+      "qualifier": null,
+      "severity": "info",
+      "start": 32,
+      "symbol": "OAuthClient:P4"
+    },
+    {
+      "comment": "Class split candidate: 3 attributes of SemanticIndex share guard \"self_calls: ; receiver_reads: new_record?\". Source-structure evidence; nothing is registered, minted or applied.",
+      "confidence": "UNKNOWN",
+      "end": 36,
+      "evidence_class": "SOURCE_STRUCTURE",
+      "fileName": "modules/llm/app/contracts/semantic_indexes/base_contract.rb",
+      "lifecycle": {
+        "run_status": "PARTIAL",
+        "status": "proposed"
+      },
+      "proposal": {
+        "applied": false,
+        "evidence": null,
+        "id": "P5",
+        "kind": "class_split_candidate",
+        "members": [
+          "SemanticIndexes::BaseContract#model_id",
+          "SemanticIndexes::BaseContract#embedding_vector_dimensions",
+          "SemanticIndexes::BaseContract#context_token_length"
+        ],
+        "model": "SemanticIndex",
+        "oracle": "not covered",
+        "oracle_detail": {
+          "why": "no case of the trace has a contract that resolves to this model"
+        },
+        "truth": null,
+        "witness": {
+          "code": 12,
+          "feature": "guard",
+          "value": "self_calls: ; receiver_reads: new_record?"
+        }
+      },
+      "provenance": {
+        "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
+        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "run_status": "PARTIAL",
+        "scope": "corpus",
+        "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
+        "tool": "rails-codegraph"
+      },
+      "qualifier": null,
+      "severity": "info",
+      "start": 36,
+      "symbol": "SemanticIndex:P5"
+    },
+    {
+      "comment": "Class split candidate: 2 attributes of User share guard \"self_calls: can_change_self?, can_create_or_manage_users?; receiver_reads: \". Source-structure evidence; nothing is registered, minted or applied.",
+      "confidence": "UNKNOWN",
+      "end": 38,
+      "evidence_class": "SOURCE_STRUCTURE",
+      "fileName": "app/contracts/users/base_contract.rb",
+      "lifecycle": {
+        "run_status": "PARTIAL",
+        "status": "proposed"
+      },
+      "proposal": {
+        "applied": false,
+        "evidence": null,
+        "id": "P6",
+        "kind": "class_split_candidate",
+        "members": [
+          "Users::BaseContract#firstname",
+          "Users::BaseContract#lastname"
+        ],
+        "model": "User",
+        "oracle": "not covered",
+        "oracle_detail": {
+          "why": "no case of the trace has a contract that resolves to this model"
+        },
+        "truth": null,
+        "witness": {
+          "code": 4,
+          "feature": "guard",
+          "value": "self_calls: can_change_self?, can_create_or_manage_users?; receiver_reads: "
+        }
+      },
+      "provenance": {
+        "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
+        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "run_status": "PARTIAL",
+        "scope": "corpus",
+        "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
+        "tool": "rails-codegraph"
+      },
+      "qualifier": null,
+      "severity": "info",
+      "start": 38,
+      "symbol": "User:P6"
+    },
+    {
+      "comment": "Class split candidate: 2 attributes of User share guard \"self_calls: can_create_or_manage_users?; receiver_reads: \". Source-structure evidence; nothing is registered, minted or applied.",
+      "confidence": "UNKNOWN",
+      "end": 48,
+      "evidence_class": "SOURCE_STRUCTURE",
+      "fileName": "app/contracts/users/base_contract.rb",
+      "lifecycle": {
+        "run_status": "PARTIAL",
+        "status": "proposed"
+      },
+      "proposal": {
+        "applied": false,
+        "evidence": null,
+        "id": "P7",
+        "kind": "class_split_candidate",
+        "members": [
+          "Users::BaseContract#ldap_auth_source_id",
+          "Users::BaseContract#status"
+        ],
+        "model": "User",
+        "oracle": "not covered",
+        "oracle_detail": {
+          "why": "no case of the trace has a contract that resolves to this model"
+        },
+        "truth": null,
+        "witness": {
+          "code": 7,
+          "feature": "guard",
+          "value": "self_calls: can_create_or_manage_users?; receiver_reads: "
+        }
+      },
+      "provenance": {
+        "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
+        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "run_status": "PARTIAL",
+        "scope": "corpus",
+        "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
+        "tool": "rails-codegraph"
+      },
+      "qualifier": null,
+      "severity": "info",
+      "start": 48,
+      "symbol": "User:P7"
+    },
+    {
+      "comment": "Class split candidate: 3 attributes of WorkPackage share guard \"writable=false\". Source-structure evidence; nothing is registered, minted or applied.",
+      "confidence": "UNKNOWN",
+      "end": 77,
+      "evidence_class": "SOURCE_STRUCTURE",
+      "fileName": "app/contracts/work_packages/base_contract.rb",
+      "lifecycle": {
+        "run_status": "PARTIAL",
+        "status": "proposed"
+      },
+      "proposal": {
+        "applied": false,
+        "evidence": {
+          "antecedent_count": 14,
+          "cooccur": 14,
+          "window": 14
+        },
+        "id": "P8",
+        "kind": "class_split_candidate",
+        "members": [
+          "WorkPackages::BaseContract#derived_done_ratio",
+          "WorkPackages::BaseContract#derived_estimated_hours",
+          "WorkPackages::BaseContract#derived_remaining_hours"
+        ],
+        "model": "WorkPackage",
+        "oracle": "co-varies",
+        "oracle_detail": {
+          "compared_cases": 14
+        },
+        "truth": {
+          "confidence": 238,
+          "frequency": 255
+        },
+        "witness": {
+          "code": 2,
+          "feature": "guard",
+          "value": "writable=false"
+        }
+      },
+      "provenance": {
+        "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
+        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "run_status": "PARTIAL",
+        "scope": "corpus",
+        "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
+        "tool": "rails-codegraph"
+      },
+      "qualifier": null,
+      "severity": "info",
+      "start": 77,
+      "symbol": "WorkPackage:P8"
+    },
+    {
+      "comment": "Class split candidate: 3 attributes of WorkPackage share guard \"self_calls: leaf_or_manually_scheduled?; receiver_reads: \". Source-structure evidence; nothing is registered, minted or applied.",
+      "confidence": "UNKNOWN",
+      "end": 120,
+      "evidence_class": "SOURCE_STRUCTURE",
+      "fileName": "app/contracts/work_packages/base_contract.rb",
+      "lifecycle": {
+        "run_status": "PARTIAL",
+        "status": "proposed"
+      },
+      "proposal": {
+        "applied": false,
+        "evidence": {
+          "antecedent_count": 14,
+          "cooccur": 14,
+          "window": 14
+        },
+        "id": "P9",
+        "kind": "class_split_candidate",
+        "members": [
+          "WorkPackages::BaseContract#ignore_non_working_days",
+          "WorkPackages::BaseContract#start_date",
+          "WorkPackages::BaseContract#due_date"
+        ],
+        "model": "WorkPackage",
+        "oracle": "co-varies",
+        "oracle_detail": {
+          "compared_cases": 14
+        },
+        "truth": {
+          "confidence": 238,
+          "frequency": 255
+        },
+        "witness": {
+          "code": 10,
+          "feature": "guard",
+          "value": "self_calls: leaf_or_manually_scheduled?; receiver_reads: "
+        }
+      },
+      "provenance": {
+        "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
+        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "run_status": "PARTIAL",
+        "scope": "corpus",
+        "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
+        "tool": "rails-codegraph"
+      },
+      "qualifier": null,
+      "severity": "info",
+      "start": 120,
+      "symbol": "WorkPackage:P9"
+    },
+    {
+      "comment": "Class split candidate: 2 attributes of WorkPackage share permission \"assign_versions\". Source-structure evidence; nothing is registered, minted or applied.",
+      "confidence": "UNKNOWN",
+      "end": 52,
+      "evidence_class": "SOURCE_STRUCTURE",
+      "fileName": "app/contracts/work_packages/base_contract.rb",
+      "lifecycle": {
+        "run_status": "PARTIAL",
+        "status": "proposed"
+      },
+      "proposal": {
+        "applied": false,
+        "evidence": {
+          "antecedent_count": 14,
+          "cooccur": 14,
+          "window": 14
+        },
+        "id": "P10",
+        "kind": "class_split_candidate",
+        "members": [
+          "WorkPackages::BaseContract#target_versions",
+          "WorkPackages::BaseContract#observed_in_versions"
+        ],
+        "model": "WorkPackage",
+        "oracle": "co-varies",
+        "oracle_detail": {
+          "compared_cases": 14
+        },
+        "truth": {
+          "confidence": 238,
+          "frequency": 255
+        },
+        "witness": {
+          "code": 4,
+          "feature": "permission",
+          "value": "assign_versions"
+        }
+      },
+      "provenance": {
+        "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
+        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "run_status": "PARTIAL",
+        "scope": "corpus",
+        "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
+        "tool": "rails-codegraph"
+      },
+      "qualifier": null,
+      "severity": "info",
+      "start": 52,
+      "symbol": "WorkPackage:P10"
+    },
+    {
+      "comment": "Class split candidate: 2 attributes of WorkPackage share reads \"project\". Source-structure evidence; nothing is registered, minted or applied.",
+      "confidence": "UNKNOWN",
+      "end": 103,
+      "evidence_class": "SOURCE_STRUCTURE",
+      "fileName": "app/contracts/work_packages/base_contract.rb",
+      "lifecycle": {
+        "run_status": "PARTIAL",
+        "status": "proposed"
+      },
+      "proposal": {
+        "applied": false,
+        "evidence": {
+          "antecedent_count": 14,
+          "cooccur": 14,
+          "window": 14
+        },
+        "id": "P11",
+        "kind": "class_split_candidate",
+        "members": [
+          "WorkPackages::BaseContract#assigned_to_id",
+          "WorkPackages::BaseContract#responsible_id"
+        ],
+        "model": "WorkPackage",
+        "oracle": "co-varies",
+        "oracle_detail": {
+          "compared_cases": 14
+        },
+        "truth": {
+          "confidence": 238,
+          "frequency": 255
+        },
+        "witness": {
+          "code": 6,
+          "feature": "reads",
+          "value": "project"
+        }
+      },
+      "provenance": {
+        "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
+        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "run_status": "PARTIAL",
+        "scope": "corpus",
+        "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
+        "tool": "rails-codegraph"
+      },
+      "qualifier": null,
+      "severity": "info",
+      "start": 103,
+      "symbol": "WorkPackage:P11"
+    }
+  ],
+  "provenance": {
+    "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
+    "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+    "run_status": "PARTIAL",
+    "scope": "corpus",
+    "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
+    "tool": "rails-codegraph"
+  },
+  "tool": "rails-codegraph"
+}
