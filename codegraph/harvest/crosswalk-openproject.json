@@ -124,14 +124,28 @@
       "includers": [
         "AttributeHelpTexts::BaseContract",
         "Messages::BaseContract",
+        "Messages::CreateContract",
+        "Messages::UpdateContract",
         "News::BaseContract",
         "News::CreateContract",
         "WikiPages::BaseContract",
+        "WikiPages::CopyContract",
+        "WikiPages::CreateContract",
+        "WikiPages::UpdateContract",
         "WorkPackages::ActivitiesTab::CommentAttachmentsClaimsContract",
         "WorkPackages::BaseContract",
+        "WorkPackages::CopyContract",
+        "WorkPackages::CopyProjectContract",
+        "WorkPackages::CreateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract",
+        "Boards::CreateContract",
         "Budgets::BaseContract",
         "Documents::BaseContract",
-        "Grids::BaseContract"
+        "Grids::BaseContract",
+        "Grids::CreateContract"
       ],
       "model": null,
       "unresolved_ancestors": []
@@ -291,8 +305,16 @@
       "class": "AssignableCustomFieldValues",
       "includers": [
         "Projects::BaseContract",
+        "Projects::CopyContract",
+        "Projects::CreateContract",
+        "Projects::UpdateContract",
         "Users::BaseContract",
-        "TimeEntries::BaseContract"
+        "Users::CreateContract",
+        "Users::JiraImportUpdateContract",
+        "Users::UpdateContract",
+        "TimeEntries::BaseContract",
+        "TimeEntries::CreateContract",
+        "TimeEntries::UpdateContract"
       ],
       "model": null,
       "unresolved_ancestors": []
@@ -303,10 +325,26 @@
       "includers": [
         "Members::CreateContract",
         "Projects::BaseContract",
+        "Projects::CopyContract",
+        "Projects::CreateContract",
+        "Projects::UpdateContract",
         "Versions::BaseContract",
+        "Versions::CreateContract",
+        "Versions::UpdateContract",
         "WorkPackages::BaseContract",
+        "WorkPackages::CopyContract",
+        "WorkPackages::CopyProjectContract",
+        "WorkPackages::CreateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract",
+        "Boards::CreateContract",
         "TimeEntries::BaseContract",
-        "Grids::BaseContract"
+        "TimeEntries::CreateContract",
+        "TimeEntries::UpdateContract",
+        "Grids::BaseContract",
+        "Grids::CreateContract"
       ],
       "model": null,
       "unresolved_ancestors": []
@@ -316,6 +354,7 @@
       "class": "AuthorizesVariantAuthoring",
       "includers": [
         "FormConfigurations::BaseContract",
+        "FormConfigurations::UpdateContract",
         "WorkPackageTypes::CreateVariantContract",
         "WorkPackageTypes::DeleteVariantContract",
         "WorkPackageTypes::UpdateDefaultsContract",
@@ -334,30 +373,48 @@
         "AdminOnlyContract",
         "AI::TextActions::BaseContract",
         "CustomFields::BaseContract",
+        "CustomFields::CreateContract",
+        "CustomFields::DeleteContract",
         "CustomFields::Hierarchy::Items::BaseContract",
+        "CustomFields::Hierarchy::Items::CreateContract",
         "CustomFields::ProjectSpecificValues::BaseContract",
         "CustomFields::ProjectSpecificValues::MakeGlobalContract",
+        "CustomFields::ProjectSpecificValues::SetContract",
+        "CustomFields::UpdateContract",
         "CustomOptions::CreateContract",
         "CustomOptions::UpdateContract",
         "EnterpriseTrials::CreateContract",
         "Groups::BaseContract",
+        "Groups::CreateContract",
+        "Groups::SyncCreateContract",
+        "Groups::SyncUpdateContract",
         "Labels::UpdateContract",
         "ProjectCustomFieldSections::BaseContract",
+        "ProjectCustomFieldSections::DeleteContract",
         "Projects::UnarchiveContract",
         "Settings::UpdateContract",
         "Settings::UpdateParamsContract",
         "Settings::WorkingDaysAndHoursParamsContract",
         "UserCustomFieldSections::BaseContract",
+        "UserCustomFieldSections::DeleteContract",
         "WorkPackageTypes::BaseContract",
+        "WorkPackageTypes::CreateContract",
+        "WorkPackageTypes::DeleteContract",
         "Saml::Providers::BaseContract",
         "Documents::Admin::Settings::CollaborationServerSettingsParamsContract",
         "LlmModels::BaseContract",
+        "LlmModels::CreateContract",
+        "LlmModels::UpdateContract",
         "SemanticIndexes::BaseContract",
         "OpenIDConnect::Providers::BaseContract",
+        "OpenIDConnect::Providers::CreateContract",
         "Repositories::GitlabProviders::BaseContract",
         "SquashTMIntegration::Servers::BaseContract",
         "Wikis::InternalProviders::UpdateContract",
-        "Wikis::XWikiProviders::BaseContract"
+        "Wikis::XWikiProviders::BaseContract",
+        "Wikis::XWikiProviders::EnvironmentCreateContract",
+        "Wikis::XWikiProviders::EnvironmentUpdateContract",
+        "Wikis::XWikiProviders::GeneralInformationContract"
       ],
       "model": null,
       "unresolved_ancestors": []
@@ -388,6 +445,7 @@
         "Bim::Bcf::WorkPackages::UpdateContract",
         "CostEntries::UpdateContract",
         "CostTypes::CostTypeProjects::BaseContract",
+        "CostTypes::CostTypeProjects::DeleteContract",
         "TimeEntries::UpdateContract",
         "Documents::BaseContract"
       ],
@@ -425,6 +483,9 @@
       "ancestors": [
         "CustomFields::EnterpriseGuard",
         "RequiresEnterpriseGuard",
+        "CustomFields::BaseContract",
+        "RequiresAdminGuard",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -460,6 +521,9 @@
     },
     {
       "ancestors": [
+        "CustomFields::BaseContract",
+        "RequiresAdminGuard",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -518,6 +582,9 @@
     },
     {
       "ancestors": [
+        "CustomFields::Hierarchy::Items::BaseContract",
+        "RequiresAdminGuard",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -598,6 +665,8 @@
     },
     {
       "ancestors": [
+        "CustomFields::ProjectSpecificValues::BaseContract",
+        "RequiresAdminGuard",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -619,6 +688,9 @@
       "ancestors": [
         "CustomFields::EnterpriseGuard",
         "RequiresEnterpriseGuard",
+        "CustomFields::BaseContract",
+        "RequiresAdminGuard",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -813,6 +885,9 @@
     },
     {
       "ancestors": [
+        "FormConfigurations::BaseContract",
+        "AuthorizesVariantAuthoring",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -864,6 +939,9 @@
     },
     {
       "ancestors": [
+        "Groups::BaseContract",
+        "RequiresAdminGuard",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -917,6 +995,9 @@
     {
       "ancestors": [
         "Groups::CreateContract",
+        "Groups::BaseContract",
+        "RequiresAdminGuard",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -943,6 +1024,9 @@
     {
       "ancestors": [
         "Groups::UpdateContract",
+        "Groups::BaseContract",
+        "RequiresAdminGuard",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1045,6 +1129,8 @@
     },
     {
       "ancestors": [
+        "Labels::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1070,6 +1156,8 @@
     {
       "ancestors": [
         "RequiresAdminGuard",
+        "Labels::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1096,7 +1184,14 @@
       "ancestors": [],
       "class": "Labels::ValidateReplacements",
       "includers": [
-        "WorkPackages::BaseContract"
+        "WorkPackages::BaseContract",
+        "WorkPackages::CopyContract",
+        "WorkPackages::CopyProjectContract",
+        "WorkPackages::CreateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract"
       ],
       "model": null,
       "unresolved_ancestors": []
@@ -1129,6 +1224,8 @@
     {
       "ancestors": [
         "AssignableValuesContract",
+        "Members::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1230,6 +1327,9 @@
     },
     {
       "ancestors": [
+        "Messages::BaseContract",
+        "Attachments::ValidateReplacements",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1254,6 +1354,9 @@
     },
     {
       "ancestors": [
+        "Messages::BaseContract",
+        "Attachments::ValidateReplacements",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1395,6 +1498,8 @@
     },
     {
       "ancestors": [
+        "OAuth::Applications::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1414,6 +1519,8 @@
     },
     {
       "ancestors": [
+        "OAuth::Applications::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1458,14 +1565,16 @@
     },
     {
       "ancestors": [
-        "BaseContract",
-        "Disposable::Twin::Expose",
-        "Disposable::Twin::Expose::Initialize",
+        "OAuthClients::BaseContract",
         "ActiveModel::Validations",
         "ActiveModel::Naming",
         "ActiveModel::Callbacks",
         "ActiveModel::Translation",
         "ActiveModel::Validations::HelperMethods",
+        "ModelContract",
+        "BaseContract",
+        "Disposable::Twin::Expose",
+        "Disposable::Twin::Expose::Initialize",
         "Disposable::Twin",
         "Disposable::Twin::Setup",
         "Disposable::Twin::Accessors",
@@ -1527,6 +1636,8 @@
     {
       "ancestors": [
         "RequiresEnterpriseGuard",
+        "PlaceholderUsers::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1628,6 +1739,9 @@
     },
     {
       "ancestors": [
+        "ProjectCustomFieldSections::BaseContract",
+        "RequiresAdminGuard",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1717,6 +1831,8 @@
     },
     {
       "ancestors": [
+        "ProjectPhases::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1736,6 +1852,8 @@
     },
     {
       "ancestors": [
+        "ProjectPhases::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1755,6 +1873,8 @@
     },
     {
       "ancestors": [
+        "ProjectPhases::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1892,6 +2012,10 @@
         "Projects::CreateContract",
         "AdminWritableTimestamps",
         "RequiresEnterpriseGuard",
+        "Projects::BaseContract",
+        "AssignableValuesContract",
+        "AssignableCustomFieldValues",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -1944,6 +2068,10 @@
       "ancestors": [
         "AdminWritableTimestamps",
         "RequiresEnterpriseGuard",
+        "Projects::BaseContract",
+        "AssignableValuesContract",
+        "AssignableCustomFieldValues",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2095,6 +2223,10 @@
     },
     {
       "ancestors": [
+        "Projects::BaseContract",
+        "AssignableValuesContract",
+        "AssignableCustomFieldValues",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2145,6 +2277,8 @@
     },
     {
       "ancestors": [
+        "PushSubscriptions::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2194,6 +2328,8 @@
     },
     {
       "ancestors": [
+        "Queries::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2219,6 +2355,8 @@
     {
       "ancestors": [
         "Queries::CreateContract",
+        "Queries::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2243,6 +2381,8 @@
     },
     {
       "ancestors": [
+        "Queries::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2293,6 +2433,8 @@
     {
       "ancestors": [
         "UnchangedProject",
+        "Queries::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2368,6 +2510,8 @@
     },
     {
       "ancestors": [
+        "Relations::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2417,6 +2561,8 @@
     },
     {
       "ancestors": [
+        "Reminders::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2466,6 +2612,8 @@
     },
     {
       "ancestors": [
+        "Roles::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2516,6 +2664,8 @@
     {
       "ancestors": [
         "ScimClients::CreateContract",
+        "ScimClients::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2541,6 +2691,8 @@
     {
       "ancestors": [
         "ScimClients::CreateContract",
+        "ScimClients::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2565,6 +2717,8 @@
     },
     {
       "ancestors": [
+        "ScimClients::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2686,6 +2840,8 @@
     },
     {
       "ancestors": [
+        "Shares::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2738,6 +2894,8 @@
       "ancestors": [
         "Shares::ProjectQueries::BaseExtension",
         "Shares::CreateContract",
+        "Shares::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2764,6 +2922,8 @@
       "ancestors": [
         "Shares::ProjectQueries::BaseExtension",
         "Shares::UpdateContract",
+        "Shares::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2788,6 +2948,8 @@
     },
     {
       "ancestors": [
+        "Shares::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2819,6 +2981,8 @@
       "ancestors": [
         "Shares::WorkPackages::BaseExtension",
         "Shares::CreateContract",
+        "Shares::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2846,6 +3010,8 @@
       "ancestors": [
         "Shares::WorkPackages::BaseExtension",
         "Shares::UpdateContract",
+        "Shares::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -2897,6 +3063,9 @@
     },
     {
       "ancestors": [
+        "UserCustomFieldSections::BaseContract",
+        "RequiresAdminGuard",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3063,6 +3232,9 @@
     },
     {
       "ancestors": [
+        "Users::BaseContract",
+        "AssignableCustomFieldValues",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3088,6 +3260,9 @@
     },
     {
       "ancestors": [
+        "Users::BaseContract",
+        "AssignableCustomFieldValues",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3113,6 +3288,9 @@
     },
     {
       "ancestors": [
+        "Users::BaseContract",
+        "AssignableCustomFieldValues",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3164,6 +3342,9 @@
     },
     {
       "ancestors": [
+        "Versions::BaseContract",
+        "AssignableValuesContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3214,6 +3395,9 @@
     },
     {
       "ancestors": [
+        "Versions::BaseContract",
+        "AssignableValuesContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3263,6 +3447,8 @@
     },
     {
       "ancestors": [
+        "Views::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3314,6 +3500,9 @@
     {
       "ancestors": [
         "WikiPages::CreateContract",
+        "WikiPages::BaseContract",
+        "Attachments::ValidateReplacements",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3338,6 +3527,9 @@
     },
     {
       "ancestors": [
+        "WikiPages::BaseContract",
+        "Attachments::ValidateReplacements",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3362,6 +3554,9 @@
     },
     {
       "ancestors": [
+        "WikiPages::BaseContract",
+        "Attachments::ValidateReplacements",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3407,6 +3602,9 @@
     },
     {
       "ancestors": [
+        "WorkPackageTypes::BaseContract",
+        "RequiresAdminGuard",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3447,6 +3645,9 @@
     },
     {
       "ancestors": [
+        "WorkPackageTypes::BaseContract",
+        "RequiresAdminGuard",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3605,6 +3806,11 @@
       "ancestors": [
         "WorkPackages::CreateContract",
         "AdminWritableTimestamps",
+        "WorkPackages::BaseContract",
+        "Attachments::ValidateReplacements",
+        "Labels::ValidateReplacements",
+        "AssignableValuesContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3626,7 +3832,9 @@
         "OpenProject::Acts::Watchable",
         "Redmine::I18n"
       ],
-      "unresolved_ancestors": []
+      "unresolved_ancestors": [
+        "WorkPackages::SetAttributesService::ProgressValuesCalculations"
+      ]
     },
     {
       "ancestors": [
@@ -3634,6 +3842,11 @@
         "WorkPackages::CopyContract",
         "WorkPackages::CreateContract",
         "AdminWritableTimestamps",
+        "WorkPackages::BaseContract",
+        "Attachments::ValidateReplacements",
+        "Labels::ValidateReplacements",
+        "AssignableValuesContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3655,11 +3868,18 @@
         "OpenProject::Acts::Watchable",
         "Redmine::I18n"
       ],
-      "unresolved_ancestors": []
+      "unresolved_ancestors": [
+        "WorkPackages::SetAttributesService::ProgressValuesCalculations"
+      ]
     },
     {
       "ancestors": [
         "AdminWritableTimestamps",
+        "WorkPackages::BaseContract",
+        "Attachments::ValidateReplacements",
+        "Labels::ValidateReplacements",
+        "AssignableValuesContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3681,7 +3901,9 @@
         "OpenProject::Acts::Watchable",
         "Redmine::I18n"
       ],
-      "unresolved_ancestors": []
+      "unresolved_ancestors": [
+        "WorkPackages::SetAttributesService::ProgressValuesCalculations"
+      ]
     },
     {
       "ancestors": [
@@ -3721,6 +3943,11 @@
     {
       "ancestors": [
         "UnchangedProject",
+        "WorkPackages::BaseContract",
+        "Attachments::ValidateReplacements",
+        "Labels::ValidateReplacements",
+        "AssignableValuesContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3742,12 +3969,19 @@
         "OpenProject::Acts::Watchable",
         "Redmine::I18n"
       ],
-      "unresolved_ancestors": []
+      "unresolved_ancestors": [
+        "WorkPackages::SetAttributesService::ProgressValuesCalculations"
+      ]
     },
     {
       "ancestors": [
         "WorkPackages::UpdateContract",
         "UnchangedProject",
+        "WorkPackages::BaseContract",
+        "Attachments::ValidateReplacements",
+        "Labels::ValidateReplacements",
+        "AssignableValuesContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3769,12 +4003,19 @@
         "OpenProject::Acts::Watchable",
         "Redmine::I18n"
       ],
-      "unresolved_ancestors": []
+      "unresolved_ancestors": [
+        "WorkPackages::SetAttributesService::ProgressValuesCalculations"
+      ]
     },
     {
       "ancestors": [
         "WorkPackages::UpdateContract",
         "UnchangedProject",
+        "WorkPackages::BaseContract",
+        "Attachments::ValidateReplacements",
+        "Labels::ValidateReplacements",
+        "AssignableValuesContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3796,7 +4037,9 @@
         "OpenProject::Acts::Watchable",
         "Redmine::I18n"
       ],
-      "unresolved_ancestors": []
+      "unresolved_ancestors": [
+        "WorkPackages::SetAttributesService::ProgressValuesCalculations"
+      ]
     },
     {
       "ancestors": [
@@ -3898,6 +4141,8 @@
     },
     {
       "ancestors": [
+        "Backlogs::Buckets::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -3994,6 +4239,8 @@
     },
     {
       "ancestors": [
+        "Backlogs::Sprints::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -4279,6 +4526,7 @@
       "class": "Bim::Bcf::Concerns::ManageBcfGuarded",
       "includers": [
         "Bim::Bcf::Issues::BaseContract",
+        "Bim::Bcf::Issues::CreateContract",
         "Bim::Bcf::Viewpoints::CreateContract"
       ],
       "model": null,
@@ -4312,6 +4560,9 @@
     },
     {
       "ancestors": [
+        "Bim::Bcf::Issues::BaseContract",
+        "Bim::Bcf::Concerns::ManageBcfGuarded",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -4364,6 +4615,11 @@
       "ancestors": [
         "WorkPackages::UpdateContract",
         "UnchangedProject",
+        "WorkPackages::BaseContract",
+        "Attachments::ValidateReplacements",
+        "Labels::ValidateReplacements",
+        "AssignableValuesContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -4385,7 +4641,9 @@
         "OpenProject::Acts::Watchable",
         "Redmine::I18n"
       ],
-      "unresolved_ancestors": []
+      "unresolved_ancestors": [
+        "WorkPackages::SetAttributesService::ProgressValuesCalculations"
+      ]
     },
     {
       "ancestors": [
@@ -4434,6 +4692,10 @@
     {
       "ancestors": [
         "Grids::CreateContract",
+        "Grids::BaseContract",
+        "AssignableValuesContract",
+        "Attachments::ValidateReplacements",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -4449,7 +4711,9 @@
       ],
       "class": "Boards::CreateContract",
       "model": null,
-      "unresolved_ancestors": []
+      "unresolved_ancestors": [
+        "OpenProject::StaticRouting::UrlHelpers"
+      ]
     },
     {
       "ancestors": [
@@ -4530,6 +4794,8 @@
     },
     {
       "ancestors": [
+        "CostEntries::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -4556,6 +4822,8 @@
     {
       "ancestors": [
         "UnchangedProject",
+        "CostEntries::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -4602,6 +4870,9 @@
     },
     {
       "ancestors": [
+        "CostTypes::CostTypeProjects::BaseContract",
+        "UnchangedProject",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -4673,6 +4944,9 @@
     },
     {
       "ancestors": [
+        "HourlyRates::BaseContract",
+        "Rates::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -4750,6 +5024,11 @@
     },
     {
       "ancestors": [
+        "TimeEntries::BaseContract",
+        "AssignableValuesContract",
+        "AssignableCustomFieldValues",
+        "TimeEntries::PastMonthRestriction",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -4804,7 +5083,9 @@
       "class": "TimeEntries::PastMonthRestriction",
       "includers": [
         "TimeEntries::BaseContract",
-        "TimeEntries::DeleteContract"
+        "TimeEntries::CreateContract",
+        "TimeEntries::DeleteContract",
+        "TimeEntries::UpdateContract"
       ],
       "model": null,
       "unresolved_ancestors": []
@@ -4812,6 +5093,11 @@
     {
       "ancestors": [
         "UnchangedProject",
+        "TimeEntries::BaseContract",
+        "AssignableValuesContract",
+        "AssignableCustomFieldValues",
+        "TimeEntries::PastMonthRestriction",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -4937,6 +5223,10 @@
     },
     {
       "ancestors": [
+        "Grids::BaseContract",
+        "AssignableValuesContract",
+        "Attachments::ValidateReplacements",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -4952,7 +5242,9 @@
       ],
       "class": "Grids::CreateContract",
       "model": null,
-      "unresolved_ancestors": []
+      "unresolved_ancestors": [
+        "OpenProject::StaticRouting::UrlHelpers"
+      ]
     },
     {
       "ancestors": [],
@@ -5043,6 +5335,8 @@
     },
     {
       "ancestors": [
+        "LlmConnections::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5094,6 +5388,10 @@
     },
     {
       "ancestors": [
+        "LlmModels::BaseContract",
+        "RequiresAdminGuard",
+        "LlmModels::EnvNamedDefault",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5148,13 +5446,19 @@
       "class": "LlmModels::EnvNamedDefault",
       "includers": [
         "LlmModels::BaseContract",
-        "LlmModels::DeleteContract"
+        "LlmModels::CreateContract",
+        "LlmModels::DeleteContract",
+        "LlmModels::UpdateContract"
       ],
       "model": null,
       "unresolved_ancestors": []
     },
     {
       "ancestors": [
+        "LlmModels::BaseContract",
+        "RequiresAdminGuard",
+        "LlmModels::EnvNamedDefault",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5257,6 +5561,9 @@
     },
     {
       "ancestors": [
+        "MeetingAgendaItems::BaseContract",
+        "MeetingAgendaItems::EditableItem",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5311,7 +5618,9 @@
       "class": "MeetingAgendaItems::EditableItem",
       "includers": [
         "MeetingAgendaItems::BaseContract",
-        "MeetingAgendaItems::DeleteContract"
+        "MeetingAgendaItems::CreateContract",
+        "MeetingAgendaItems::DeleteContract",
+        "MeetingAgendaItems::UpdateContract"
       ],
       "model": null,
       "unresolved_ancestors": []
@@ -5343,6 +5652,9 @@
     },
     {
       "ancestors": [
+        "MeetingAgendaItems::BaseContract",
+        "MeetingAgendaItems::EditableItem",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5418,6 +5730,9 @@
     },
     {
       "ancestors": [
+        "MeetingOutcomes::BaseContract",
+        "MeetingOutcomes::EditableItem",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5472,6 +5787,7 @@
       "class": "MeetingOutcomes::EditableItem",
       "includers": [
         "MeetingOutcomes::BaseContract",
+        "MeetingOutcomes::CreateContract",
         "MeetingOutcomes::DeleteContract"
       ],
       "model": null,
@@ -5530,6 +5846,9 @@
     },
     {
       "ancestors": [
+        "MeetingSections::BaseContract",
+        "MeetingSections::EditableItem",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5584,13 +5903,19 @@
       "class": "MeetingSections::EditableItem",
       "includers": [
         "MeetingSections::BaseContract",
-        "MeetingSections::DeleteContract"
+        "MeetingSections::CreateContract",
+        "MeetingSections::DeleteContract",
+        "MeetingSections::MoveContract",
+        "MeetingSections::UpdateContract"
       ],
       "model": null,
       "unresolved_ancestors": []
     },
     {
       "ancestors": [
+        "MeetingSections::BaseContract",
+        "MeetingSections::EditableItem",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5615,6 +5940,9 @@
     },
     {
       "ancestors": [
+        "MeetingSections::BaseContract",
+        "MeetingSections::EditableItem",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5664,6 +5992,8 @@
     },
     {
       "ancestors": [
+        "Meetings::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5714,6 +6044,8 @@
     },
     {
       "ancestors": [
+        "Meetings::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5765,6 +6097,8 @@
     },
     {
       "ancestors": [
+        "RecurringMeetings::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5789,6 +6123,8 @@
     },
     {
       "ancestors": [
+        "RecurringMeetings::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5815,6 +6151,8 @@
     },
     {
       "ancestors": [
+        "RecurringMeetings::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5865,6 +6203,8 @@
     },
     {
       "ancestors": [
+        "RecurringMeetings::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5917,6 +6257,9 @@
     },
     {
       "ancestors": [
+        "OpenIDConnect::Providers::BaseContract",
+        "RequiresAdminGuard",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -5973,6 +6316,8 @@
     },
     {
       "ancestors": [
+        "ResourceAllocations::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -6022,6 +6367,8 @@
     },
     {
       "ancestors": [
+        "ResourceAllocations::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -6048,6 +6395,8 @@
       "ancestors": [
         "PlaceholderUsers::CreateContract",
         "RequiresEnterpriseGuard",
+        "PlaceholderUsers::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -6092,6 +6441,8 @@
     },
     {
       "ancestors": [
+        "ResourcePlannerViews::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -6111,6 +6462,8 @@
     },
     {
       "ancestors": [
+        "ResourcePlannerViews::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -6155,6 +6508,8 @@
     },
     {
       "ancestors": [
+        "ResourcePlanners::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -6204,6 +6559,8 @@
     },
     {
       "ancestors": [
+        "ResourcePlanners::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -6253,6 +6610,8 @@
     },
     {
       "ancestors": [
+        "SquashTMIntegration::ProjectLinks::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -6353,6 +6712,8 @@
     },
     {
       "ancestors": [
+        "SquashTMIntegration::WorkPackageLinks::BaseContract",
+        "ModelContract",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -6610,13 +6971,16 @@
       "ancestors": [],
       "class": "Storages::Storages::Concerns::ManageStoragesGuarded",
       "includers": [
-        "Storages::Storages::BaseContract"
+        "Storages::Storages::BaseContract",
+        "Storages::Storages::CreateContract"
       ],
       "model": null,
       "unresolved_ancestors": []
     },
     {
       "ancestors": [
+        "Storages::Storages::BaseContract",
+        "Storages::Storages::Concerns::ManageStoragesGuarded",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -6750,6 +7114,8 @@
     {
       "ancestors": [
         "Wikis::XWikiProviders::CreateContract",
+        "Wikis::XWikiProviders::BaseContract",
+        "RequiresAdminGuard",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -6776,6 +7142,8 @@
     {
       "ancestors": [
         "Wikis::XWikiProviders::UpdateContract",
+        "Wikis::XWikiProviders::BaseContract",
+        "RequiresAdminGuard",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -6801,6 +7169,8 @@
     },
     {
       "ancestors": [
+        "Wikis::XWikiProviders::BaseContract",
+        "RequiresAdminGuard",
         "BaseContract",
         "Disposable::Twin::Expose",
         "Disposable::Twin::Expose::Initialize",
@@ -6870,12 +7240,12 @@
     "implicit_block_params_ignored": 4,
     "items_without_verdict": 236,
     "loose_predicates_by_grade": {
-      "possible": 26,
-      "source": 11
+      "possible": 22,
+      "source": 2
     },
     "loose_predicates_downgraded": 1,
     "loose_reads_by_grade": {
-      "possible": 108,
+      "possible": 109,
       "source": 0
     },
     "partial": true,
@@ -7249,14 +7619,28 @@
       "includers": [
         "AttributeHelpTexts::BaseContract",
         "Messages::BaseContract",
+        "Messages::CreateContract",
+        "Messages::UpdateContract",
         "News::BaseContract",
         "News::CreateContract",
         "WikiPages::BaseContract",
+        "WikiPages::CopyContract",
+        "WikiPages::CreateContract",
+        "WikiPages::UpdateContract",
         "WorkPackages::ActivitiesTab::CommentAttachmentsClaimsContract",
         "WorkPackages::BaseContract",
+        "WorkPackages::CopyContract",
+        "WorkPackages::CopyProjectContract",
+        "WorkPackages::CreateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract",
+        "Boards::CreateContract",
         "Budgets::BaseContract",
         "Documents::BaseContract",
-        "Grids::BaseContract"
+        "Grids::BaseContract",
+        "Grids::CreateContract"
       ],
       "item": "validate_attachments_replacements",
       "kind": "grounded",
@@ -7281,14 +7665,28 @@
       "includers": [
         "AttributeHelpTexts::BaseContract",
         "Messages::BaseContract",
+        "Messages::CreateContract",
+        "Messages::UpdateContract",
         "News::BaseContract",
         "News::CreateContract",
         "WikiPages::BaseContract",
+        "WikiPages::CopyContract",
+        "WikiPages::CreateContract",
+        "WikiPages::UpdateContract",
         "WorkPackages::ActivitiesTab::CommentAttachmentsClaimsContract",
         "WorkPackages::BaseContract",
+        "WorkPackages::CopyContract",
+        "WorkPackages::CopyProjectContract",
+        "WorkPackages::CreateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract",
+        "Boards::CreateContract",
         "Budgets::BaseContract",
         "Documents::BaseContract",
-        "Grids::BaseContract"
+        "Grids::BaseContract",
+        "Grids::CreateContract"
       ],
       "item": "error_if_attachment_assigned",
       "kind": "grounded",
@@ -7302,14 +7700,28 @@
       "includers": [
         "AttributeHelpTexts::BaseContract",
         "Messages::BaseContract",
+        "Messages::CreateContract",
+        "Messages::UpdateContract",
         "News::BaseContract",
         "News::CreateContract",
         "WikiPages::BaseContract",
+        "WikiPages::CopyContract",
+        "WikiPages::CreateContract",
+        "WikiPages::UpdateContract",
         "WorkPackages::ActivitiesTab::CommentAttachmentsClaimsContract",
         "WorkPackages::BaseContract",
+        "WorkPackages::CopyContract",
+        "WorkPackages::CopyProjectContract",
+        "WorkPackages::CreateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract",
+        "Boards::CreateContract",
         "Budgets::BaseContract",
         "Documents::BaseContract",
-        "Grids::BaseContract"
+        "Grids::BaseContract",
+        "Grids::CreateContract"
       ],
       "item": "error_if_other_user_attachment",
       "kind": "grounded",
@@ -7768,8 +8180,16 @@
       "grade": "source",
       "includers": [
         "Projects::BaseContract",
+        "Projects::CopyContract",
+        "Projects::CreateContract",
+        "Projects::UpdateContract",
         "Users::BaseContract",
-        "TimeEntries::BaseContract"
+        "Users::CreateContract",
+        "Users::JiraImportUpdateContract",
+        "Users::UpdateContract",
+        "TimeEntries::BaseContract",
+        "TimeEntries::CreateContract",
+        "TimeEntries::UpdateContract"
       ],
       "item": "assignable_custom_field_values",
       "kind": "grounded",
@@ -7794,10 +8214,26 @@
       "includers": [
         "Members::CreateContract",
         "Projects::BaseContract",
+        "Projects::CopyContract",
+        "Projects::CreateContract",
+        "Projects::UpdateContract",
         "Versions::BaseContract",
+        "Versions::CreateContract",
+        "Versions::UpdateContract",
         "WorkPackages::BaseContract",
+        "WorkPackages::CopyContract",
+        "WorkPackages::CopyProjectContract",
+        "WorkPackages::CreateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract",
+        "Boards::CreateContract",
         "TimeEntries::BaseContract",
-        "Grids::BaseContract"
+        "TimeEntries::CreateContract",
+        "TimeEntries::UpdateContract",
+        "Grids::BaseContract",
+        "Grids::CreateContract"
       ],
       "item": "assignable_values",
       "kind": "grounded",
@@ -7821,6 +8257,7 @@
       "grade": "source",
       "includers": [
         "FormConfigurations::BaseContract",
+        "FormConfigurations::UpdateContract",
         "WorkPackageTypes::CreateVariantContract",
         "WorkPackageTypes::DeleteVariantContract",
         "WorkPackageTypes::UpdateDefaultsContract",
@@ -7851,6 +8288,7 @@
       "grade": "possible",
       "includers": [
         "FormConfigurations::BaseContract",
+        "FormConfigurations::UpdateContract",
         "WorkPackageTypes::CreateVariantContract",
         "WorkPackageTypes::DeleteVariantContract",
         "WorkPackageTypes::UpdateDefaultsContract",
@@ -7865,7 +8303,7 @@
       "names": [
         "try"
       ],
-      "why": "resolves in includers WorkPackageTypes::CreateVariantContract, WorkPackageTypes::DeleteVariantContract, WorkPackageTypes::UpdateDefaultsContract, WorkPackageTypes::UpdateFormConfigurationContract, WorkPackageTypes::UpdateVariantContract but not FormConfigurations::BaseContract, Workflows::BaseContract, Workflows::DeleteContract"
+      "why": "resolves in includers WorkPackageTypes::CreateVariantContract, WorkPackageTypes::DeleteVariantContract, WorkPackageTypes::UpdateDefaultsContract, WorkPackageTypes::UpdateFormConfigurationContract, WorkPackageTypes::UpdateVariantContract but not FormConfigurations::BaseContract, FormConfigurations::UpdateContract, Workflows::BaseContract, Workflows::DeleteContract"
     },
     {
       "class": "RequiresAdminGuard",
@@ -7875,30 +8313,48 @@
         "AdminOnlyContract",
         "AI::TextActions::BaseContract",
         "CustomFields::BaseContract",
+        "CustomFields::CreateContract",
+        "CustomFields::DeleteContract",
         "CustomFields::Hierarchy::Items::BaseContract",
+        "CustomFields::Hierarchy::Items::CreateContract",
         "CustomFields::ProjectSpecificValues::BaseContract",
         "CustomFields::ProjectSpecificValues::MakeGlobalContract",
+        "CustomFields::ProjectSpecificValues::SetContract",
+        "CustomFields::UpdateContract",
         "CustomOptions::CreateContract",
         "CustomOptions::UpdateContract",
         "EnterpriseTrials::CreateContract",
         "Groups::BaseContract",
+        "Groups::CreateContract",
+        "Groups::SyncCreateContract",
+        "Groups::SyncUpdateContract",
         "Labels::UpdateContract",
         "ProjectCustomFieldSections::BaseContract",
+        "ProjectCustomFieldSections::DeleteContract",
         "Projects::UnarchiveContract",
         "Settings::UpdateContract",
         "Settings::UpdateParamsContract",
         "Settings::WorkingDaysAndHoursParamsContract",
         "UserCustomFieldSections::BaseContract",
+        "UserCustomFieldSections::DeleteContract",
         "WorkPackageTypes::BaseContract",
+        "WorkPackageTypes::CreateContract",
+        "WorkPackageTypes::DeleteContract",
         "Saml::Providers::BaseContract",
         "Documents::Admin::Settings::CollaborationServerSettingsParamsContract",
         "LlmModels::BaseContract",
+        "LlmModels::CreateContract",
+        "LlmModels::UpdateContract",
         "SemanticIndexes::BaseContract",
         "OpenIDConnect::Providers::BaseContract",
+        "OpenIDConnect::Providers::CreateContract",
         "Repositories::GitlabProviders::BaseContract",
         "SquashTMIntegration::Servers::BaseContract",
         "Wikis::InternalProviders::UpdateContract",
-        "Wikis::XWikiProviders::BaseContract"
+        "Wikis::XWikiProviders::BaseContract",
+        "Wikis::XWikiProviders::EnvironmentCreateContract",
+        "Wikis::XWikiProviders::EnvironmentUpdateContract",
+        "Wikis::XWikiProviders::GeneralInformationContract"
       ],
       "item": "validate_admin_only",
       "kind": "grounded",
@@ -7959,6 +8415,7 @@
         "Bim::Bcf::WorkPackages::UpdateContract",
         "CostEntries::UpdateContract",
         "CostTypes::CostTypeProjects::BaseContract",
+        "CostTypes::CostTypeProjects::DeleteContract",
         "TimeEntries::UpdateContract",
         "Documents::BaseContract"
       ],
@@ -7970,7 +8427,7 @@
         "project_id_was",
         "project_id_changed?"
       ],
-      "why": "resolves in includers Queries::UpdateContract, WorkPackages::UpdateContract, WorkPackages::UpdateDependentContract, WorkPackages::UpdateParentContract, Bim::Bcf::WorkPackages::UpdateContract, CostTypes::CostTypeProjects::BaseContract but not CostEntries::UpdateContract, TimeEntries::UpdateContract, Documents::BaseContract"
+      "why": "resolves in includers Queries::UpdateContract, WorkPackages::UpdateContract, WorkPackages::UpdateDependentContract, WorkPackages::UpdateParentContract, Bim::Bcf::WorkPackages::UpdateContract, CostTypes::CostTypeProjects::BaseContract, CostTypes::CostTypeProjects::DeleteContract but not CostEntries::UpdateContract, TimeEntries::UpdateContract, Documents::BaseContract"
     },
     {
       "class": "CustomFields::BaseContract",
@@ -8355,17 +8812,6 @@
       "line": 95,
       "names": [
         "weighted_item_list?"
-      ]
-    },
-    {
-      "class": "CustomFields::Hierarchy::Items::BaseContract",
-      "file": "app/contracts/custom_fields/hierarchy/items/base_contract.rb",
-      "grade": "possible",
-      "item": "custom_field",
-      "kind": "dead_helper",
-      "line": 99,
-      "names": [
-        "custom_field"
       ]
     },
     {
@@ -9388,7 +9834,14 @@
       "file": "app/contracts/labels/validate_replacements.rb",
       "grade": "source",
       "includers": [
-        "WorkPackages::BaseContract"
+        "WorkPackages::BaseContract",
+        "WorkPackages::CopyContract",
+        "WorkPackages::CopyProjectContract",
+        "WorkPackages::CreateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract"
       ],
       "item": "validate_label_name_replacements",
       "kind": "grounded",
@@ -9411,7 +9864,14 @@
       "file": "app/contracts/labels/validate_replacements.rb",
       "grade": "source",
       "includers": [
-        "WorkPackages::BaseContract"
+        "WorkPackages::BaseContract",
+        "WorkPackages::CopyContract",
+        "WorkPackages::CopyProjectContract",
+        "WorkPackages::CreateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract"
       ],
       "item": "label_name_error_details",
       "kind": "grounded",
@@ -9423,7 +9883,14 @@
       "file": "app/contracts/labels/validate_replacements.rb",
       "grade": "source",
       "includers": [
-        "WorkPackages::BaseContract"
+        "WorkPackages::BaseContract",
+        "WorkPackages::CopyContract",
+        "WorkPackages::CopyProjectContract",
+        "WorkPackages::CreateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract"
       ],
       "item": "label_names_to_create",
       "kind": "grounded",
@@ -9435,7 +9902,14 @@
       "file": "app/contracts/labels/validate_replacements.rb",
       "grade": "source",
       "includers": [
-        "WorkPackages::BaseContract"
+        "WorkPackages::BaseContract",
+        "WorkPackages::CopyContract",
+        "WorkPackages::CopyProjectContract",
+        "WorkPackages::CreateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract"
       ],
       "item": "label_creation_authorization_errors",
       "kind": "grounded",
@@ -9447,7 +9921,14 @@
       "file": "app/contracts/labels/validate_replacements.rb",
       "grade": "source",
       "includers": [
-        "WorkPackages::BaseContract"
+        "WorkPackages::BaseContract",
+        "WorkPackages::CopyContract",
+        "WorkPackages::CopyProjectContract",
+        "WorkPackages::CreateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract"
       ],
       "item": "label_name_errors",
       "kind": "grounded",
@@ -9658,14 +10139,11 @@
     {
       "class": "Members::CreateContract",
       "file": "app/contracts/members/create_contract.rb",
-      "grade": "possible",
+      "grade": "source",
       "item": "assignable_principals",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 40,
-      "names": [
-        "project"
-      ],
-      "why": "defined only on the model"
+      "names": []
     },
     {
       "class": "Members::CreateContract",
@@ -9681,14 +10159,11 @@
     {
       "class": "Members::CreateContract",
       "file": "app/contracts/members/create_contract.rb",
-      "grade": "possible",
+      "grade": "source",
       "item": "principal_assignable",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 46,
-      "names": [
-        "principal"
-      ],
-      "why": "defined only on the model"
+      "names": []
     },
     {
       "class": "Members::DeleteBaseContract",
@@ -11231,17 +11706,6 @@
     {
       "class": "Projects::BaseContract",
       "file": "app/contracts/projects/base_contract.rb",
-      "grade": "possible",
-      "item": "available_custom_fields",
-      "kind": "dead_helper",
-      "line": 63,
-      "names": [
-        "available_custom_fields"
-      ]
-    },
-    {
-      "class": "Projects::BaseContract",
-      "file": "app/contracts/projects/base_contract.rb",
       "grade": "source",
       "item": "assignable_status_codes",
       "kind": "grounded",
@@ -11373,17 +11837,6 @@
       "kind": "grounded",
       "line": 145,
       "names": []
-    },
-    {
-      "class": "Projects::BaseContract",
-      "file": "app/contracts/projects/base_contract.rb",
-      "grade": "possible",
-      "item": "all_available_custom_fields",
-      "kind": "dead_helper",
-      "line": 145,
-      "names": [
-        "all_available_custom_fields"
-      ]
     },
     {
       "class": "Projects::CopyContract",
@@ -12028,11 +12481,9 @@
       "file": "app/contracts/projects/update_contract.rb",
       "grade": "source",
       "item": "writable_attributes",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 32,
-      "names": [
-        "with_unchanged_id"
-      ]
+      "names": []
     },
     {
       "class": "Projects::UpdateContract",
@@ -12095,11 +12546,9 @@
       "file": "app/contracts/projects/update_contract.rb",
       "grade": "source",
       "item": "allow_all_attributes?",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 68,
-      "names": [
-        "changed_by_user"
-      ]
+      "names": []
     },
     {
       "class": "Projects::UpdateContract",
@@ -12113,37 +12562,29 @@
     {
       "class": "Projects::UpdateContract",
       "file": "app/contracts/projects/update_contract.rb",
-      "grade": "possible",
+      "grade": "source",
       "item": "with_available_custom_fields_only",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 76,
-      "names": [
-        "available_custom_fields"
-      ],
-      "why": "defined only on the model"
+      "names": []
     },
     {
       "class": "Projects::UpdateContract",
       "file": "app/contracts/projects/update_contract.rb",
-      "grade": "possible",
+      "grade": "source",
       "item": "with_all_available_custom_fields",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 80,
-      "names": [
-        "all_available_custom_fields"
-      ],
-      "why": "defined only on the model"
+      "names": []
     },
     {
       "class": "Projects::UpdateContract",
       "file": "app/contracts/projects/update_contract.rb",
       "grade": "source",
       "item": "manage_permission",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 84,
-      "names": [
-        "changed_by_user"
-      ]
+      "names": []
     },
     {
       "class": "Projects::UpdateContract",
@@ -12576,17 +13017,6 @@
     {
       "class": "Queries::BaseContract",
       "file": "app/contracts/queries/base_contract.rb",
-      "grade": "possible",
-      "item": "user_allowed_to_save_queries?",
-      "kind": "dead_helper",
-      "line": 94,
-      "names": [
-        "user_allowed_to_save_queries?"
-      ]
-    },
-    {
-      "class": "Queries::BaseContract",
-      "file": "app/contracts/queries/base_contract.rb",
       "grade": "source",
       "item": "timestamps_are_parsable",
       "kind": "grounded",
@@ -12609,11 +13039,9 @@
       "file": "app/contracts/queries/create_contract.rb",
       "grade": "source",
       "item": "user_allowed_to_save",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 34,
-      "names": [
-        "user_allowed_to_save_queries?"
-      ]
+      "names": []
     },
     {
       "class": "Queries::CreateContract",
@@ -12760,33 +13188,27 @@
       "file": "app/contracts/queries/update_contract.rb",
       "grade": "source",
       "item": "user_allowed_to_change_query",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 53,
-      "names": [
-        "user_allowed_to_save_queries?"
-      ]
+      "names": []
     },
     {
       "class": "Queries::UpdateContract",
       "file": "app/contracts/queries/update_contract.rb",
       "grade": "source",
       "item": "user_allowed_to_change_public",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 59,
-      "names": [
-        "may_not_manage_queries?"
-      ]
+      "names": []
     },
     {
       "class": "Queries::UpdateContract",
       "file": "app/contracts/queries/update_contract.rb",
       "grade": "source",
       "item": "user_allowed_to_manage_public_in_destination_project",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 67,
-      "names": [
-        "may_not_manage_queries?"
-      ]
+      "names": []
     },
     {
       "class": "Queries::UpdateContract",
@@ -19447,6 +19869,7 @@
       "grade": "source",
       "includers": [
         "Bim::Bcf::Issues::BaseContract",
+        "Bim::Bcf::Issues::CreateContract",
         "Bim::Bcf::Viewpoints::CreateContract"
       ],
       "item": "validate_user_allowed_to_manage",
@@ -19812,11 +20235,9 @@
       "file": "modules/bim/app/contracts/bim/bcf/work_packages/update_contract.rb",
       "grade": "source",
       "item": "validate_status_transition",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 39,
-      "names": [
-        "status_changed?"
-      ]
+      "names": []
     },
     {
       "class": "Bim::Bcf::WorkPackages::UpdateContract",
@@ -21225,7 +21646,9 @@
       "grade": "source",
       "includers": [
         "TimeEntries::BaseContract",
-        "TimeEntries::DeleteContract"
+        "TimeEntries::CreateContract",
+        "TimeEntries::DeleteContract",
+        "TimeEntries::UpdateContract"
       ],
       "item": "validate_spent_on_not_in_past_month",
       "kind": "grounded",
@@ -21249,7 +21672,9 @@
       "grade": "source",
       "includers": [
         "TimeEntries::BaseContract",
-        "TimeEntries::DeleteContract"
+        "TimeEntries::CreateContract",
+        "TimeEntries::DeleteContract",
+        "TimeEntries::UpdateContract"
       ],
       "item": "restricted_spent_on_dates",
       "kind": "grounded",
@@ -21262,7 +21687,9 @@
       "grade": "source",
       "includers": [
         "TimeEntries::BaseContract",
-        "TimeEntries::DeleteContract"
+        "TimeEntries::CreateContract",
+        "TimeEntries::DeleteContract",
+        "TimeEntries::UpdateContract"
       ],
       "item": "earliest_open_date",
       "kind": "grounded",
@@ -22299,7 +22726,9 @@
       "grade": "possible",
       "includers": [
         "LlmModels::BaseContract",
-        "LlmModels::DeleteContract"
+        "LlmModels::CreateContract",
+        "LlmModels::DeleteContract",
+        "LlmModels::UpdateContract"
       ],
       "item": "env_named_default?",
       "kind": "loose_read",
@@ -22312,13 +22741,14 @@
     {
       "class": "LlmModels::UpdateContract",
       "file": "modules/llm/app/contracts/llm_models/update_contract.rb",
-      "grade": "source",
+      "grade": "possible",
       "item": "rename_not_configured_from_env",
-      "kind": "loose_predicate",
+      "kind": "loose_read",
       "line": 35,
       "names": [
-        "env_named_default?"
-      ]
+        "external_id_changed?"
+      ],
+      "why": "unresolved model ancestor OpenProject::Acts::Favoritable, OpenProject::Acts::Watchable, Redmine::I18n"
     },
     {
       "class": "LlmModels::UpdateContract",
@@ -22741,7 +23171,9 @@
       "grade": "source",
       "includers": [
         "MeetingAgendaItems::BaseContract",
-        "MeetingAgendaItems::DeleteContract"
+        "MeetingAgendaItems::CreateContract",
+        "MeetingAgendaItems::DeleteContract",
+        "MeetingAgendaItems::UpdateContract"
       ],
       "item": "validate_editable",
       "kind": "grounded",
@@ -23143,6 +23575,7 @@
       "grade": "source",
       "includers": [
         "MeetingOutcomes::BaseContract",
+        "MeetingOutcomes::CreateContract",
         "MeetingOutcomes::DeleteContract"
       ],
       "item": "validate_editable",
@@ -23167,6 +23600,7 @@
       "grade": "source",
       "includers": [
         "MeetingOutcomes::BaseContract",
+        "MeetingOutcomes::CreateContract",
         "MeetingOutcomes::DeleteContract"
       ],
       "item": "validate_meeting_existence",
@@ -23191,6 +23625,7 @@
       "grade": "source",
       "includers": [
         "MeetingOutcomes::BaseContract",
+        "MeetingOutcomes::CreateContract",
         "MeetingOutcomes::DeleteContract"
       ],
       "item": "user_allowed_to_add",
@@ -23215,6 +23650,7 @@
       "grade": "source",
       "includers": [
         "MeetingOutcomes::BaseContract",
+        "MeetingOutcomes::CreateContract",
         "MeetingOutcomes::DeleteContract"
       ],
       "item": "validate_not_in_backlog",
@@ -23239,6 +23675,7 @@
       "grade": "source",
       "includers": [
         "MeetingOutcomes::BaseContract",
+        "MeetingOutcomes::CreateContract",
         "MeetingOutcomes::DeleteContract"
       ],
       "item": "visible?",
@@ -23454,7 +23891,10 @@
       "grade": "source",
       "includers": [
         "MeetingSections::BaseContract",
-        "MeetingSections::DeleteContract"
+        "MeetingSections::CreateContract",
+        "MeetingSections::DeleteContract",
+        "MeetingSections::MoveContract",
+        "MeetingSections::UpdateContract"
       ],
       "item": "validate_editable",
       "kind": "grounded",
@@ -26191,7 +26631,8 @@
       "file": "modules/storages/app/contracts/storages/storages/concerns/manage_storages_guarded.rb",
       "grade": "source",
       "includers": [
-        "Storages::Storages::BaseContract"
+        "Storages::Storages::BaseContract",
+        "Storages::Storages::CreateContract"
       ],
       "item": "validate_user_allowed_to_manage",
       "kind": "grounded",
