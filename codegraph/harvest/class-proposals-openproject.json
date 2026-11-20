@@ -1293,7 +1293,7 @@
       },
       "provenance": {
         "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
-        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "ruff_rev": "4e2044deac5c336ccb984218779da9c0f66a16f7",
         "run_status": "PARTIAL",
         "scope": "corpus",
         "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
@@ -1340,7 +1340,7 @@
       },
       "provenance": {
         "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
-        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "ruff_rev": "4e2044deac5c336ccb984218779da9c0f66a16f7",
         "run_status": "PARTIAL",
         "scope": "corpus",
         "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
@@ -1386,7 +1386,7 @@
       },
       "provenance": {
         "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
-        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "ruff_rev": "4e2044deac5c336ccb984218779da9c0f66a16f7",
         "run_status": "PARTIAL",
         "scope": "corpus",
         "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
@@ -1430,7 +1430,7 @@
       },
       "provenance": {
         "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
-        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "ruff_rev": "4e2044deac5c336ccb984218779da9c0f66a16f7",
         "run_status": "PARTIAL",
         "scope": "corpus",
         "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
@@ -1475,7 +1475,7 @@
       },
       "provenance": {
         "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
-        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "ruff_rev": "4e2044deac5c336ccb984218779da9c0f66a16f7",
         "run_status": "PARTIAL",
         "scope": "corpus",
         "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
@@ -1519,7 +1519,7 @@
       },
       "provenance": {
         "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
-        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "ruff_rev": "4e2044deac5c336ccb984218779da9c0f66a16f7",
         "run_status": "PARTIAL",
         "scope": "corpus",
         "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
@@ -1563,7 +1563,7 @@
       },
       "provenance": {
         "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
-        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "ruff_rev": "4e2044deac5c336ccb984218779da9c0f66a16f7",
         "run_status": "PARTIAL",
         "scope": "corpus",
         "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
@@ -1615,7 +1615,7 @@
       },
       "provenance": {
         "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
-        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "ruff_rev": "4e2044deac5c336ccb984218779da9c0f66a16f7",
         "run_status": "PARTIAL",
         "scope": "corpus",
         "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
@@ -1667,7 +1667,7 @@
       },
       "provenance": {
         "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
-        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "ruff_rev": "4e2044deac5c336ccb984218779da9c0f66a16f7",
         "run_status": "PARTIAL",
         "scope": "corpus",
         "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
@@ -1718,7 +1718,7 @@
       },
       "provenance": {
         "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
-        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "ruff_rev": "4e2044deac5c336ccb984218779da9c0f66a16f7",
         "run_status": "PARTIAL",
         "scope": "corpus",
         "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
@@ -1769,7 +1769,7 @@
       },
       "provenance": {
         "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
-        "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+        "ruff_rev": "4e2044deac5c336ccb984218779da9c0f66a16f7",
         "run_status": "PARTIAL",
         "scope": "corpus",
         "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",
@@ -1783,7 +1783,7 @@
   ],
   "provenance": {
     "lance_graph_rev": "c51d9b26ef0f8a781bc84acb864bf6edd1346ee1",
-    "ruff_rev": "5acfe73cf144e30e9f7097afcce19d994a946194",
+    "ruff_rev": "4e2044deac5c336ccb984218779da9c0f66a16f7",
     "run_status": "PARTIAL",
     "scope": "corpus",
     "source_rev": "2725194454c895dfab6ff2685d9688b0cba53068",

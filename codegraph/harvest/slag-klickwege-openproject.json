@@ -1,7 +1,7 @@
 {
   "app": "openproject",
   "per_origin": {
-    "Klickwege": 511
+    "Klickwege": 499
   },
   "per_reason": [
     {
@@ -32,9 +32,9 @@
     },
     {
       "by_origin": {
-        "Klickwege": 108
+        "Klickwege": 109
       },
-      "count": 108,
+      "count": 109,
       "examples": [
         {
           "file": "app/contracts/automations/execute_contract.rb",
@@ -120,9 +120,9 @@
     },
     {
       "by_origin": {
-        "Klickwege": 37
+        "Klickwege": 24
       },
-      "count": 37,
+      "count": 24,
       "examples": [
         {
           "file": "app/contracts/attachments/create_contract.rb",
@@ -208,8 +208,8 @@
     }
   ],
   "per_remedy": {
-    "GenericRule": 157,
-    "RuffOreExtension": 354
+    "GenericRule": 144,
+    "RuffOreExtension": 355
   },
-  "total": 511
+  "total": 499
 }
