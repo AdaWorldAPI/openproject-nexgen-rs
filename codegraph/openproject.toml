@@ -31,6 +31,7 @@ attribute_macros = ["attribute"]
 lambda_macros = ["attribute"]
 receivers = ["model"]
 include_macros = ["include"]
+transparent_blocks = ["included"]
 definer_macros = ["attr_reader", "attr_writer", "attr_accessor", "delegate", "alias_method", "alias_attribute", "class_attribute", "cattr_reader", "cattr_accessor", "mattr_reader", "mattr_accessor"]
 model_from_namespace = true
 attribute_method_suffixes = ["_change", "_changed?", "_was", "_before_last_save", "_in_database", "?", "="]

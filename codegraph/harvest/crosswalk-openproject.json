@@ -288,6 +288,17 @@
     },
     {
       "ancestors": [],
+      "class": "AssignableCustomFieldValues",
+      "includers": [
+        "Projects::BaseContract",
+        "Users::BaseContract",
+        "TimeEntries::BaseContract"
+      ],
+      "model": null,
+      "unresolved_ancestors": []
+    },
+    {
+      "ancestors": [],
       "class": "AssignableValuesContract",
       "includers": [
         "Members::CreateContract",
@@ -362,6 +373,23 @@
         "Projects::CreateContract",
         "WorkPackageTypes::UpdateFormConfigurationContract",
         "ResourceManagement::PlaceholderUsers::CreateContract"
+      ],
+      "model": null,
+      "unresolved_ancestors": []
+    },
+    {
+      "ancestors": [],
+      "class": "UnchangedProject",
+      "includers": [
+        "Queries::UpdateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract",
+        "CostEntries::UpdateContract",
+        "CostTypes::CostTypeProjects::BaseContract",
+        "TimeEntries::UpdateContract",
+        "Documents::BaseContract"
       ],
       "model": null,
       "unresolved_ancestors": []
@@ -4247,6 +4275,16 @@
       "unresolved_ancestors": []
     },
     {
+      "ancestors": [],
+      "class": "Bim::Bcf::Concerns::ManageBcfGuarded",
+      "includers": [
+        "Bim::Bcf::Issues::BaseContract",
+        "Bim::Bcf::Viewpoints::CreateContract"
+      ],
+      "model": null,
+      "unresolved_ancestors": []
+    },
+    {
       "ancestors": [
         "Bim::Bcf::Concerns::ManageBcfGuarded",
         "ModelContract",
@@ -6472,6 +6510,17 @@
       "unresolved_ancestors": []
     },
     {
+      "ancestors": [],
+      "class": "Storages::ProjectStorages::Concerns::ManageStoragesGuarded",
+      "includers": [
+        "Storages::ProjectStorages::BaseContract",
+        "Storages::ProjectStorages::CopyContract",
+        "Storages::ProjectStorages::CreateContract"
+      ],
+      "model": null,
+      "unresolved_ancestors": []
+    },
+    {
       "ancestors": [
         "Storages::ProjectStorages::CreateContract",
         "Storages::ProjectStorages::BaseContract",
@@ -6555,6 +6604,15 @@
         "OpenProject::Acts::Watchable",
         "Redmine::I18n"
       ],
+      "unresolved_ancestors": []
+    },
+    {
+      "ancestors": [],
+      "class": "Storages::Storages::Concerns::ManageStoragesGuarded",
+      "includers": [
+        "Storages::Storages::BaseContract"
+      ],
+      "model": null,
       "unresolved_ancestors": []
     },
     {
@@ -6812,12 +6870,12 @@
     "implicit_block_params_ignored": 4,
     "items_without_verdict": 236,
     "loose_predicates_by_grade": {
-      "possible": 24,
-      "source": 17
+      "possible": 26,
+      "source": 11
     },
     "loose_predicates_downgraded": 1,
     "loose_reads_by_grade": {
-      "possible": 114,
+      "possible": 108,
       "source": 0
     },
     "partial": true,
@@ -7705,6 +7763,31 @@
       "names": []
     },
     {
+      "class": "AssignableCustomFieldValues",
+      "file": "app/contracts/concerns/assignable_custom_field_values.rb",
+      "grade": "source",
+      "includers": [
+        "Projects::BaseContract",
+        "Users::BaseContract",
+        "TimeEntries::BaseContract"
+      ],
+      "item": "assignable_custom_field_values",
+      "kind": "grounded",
+      "line": 34,
+      "names": []
+    },
+    {
+      "class": "AssignableCustomFieldValues",
+      "file": "app/contracts/concerns/assignable_custom_field_values.rb",
+      "grade": "possible",
+      "item": "assignable_custom_field_values",
+      "kind": "dead_helper",
+      "line": 34,
+      "names": [
+        "assignable_custom_field_values"
+      ]
+    },
+    {
       "class": "AssignableValuesContract",
       "file": "app/contracts/concerns/assignable_values_contract.rb",
       "grade": "source",
@@ -7863,6 +7946,31 @@
       "names": [
         "has_enterprise"
       ]
+    },
+    {
+      "class": "UnchangedProject",
+      "file": "app/contracts/concerns/unchanged_project.rb",
+      "grade": "possible",
+      "includers": [
+        "Queries::UpdateContract",
+        "WorkPackages::UpdateContract",
+        "WorkPackages::UpdateDependentContract",
+        "WorkPackages::UpdateParentContract",
+        "Bim::Bcf::WorkPackages::UpdateContract",
+        "CostEntries::UpdateContract",
+        "CostTypes::CostTypeProjects::BaseContract",
+        "TimeEntries::UpdateContract",
+        "Documents::BaseContract"
+      ],
+      "item": "with_unchanged_project_id",
+      "kind": "loose_predicate",
+      "line": 34,
+      "names": [
+        "project_id",
+        "project_id_was",
+        "project_id_changed?"
+      ],
+      "why": "resolves in includers Queries::UpdateContract, WorkPackages::UpdateContract, WorkPackages::UpdateDependentContract, WorkPackages::UpdateParentContract, Bim::Bcf::WorkPackages::UpdateContract, CostTypes::CostTypeProjects::BaseContract but not CostEntries::UpdateContract, TimeEntries::UpdateContract, Documents::BaseContract"
     },
     {
       "class": "CustomFields::BaseContract",
@@ -10898,14 +11006,11 @@
     {
       "class": "Projects::ArchiveContract",
       "file": "app/contracts/projects/archive_contract.rb",
-      "grade": "possible",
+      "grade": "source",
       "item": "validate_no_foreign_wp_references",
-      "kind": "loose_read",
+      "kind": "grounded",
       "line": 39,
-      "names": [
-        "rolled_up_versions"
-      ],
-      "why": "unresolved model ancestor FriendlyId, OpenProject::Acts::Favoritable, OpenProject::Acts::Watchable (+1 more)"
+      "names": []
     },
     {
       "class": "Projects::ArchiveContract",
@@ -10950,14 +11055,11 @@
     {
       "class": "Projects::ArchiveContract",
       "file": "app/contracts/projects/archive_contract.rb",
-      "grade": "possible",
+      "grade": "source",
       "item": "validate_can_archive_subprojects",
-      "kind": "loose_read",
+      "kind": "grounded",
       "line": 61,
-      "names": [
-        "active_subprojects"
-      ],
-      "why": "unresolved model ancestor FriendlyId, OpenProject::Acts::Favoritable, OpenProject::Acts::Watchable (+1 more)"
+      "names": []
     },
     {
       "class": "Projects::BaseContract",
@@ -11160,14 +11262,11 @@
     {
       "class": "Projects::BaseContract",
       "file": "app/contracts/projects/base_contract.rb",
-      "grade": "possible",
+      "grade": "source",
       "item": "collect_available_custom_field_attributes",
-      "kind": "loose_read",
+      "kind": "grounded",
       "line": 79,
-      "names": [
-        "all_available_custom_fields"
-      ],
-      "why": "unresolved model ancestor FriendlyId, OpenProject::Acts::Favoritable, OpenProject::Acts::Watchable (+1 more)"
+      "names": []
     },
     {
       "class": "Projects::BaseContract",
@@ -11269,14 +11368,11 @@
     {
       "class": "Projects::BaseContract",
       "file": "app/contracts/projects/base_contract.rb",
-      "grade": "possible",
+      "grade": "source",
       "item": "all_available_custom_fields",
-      "kind": "loose_read",
+      "kind": "grounded",
       "line": 145,
-      "names": [
-        "all_available_custom_fields"
-      ],
-      "why": "unresolved model ancestor FriendlyId, OpenProject::Acts::Favoritable, OpenProject::Acts::Watchable (+1 more)"
+      "names": []
     },
     {
       "class": "Projects::BaseContract",
@@ -11551,14 +11647,11 @@
     {
       "class": "Projects::CreateContract",
       "file": "app/contracts/projects/create_contract.rb",
-      "grade": "possible",
+      "grade": "source",
       "item": "collect_available_custom_field_attributes",
-      "kind": "loose_read",
+      "kind": "grounded",
       "line": 55,
-      "names": [
-        "all_visible_custom_fields"
-      ],
-      "why": "unresolved model ancestor FriendlyId, OpenProject::Acts::Favoritable, OpenProject::Acts::Watchable (+1 more)"
+      "names": []
     },
     {
       "class": "Projects::CreateContract",
@@ -11791,27 +11884,20 @@
     {
       "class": "Projects::SettingsContract",
       "file": "app/contracts/projects/settings_contract.rb",
-      "grade": "possible",
+      "grade": "source",
       "item": "validate_work_package_type",
-      "kind": "loose_read",
+      "kind": "grounded",
       "line": 57,
-      "names": [
-        "project_creation_wizard_work_package_type_id"
-      ],
-      "why": "unresolved model ancestor FriendlyId, OpenProject::Acts::Favoritable, OpenProject::Acts::Watchable (+1 more)"
+      "names": []
     },
     {
       "class": "Projects::SettingsContract",
       "file": "app/contracts/projects/settings_contract.rb",
-      "grade": "possible",
+      "grade": "source",
       "item": "validate_status_when_submitted",
-      "kind": "loose_read",
+      "kind": "grounded",
       "line": 67,
-      "names": [
-        "type_variant",
-        "project_creation_wizard_status_when_submitted_id"
-      ],
-      "why": "unresolved model ancestor FriendlyId, OpenProject::Acts::Favoritable, OpenProject::Acts::Watchable (+1 more)"
+      "names": []
     },
     {
       "class": "Projects::SettingsContract",
@@ -12039,13 +12125,14 @@
     {
       "class": "Projects::UpdateContract",
       "file": "app/contracts/projects/update_contract.rb",
-      "grade": "source",
+      "grade": "possible",
       "item": "with_all_available_custom_fields",
       "kind": "loose_predicate",
       "line": 80,
       "names": [
         "all_available_custom_fields"
-      ]
+      ],
+      "why": "defined only on the model"
     },
     {
       "class": "Projects::UpdateContract",
@@ -12687,8 +12774,7 @@
       "kind": "loose_predicate",
       "line": 59,
       "names": [
-        "may_not_manage_queries?",
-        "with_unchanged_project_id"
+        "may_not_manage_queries?"
       ]
     },
     {
@@ -17965,11 +18051,9 @@
       "file": "app/contracts/work_packages/update_contract.rb",
       "grade": "source",
       "item": "user_allowed_to_edit",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 83,
-      "names": [
-        "with_unchanged_project_id"
-      ]
+      "names": []
     },
     {
       "class": "WorkPackages::UpdateContract",
@@ -17987,11 +18071,9 @@
       "file": "app/contracts/work_packages/update_contract.rb",
       "grade": "source",
       "item": "user_allowed_to_move_from_source_project",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 97,
-      "names": [
-        "with_unchanged_project_id"
-      ]
+      "names": []
     },
     {
       "class": "WorkPackages::UpdateContract",
@@ -19360,6 +19442,30 @@
       ]
     },
     {
+      "class": "Bim::Bcf::Concerns::ManageBcfGuarded",
+      "file": "modules/bim/app/contracts/bim/bcf/concerns/manage_bcf_guarded.rb",
+      "grade": "source",
+      "includers": [
+        "Bim::Bcf::Issues::BaseContract",
+        "Bim::Bcf::Viewpoints::CreateContract"
+      ],
+      "item": "validate_user_allowed_to_manage",
+      "kind": "grounded",
+      "line": 38,
+      "names": []
+    },
+    {
+      "class": "Bim::Bcf::Concerns::ManageBcfGuarded",
+      "file": "modules/bim/app/contracts/bim/bcf/concerns/manage_bcf_guarded.rb",
+      "grade": "possible",
+      "item": "validate_user_allowed_to_manage",
+      "kind": "dead_helper",
+      "line": 38,
+      "names": [
+        "validate_user_allowed_to_manage"
+      ]
+    },
+    {
       "class": "Bim::Bcf::Issues::BaseContract",
       "file": "modules/bim/app/contracts/bim/bcf/issues/base_contract.rb",
       "grade": "possible",
@@ -20082,14 +20188,11 @@
     {
       "class": "CostEntries::BaseContract",
       "file": "modules/costs/app/contracts/cost_entries/base_contract.rb",
-      "grade": "possible",
+      "grade": "source",
       "item": "attribute:spent_on",
-      "kind": "unbacked",
+      "kind": "backed",
       "line": 60,
-      "names": [
-        "spent_on"
-      ],
-      "why": "unresolved model ancestor Costs::DeletedUserFallback, OpenProject::Acts::Favoritable, OpenProject::Acts::Watchable (+1 more)"
+      "names": []
     },
     {
       "class": "CostEntries::BaseContract",
@@ -20314,11 +20417,9 @@
       "file": "modules/costs/app/contracts/cost_entries/update_contract.rb",
       "grade": "source",
       "item": "user_allowed_to_update?",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 45,
-      "names": [
-        "with_unchanged_project_id"
-      ]
+      "names": []
     },
     {
       "class": "CostEntries::UpdateContract",
@@ -20660,14 +20761,11 @@
     {
       "class": "TimeEntries::BaseContract",
       "file": "modules/costs/app/contracts/time_entries/base_contract.rb",
-      "grade": "possible",
+      "grade": "source",
       "item": "attribute:spent_on",
-      "kind": "unbacked",
+      "kind": "backed",
       "line": 72,
-      "names": [
-        "spent_on"
-      ],
-      "why": "unresolved model ancestor OpenProject::Acts::Favoritable, OpenProject::Acts::Watchable, Redmine::I18n"
+      "names": []
     },
     {
       "class": "TimeEntries::BaseContract",
@@ -21194,13 +21292,14 @@
     {
       "class": "TimeEntries::UpdateContract",
       "file": "modules/costs/app/contracts/time_entries/update_contract.rb",
-      "grade": "source",
+      "grade": "possible",
       "item": "user_allowed_to_update?",
-      "kind": "loose_predicate",
+      "kind": "loose_read",
       "line": 44,
       "names": [
-        "with_unchanged_project_id"
-      ]
+        "ongoing_was"
+      ],
+      "why": "unresolved model ancestor OpenProject::Acts::Favoritable, OpenProject::Acts::Watchable, Redmine::I18n"
     },
     {
       "class": "TimeEntries::UpdateContract",
@@ -21367,11 +21466,9 @@
       "file": "modules/documents/app/contracts/documents/base_contract.rb",
       "grade": "source",
       "item": "validate_manage_allowed_in_source_project",
-      "kind": "loose_predicate",
+      "kind": "grounded",
       "line": 51,
-      "names": [
-        "with_unchanged_project_id"
-      ]
+      "names": []
     },
     {
       "class": "Documents::BaseContract",
@@ -25897,6 +25994,31 @@
       ]
     },
     {
+      "class": "Storages::ProjectStorages::Concerns::ManageStoragesGuarded",
+      "file": "modules/storages/app/contracts/storages/project_storages/concerns/manage_storages_guarded.rb",
+      "grade": "source",
+      "includers": [
+        "Storages::ProjectStorages::BaseContract",
+        "Storages::ProjectStorages::CopyContract",
+        "Storages::ProjectStorages::CreateContract"
+      ],
+      "item": "validate_user_allowed_to_manage",
+      "kind": "grounded",
+      "line": 45,
+      "names": []
+    },
+    {
+      "class": "Storages::ProjectStorages::Concerns::ManageStoragesGuarded",
+      "file": "modules/storages/app/contracts/storages/project_storages/concerns/manage_storages_guarded.rb",
+      "grade": "possible",
+      "item": "validate_user_allowed_to_manage",
+      "kind": "dead_helper",
+      "line": 45,
+      "names": [
+        "validate_user_allowed_to_manage"
+      ]
+    },
+    {
       "class": "Storages::ProjectStorages::CopyContract",
       "file": "modules/storages/app/contracts/storages/project_storages/copy_contract.rb",
       "grade": "source",
@@ -26063,6 +26185,29 @@
       "kind": "grounded",
       "line": 88,
       "names": []
+    },
+    {
+      "class": "Storages::Storages::Concerns::ManageStoragesGuarded",
+      "file": "modules/storages/app/contracts/storages/storages/concerns/manage_storages_guarded.rb",
+      "grade": "source",
+      "includers": [
+        "Storages::Storages::BaseContract"
+      ],
+      "item": "validate_user_allowed_to_manage",
+      "kind": "grounded",
+      "line": 55,
+      "names": []
+    },
+    {
+      "class": "Storages::Storages::Concerns::ManageStoragesGuarded",
+      "file": "modules/storages/app/contracts/storages/storages/concerns/manage_storages_guarded.rb",
+      "grade": "possible",
+      "item": "validate_user_allowed_to_manage",
+      "kind": "dead_helper",
+      "line": 55,
+      "names": [
+        "validate_user_allowed_to_manage"
+      ]
     },
     {
       "class": "Storages::Storages::CreateContract",
