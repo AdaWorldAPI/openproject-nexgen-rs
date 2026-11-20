@@ -1,0 +1,58 @@
+{
+  "app": "openproject",
+  "per_origin": {
+    "Klickwege": 57
+  },
+  "per_reason": [
+    {
+      "by_origin": {
+        "Klickwege": 37
+      },
+      "count": 37,
+      "examples": [],
+      "reason": "route_declaration_escaped",
+      "remedy": "RuffOreExtension",
+      "stage": "Ore"
+    },
+    {
+      "by_origin": {
+        "Klickwege": 13
+      },
+      "count": 13,
+      "examples": [],
+      "reason": "route_path_unresolved",
+      "remedy": "RuffOreExtension",
+      "stage": "Ore"
+    },
+    {
+      "by_origin": {
+        "Klickwege": 7
+      },
+      "count": 7,
+      "examples": [
+        {
+          "file": "app/controllers/custom_styles_controller.rb",
+          "line": 43,
+          "subject": "CustomStylesController#before_action:UNGUARDED_ACTIONS"
+        },
+        {
+          "file": "app/controllers/custom_styles_controller.rb",
+          "line": 45,
+          "subject": "CustomStylesController#skip_before_action:UNGUARDED_ACTIONS"
+        },
+        {
+          "file": "app/controllers/users_controller.rb",
+          "line": 78,
+          "subject": "UsersController#before_action:-> { enforce_user_limit flash_now: true }"
+        }
+      ],
+      "reason": "access_filter_unresolved",
+      "remedy": "RuffOreExtension",
+      "stage": "Ore"
+    }
+  ],
+  "per_remedy": {
+    "RuffOreExtension": 57
+  },
+  "total": 57
+}
