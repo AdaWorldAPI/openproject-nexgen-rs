@@ -24,3 +24,18 @@ stratum = "K9"
 name = "contracts"
 roots = ["app/contracts", "modules/*/app/contracts"]
 macros = ["attribute", "validate", "validates", "attribute_alias"]
+
+[klickwege.crosswalk]
+roots = ["app/contracts", "modules/*/app/contracts"]
+attribute_macros = ["attribute"]
+lambda_macros = ["attribute"]
+receivers = ["model"]
+include_macros = ["include"]
+definer_macros = ["attr_reader", "attr_writer", "attr_accessor", "delegate", "alias_method", "alias_attribute", "class_attribute", "cattr_reader", "cattr_accessor", "mattr_reader", "mattr_accessor"]
+model_from_namespace = true
+attribute_method_suffixes = ["_change", "_changed?", "_was", "_before_last_save", "_in_database", "?", "="]
+model_roots = ["app/models", "modules/*/app/models", "lib"]
+gems_env = "OPENPROJECT_GEMS_DIR"
+gemfile_lock = "Gemfile.lock"
+gems = ["disposable", "activemodel", "activerecord", "activesupport", "closure_tree", "reform"]
+builtin_names = ["Array", "Integer", "String", "Hash", "Float", "method", "send", "public_send", "respond_to?", "is_a?", "kind_of?", "instance_of?", "nil?", "tap", "then", "freeze", "frozen?", "dup", "clone", "raise", "fail", "puts", "p", "format", "sprintf", "lambda", "proc", "loop", "catch", "throw", "require", "binding", "block_given?", "itself", "object_id", "class", "instance_variable_get", "instance_variable_set", "define_singleton_method", "singleton_class"]

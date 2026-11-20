@@ -12,10 +12,10 @@
       "unit": "route files"
     },
     {
-      "declarations": 1930,
-      "emitted_as_ore": 1876,
-      "escaped": 54,
-      "facts": 54,
+      "declarations": 2058,
+      "emitted_as_ore": 2006,
+      "escaped": 52,
+      "facts": 52,
       "scanned_files": 32,
       "stratum": "K1",
       "unit": "route declarations"
@@ -37,6 +37,15 @@
       "scanned_files": 423,
       "stratum": "K9",
       "unit": "class macro calls"
+    },
+    {
+      "declarations": 1359,
+      "emitted_as_ore": 971,
+      "escaped": 388,
+      "facts": 388,
+      "scanned_files": 423,
+      "stratum": "K10/crosswalk",
+      "unit": "contract functions and attributes"
     }
   ]
 }
