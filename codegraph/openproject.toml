@@ -40,3 +40,9 @@ gems_env = "OPENPROJECT_GEMS_DIR"
 gemfile_lock = "Gemfile.lock"
 gems = ["disposable", "activemodel", "activerecord", "activesupport", "closure_tree", "reform"]
 builtin_names = ["Array", "Integer", "String", "Hash", "Float", "method", "send", "public_send", "respond_to?", "is_a?", "kind_of?", "instance_of?", "nil?", "tap", "then", "freeze", "frozen?", "dup", "clone", "raise", "fail", "puts", "p", "format", "sprintf", "lambda", "proc", "loop", "catch", "throw", "require", "binding", "block_given?", "itself", "object_id", "class", "instance_variable_get", "instance_variable_set", "define_singleton_method", "singleton_class"]
+
+[klickwege.proposer]
+# Attributes of one model that share a guard, a permission or a block's reads.
+min_support = 2
+k = 1
+oracle_trace = "../oracle/work-package-contract-trace.json"
