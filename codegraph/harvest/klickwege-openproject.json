@@ -25,9 +25,18 @@
       "emitted_as_ore": 646,
       "escaped": 7,
       "facts": 7,
-      "scanned_files": 1267,
+      "scanned_files": 1706,
       "stratum": "K2/filters",
       "unit": "filter macro calls"
+    },
+    {
+      "declarations": 851,
+      "emitted_as_ore": 804,
+      "escaped": 47,
+      "facts": 47,
+      "scanned_files": 355,
+      "stratum": "K9",
+      "unit": "class macro calls"
     }
   ]
 }

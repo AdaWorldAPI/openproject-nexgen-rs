@@ -11,6 +11,7 @@ OpenProject.
 | `harvest/access-openproject.json` | Controller filters (`before_action` and the like) with their `only:` and `except:` lists |
 | `harvest/frontend-routes-openproject.json` | Frontend routes (empty: none are configured) |
 | `harvest/seed-rows-openproject.json` | Seed rows (empty: none are configured) |
+| `harvest/class-macros-contracts-openproject.json` | Every `attribute`, `validate`, `validates` and `attribute_alias` call in the contracts, with its `permission:` and `writable:` arguments. Contracts are where OpenProject validates and authorizes writes: its create services save with `save(validate: false)` |
 | `harvest/constants-openproject.json` | Literal class constants (empty: none are configured) |
 | `harvest/slag-klickwege-openproject.json` | Everything that was not read, each with its reason and remedy: the work queue |
 

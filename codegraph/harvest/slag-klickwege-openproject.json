@@ -1,9 +1,35 @@
 {
   "app": "openproject",
   "per_origin": {
-    "Klickwege": 57
+    "Klickwege": 104
   },
   "per_reason": [
+    {
+      "by_origin": {
+        "Klickwege": 43
+      },
+      "count": 43,
+      "examples": [
+        {
+          "file": "app/contracts/custom_fields/update_contract.rb",
+          "line": 35,
+          "subject": "K9:CustomFields::UpdateContract#validate::unique_job"
+        },
+        {
+          "file": "app/contracts/scim_clients/base_contract.rb",
+          "line": 43,
+          "subject": "K9:ScimClients::BaseContract#validates::jwt_sub"
+        },
+        {
+          "file": "app/contracts/user_preferences/base_contract.rb",
+          "line": 36,
+          "subject": "K9:UserPreferences::BaseContract#validates::settings"
+        }
+      ],
+      "reason": "class_macro_guard_lambda",
+      "remedy": "GenericRule",
+      "stage": "GenericRule"
+    },
     {
       "by_origin": {
         "Klickwege": 37
@@ -49,10 +75,37 @@
       "reason": "access_filter_unresolved",
       "remedy": "RuffOreExtension",
       "stage": "Ore"
+    },
+    {
+      "by_origin": {
+        "Klickwege": 4
+      },
+      "count": 4,
+      "examples": [
+        {
+          "file": "modules/auth_saml/app/contracts/saml/providers/base_contract.rb",
+          "line": 74,
+          "subject": "K9:Saml::Providers::BaseContract#validates::allowed_clock_drift"
+        },
+        {
+          "file": "modules/backlogs/app/contracts/backlogs/projects/backlog_settings_contract.rb",
+          "line": 39,
+          "subject": "K9:Backlogs::Projects::BacklogSettingsContract#validates::sprint_sharing"
+        },
+        {
+          "file": "modules/openid_connect/app/contracts/openid_connect/providers/base_contract.rb",
+          "line": 43,
+          "subject": "K9:OpenIDConnect::Providers::BaseContract#validates::oidc_provider"
+        }
+      ],
+      "reason": "class_macro_value_unresolved",
+      "remedy": "RuffOreExtension",
+      "stage": "Ore"
     }
   ],
   "per_remedy": {
-    "RuffOreExtension": 57
+    "GenericRule": 43,
+    "RuffOreExtension": 61
   },
-  "total": 57
+  "total": 104
 }
