@@ -39,10 +39,10 @@
       "unit": "class macro calls"
     },
     {
-      "declarations": 1359,
-      "emitted_as_ore": 971,
-      "escaped": 388,
-      "facts": 388,
+      "declarations": 1364,
+      "emitted_as_ore": 988,
+      "escaped": 376,
+      "facts": 376,
       "scanned_files": 423,
       "stratum": "K10/crosswalk",
       "unit": "contract functions and attributes"

@@ -1,14 +1,14 @@
 {
   "app": "openproject",
   "per_origin": {
-    "Klickwege": 523
+    "Klickwege": 511
   },
   "per_reason": [
     {
       "by_origin": {
-        "Klickwege": 182
+        "Klickwege": 180
       },
-      "count": 182,
+      "count": 180,
       "examples": [
         {
           "file": "app/contracts/ai/text_actions/base_contract.rb",
@@ -32,9 +32,9 @@
     },
     {
       "by_origin": {
-        "Klickwege": 114
+        "Klickwege": 108
       },
-      "count": 114,
+      "count": 108,
       "examples": [
         {
           "file": "app/contracts/automations/execute_contract.rb",
@@ -110,9 +110,19 @@
     },
     {
       "by_origin": {
-        "Klickwege": 41
+        "Klickwege": 38
       },
-      "count": 41,
+      "count": 38,
+      "examples": [],
+      "reason": "route_declaration_escaped",
+      "remedy": "RuffOreExtension",
+      "stage": "Ore"
+    },
+    {
+      "by_origin": {
+        "Klickwege": 37
+      },
+      "count": 37,
       "examples": [
         {
           "file": "app/contracts/attachments/create_contract.rb",
@@ -133,16 +143,6 @@
       "reason": "crosswalk_loose_predicate",
       "remedy": "GenericRule",
       "stage": "GenericRule"
-    },
-    {
-      "by_origin": {
-        "Klickwege": 38
-      },
-      "count": 38,
-      "examples": [],
-      "reason": "route_declaration_escaped",
-      "remedy": "RuffOreExtension",
-      "stage": "Ore"
     },
     {
       "by_origin": {
@@ -208,8 +208,8 @@
     }
   ],
   "per_remedy": {
-    "GenericRule": 161,
-    "RuffOreExtension": 362
+    "GenericRule": 157,
+    "RuffOreExtension": 354
   },
-  "total": 523
+  "total": 511
 }
