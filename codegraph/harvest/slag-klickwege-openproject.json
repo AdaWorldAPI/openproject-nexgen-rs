@@ -1,9 +1,87 @@
 {
   "app": "openproject",
   "per_origin": {
-    "Klickwege": 137
+    "Klickwege": 612
   },
   "per_reason": [
+    {
+      "by_origin": {
+        "Klickwege": 185
+      },
+      "count": 185,
+      "examples": [
+        {
+          "file": "app/contracts/ai/text_actions/base_contract.rb",
+          "line": 35,
+          "subject": "K10/crosswalk:AI::TextActions::BaseContract#attribute:label"
+        },
+        {
+          "file": "app/contracts/ai/text_actions/base_contract.rb",
+          "line": 36,
+          "subject": "K10/crosswalk:AI::TextActions::BaseContract#attribute:prompt"
+        },
+        {
+          "file": "app/contracts/ai/text_actions/base_contract.rb",
+          "line": 38,
+          "subject": "K10/crosswalk:AI::TextActions::BaseContract#attribute:injects_type_template"
+        }
+      ],
+      "reason": "crosswalk_unbacked_attribute",
+      "remedy": "RuffOreExtension",
+      "stage": "Ore"
+    },
+    {
+      "by_origin": {
+        "Klickwege": 147
+      },
+      "count": 147,
+      "examples": [
+        {
+          "file": "app/contracts/automations/execute_contract.rb",
+          "line": 41,
+          "subject": "K10/crosswalk:Automations::ExecuteContract#work_package_visible:work_package_id"
+        },
+        {
+          "file": "app/contracts/automations/execute_contract.rb",
+          "line": 47,
+          "subject": "K10/crosswalk:Automations::ExecuteContract#automation_conditions_fulfilled:work_package_id"
+        },
+        {
+          "file": "app/contracts/custom_fields/base_contract.rb",
+          "line": 102,
+          "subject": "K10/crosswalk:CustomFields::BaseContract#validate_project_admin_flag_enterprise:public_send"
+        }
+      ],
+      "reason": "crosswalk_loose_read",
+      "remedy": "RuffOreExtension",
+      "stage": "Ore"
+    },
+    {
+      "by_origin": {
+        "Klickwege": 87
+      },
+      "count": 87,
+      "examples": [
+        {
+          "file": "app/contracts/attachments/create_contract.rb",
+          "line": 53,
+          "subject": "K10/crosswalk:Attachments::CreateContract#filesize_below_allowed_maximum:filesize"
+        },
+        {
+          "file": "app/contracts/attachments/create_contract.rb",
+          "line": 93,
+          "subject": "K10/crosswalk:Attachments::CreateContract#attachment_allowlist:Array"
+        },
+        {
+          "file": "app/contracts/attachments/validate_replacements.rb",
+          "line": 49,
+          "subject": "K10/crosswalk:Attachments::ValidateReplacements#error_if_attachment_assigned:errors,model"
+        }
+      ],
+      "reason": "crosswalk_loose_predicate",
+      "remedy": "GenericRule",
+      "stage": "GenericRule"
+    },
     {
       "by_origin": {
         "Klickwege": 69
@@ -32,9 +110,35 @@
     },
     {
       "by_origin": {
-        "Klickwege": 41
+        "Klickwege": 58
       },
-      "count": 41,
+      "count": 58,
+      "examples": [
+        {
+          "file": "app/contracts/admin_only_contract.rb",
+          "line": 36,
+          "subject": "K10/crosswalk:AdminOnlyContract"
+        },
+        {
+          "file": "app/contracts/api_tokens/create_contract.rb",
+          "line": 32,
+          "subject": "K10/crosswalk:APITokens::CreateContract"
+        },
+        {
+          "file": "app/contracts/authentication/omniauth_auth_hash_contract.rb",
+          "line": 36,
+          "subject": "K10/crosswalk:Authentication::OmniauthAuthHashContract"
+        }
+      ],
+      "reason": "crosswalk_model_unresolved",
+      "remedy": "GenericRule",
+      "stage": "GenericRule"
+    },
+    {
+      "by_origin": {
+        "Klickwege": 38
+      },
+      "count": 38,
       "examples": [],
       "reason": "route_declaration_escaped",
       "remedy": "RuffOreExtension",
@@ -42,9 +146,9 @@
     },
     {
       "by_origin": {
-        "Klickwege": 13
+        "Klickwege": 14
       },
-      "count": 13,
+      "count": 14,
       "examples": [],
       "reason": "route_path_unresolved",
       "remedy": "RuffOreExtension",
@@ -104,8 +208,8 @@
     }
   ],
   "per_remedy": {
-    "GenericRule": 69,
-    "RuffOreExtension": 68
+    "GenericRule": 214,
+    "RuffOreExtension": 398
   },
-  "total": 137
+  "total": 612
 }

@@ -24,3 +24,13 @@ stratum = "K9"
 name = "contracts"
 roots = ["app/contracts", "modules/*/app/contracts"]
 macros = ["attribute", "validate", "validates", "attribute_alias"]
+
+[klickwege.crosswalk]
+roots = ["app/contracts", "modules/*/app/contracts"]
+attribute_macros = ["attribute"]
+lambda_macros = ["attribute"]
+receivers = ["model"]
+include_macros = ["include"]
+definer_macros = ["attr_reader", "attr_writer", "attr_accessor", "delegate", "alias_method", "alias_attribute"]
+model_from_namespace = true
+attribute_method_suffixes = ["_change", "_changed?", "_was", "_before_last_save", "_in_database", "?", "="]
