@@ -23,6 +23,8 @@ jobs:
         run: cargo fmt -p op-server -p op-codegen-pipeline -p ruff_openproject -p op-cli -- --check
       - name: test
         run: cargo test -p op-server -p op-codegen-pipeline -p ruff_openproject -p op-cli
+      - name: Test web-login (sign-in, OIDC + PKCE)
+        run: cargo test -p web-login --features reqwest,axum
       # Tests that need an OpenProject checkout (RAILS_CORPUS_SRC, OP_CORPUS_SRC,
       # OPENPROJECT_SRC) print a skip line and assert nothing here. This job
       # therefore does not cover the real-corpus probes or the Ruby oracles; they

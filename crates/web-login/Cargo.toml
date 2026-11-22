@@ -1,0 +1,37 @@
+[package]
+name = "web-login"
+description = "Browser sign-in against an OpenID Connect provider (authorization code flow with PKCE, sealed session cookie). Answers one question: which verified identity, with which provider-assigned grants, sent this request. Policy stays with the consumer."
+version.workspace = true
+edition = "2024"
+license = "AGPL-3.0-only"
+
+[dependencies]
+ogar-auth = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+ogar-oidc = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+ogar-encryption = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+base64 = "0.22"
+getrandom = "0.2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"], optional = true }
+axum = { version = "0.7", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tower = { version = "0.4", features = ["util"] }
+http-body-util = "0.1"
+p256 = { git = "https://github.com/AdaWorldAPI/elliptic-curves", branch = "master", default-features = false, features = ["ecdsa", "alloc"] }
+
+[features]
+default = []
+# The HTTP client behind the `OidcHttp` seam (rustls, no OpenSSL).
+reqwest = ["dep:reqwest"]
+# `routes` and `signed_in_from_headers` over axum.
+axum = ["dep:axum"]
+# Disable run: the callback no longer compares the cookie's `state` with the query's.
+# Test runs only: the crate refuses to compile with it outside a debug build.
+disable-state-check = []
+# Disable run: `Login::verify_bearer` accepts a token addressed to any client.
+# Test runs only: the crate refuses to compile with it outside a debug build.
+disable-api-client-check = []
