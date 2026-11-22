@@ -23,6 +23,9 @@ const FACT_ALIASES: &[(&str, &str)] = &[
     ("model.leaf?", "leaf?"),
     ("model.schedule_manually?", "schedule_manually"),
     ("model.status.closed?", "status.closed?"),
+    // ruff keeps safe navigation in fact names (`status&.closed?`) since the
+    // CodeRabbit fix on ruff #151; both spellings name the same oracle fact.
+    ("model.status&.closed?", "status.closed?"),
     (
         "model.effective_target_versions.any?(&:closed?)",
         "effective_target_versions.any?(&:closed?)",
