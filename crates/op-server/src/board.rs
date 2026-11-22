@@ -16,8 +16,9 @@ use axum::extract::{Form, Path, State};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 
 use ogar_render_askama::{
-    render_detail, render_form, render_list, CellData, CellSource, ColumnKind, FormFieldSource,
-    FormSource, GroupHeader, InputData, RenderColumn, RowSource, SelectOptionOwned,
+    render_detail, render_field_view, render_form, render_list, CellData, CellSource, ColumnKind,
+    FieldView, FormFieldSource, FormSource, GroupHeader, InputData, RenderColumn, RowSource,
+    SelectOptionOwned,
 };
 // `project` (the ogar_vocab canonical-class constructor) is aliased to
 // `project_class` — the tests module below defines its own `fn project(...)`
@@ -694,11 +695,146 @@ pub async fn work_package_detail(
     ))
 }
 
+/// Which part of the detail grid a field lives in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    /// Spans both columns, in its own row (Redmine has no slot for it
+    /// in the split, or — like `description` — renders it full width).
+    Full,
+    /// Redmine's `splitcontentleft`.
+    Left,
+    /// Redmine's `splitcontentright`.
+    Right,
+}
+
+/// Declarative layout of the work-package field view, mirroring
+/// Redmine's `issues/show.html.erb` (lines 73-108) /
+/// `IssueFieldsRows` (`issues_helper.rb` 326-400): `(wp_basis field
+/// name, side, Redmine css class of the `div.attribute`)`. Table order
+/// is row order within a side; a `Full` entry starts a new row below
+/// everything placed so far.
+///
+/// * Left column: status, priority, assigned_to (op: `assignee`).
+/// * Right column: start_date, due_date, done_ratio, estimated_hours.
+/// * Redmine fields op's basis does not model, hence skipped:
+///   `category` and `fixed_version` (left column) and `spent_time`
+///   (right column). `WorkPackageRow` carries `category_id`/`version_id`
+///   but `wp_basis()` has no such positions, so there is no address to
+///   gate or render them at.
+/// * Op fields Redmine has no split slot for (`type`, `project`,
+///   `author`) are a full-width group ABOVE the split; `description`
+///   is full width BELOW it (Redmine also renders it under the split).
+///   `subject` is the section title, as in Redmine.
+///
+/// Redmine's `disabled_core_fields` is the `WideFieldMask` of the detail
+/// skin: a field whose position bit is off is never emitted.
+const WP_FIELD_SPLIT: &[(&str, Side, &str)] = &[
+    ("type", Side::Full, "tracker"),
+    ("project", Side::Full, "project"),
+    ("author", Side::Full, "author"),
+    ("status", Side::Left, "status"),
+    ("priority", Side::Left, "priority"),
+    ("assignee", Side::Left, "assigned-to"),
+    ("start_date", Side::Right, "start-date"),
+    ("due_date", Side::Right, "due-date"),
+    ("done_ratio", Side::Right, "progress"),
+    ("estimated_hours", Side::Right, "estimated-hours"),
+    ("description", Side::Full, "description"),
+];
+
+/// One placed field: its basis position (the `data-field-pos` address),
+/// name, side, redmine css class and 1-based grid row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PlacedField {
+    pos: u8,
+    name: &'static str,
+    side: Side,
+    css: &'static str,
+    row: u32,
+}
+
+/// Place every `WP_FIELD_SPLIT` entry that exists in `basis` AND whose
+/// position bit is on in `mask`. Pure; rows are assigned per column so
+/// masked-out fields leave no gap.
+fn wp_split_layout(basis: &[String], mask: &WideFieldMask) -> Vec<PlacedField> {
+    let (mut left, mut right) = (1u32, 1u32);
+    let mut out = Vec::new();
+    for &(name, side, css) in WP_FIELD_SPLIT {
+        let Some(pos) = basis.iter().position(|b| b == name) else {
+            continue;
+        };
+        let Ok(pos) = u8::try_from(pos) else { continue };
+        if !mask.has(pos) {
+            continue;
+        }
+        let row = match side {
+            Side::Left => {
+                left += 1;
+                left - 1
+            }
+            Side::Right => {
+                right += 1;
+                right - 1
+            }
+            Side::Full => {
+                let r = left.max(right);
+                left = r + 1;
+                right = r + 1;
+                r
+            }
+        };
+        out.push(PlacedField {
+            pos,
+            name,
+            side,
+            css,
+            row,
+        });
+    }
+    out
+}
+
+/// Scoped `<style>` placing each `[data-field-pos="N"]` in its grid
+/// column/row. Layout is a renderer concern: the fieldview markup
+/// stays one flat `<dl>`; this derives from `placed` only.
+fn wp_split_css(placed: &[PlacedField]) -> String {
+    let mut css = String::from(
+        ".ogar-fieldview .fieldview-fields{display:grid;grid-template-columns:1fr 1fr;gap:.25rem 2rem}\
+.ogar-fieldview .fieldview-field{display:flex;gap:.5rem}\
+.ogar-fieldview .fieldview-label{font-weight:600;min-width:9rem}\
+.ogar-fieldview .fieldview-label::after{content:\":\"}\
+.ogar-fieldview .fieldview-value{margin:0;white-space:pre-wrap}\n",
+    );
+    for p in placed {
+        let col = match p.side {
+            Side::Left => "1",
+            Side::Right => "2",
+            Side::Full => "1 / -1",
+        };
+        css.push_str(&format!(
+            "/* .attribute.{} */.ogar-fieldview .fieldview-field[data-field-pos=\"{}\"]{{grid-column:{col};grid-row:{}}}\n",
+            p.css, p.pos, p.row
+        ));
+    }
+    css.push_str(
+        "@media (max-width:640px){.ogar-fieldview .fieldview-fields{grid-template-columns:1fr}\
+.ogar-fieldview .fieldview-field{grid-column:1 !important;grid-row:auto !important}}\n",
+    );
+    css
+}
+
 /// Render the work-package detail fragment (pure — no DB access), given
 /// the row plus the already-resolved display names for its family-edge
 /// fields (status/project/type/priority/author/assignee). Kept separate
 /// from the async handler so it's testable without a live DB pool
 /// (mirrors [`render_board`]'s split).
+///
+/// Renders through OGAR's addressed field view
+/// ([`ogar_render_askama::render_field_view`]): one section, one key,
+/// every field at its basis position. The Redmine two-column ergonomics
+/// come from [`WP_FIELD_SPLIT`] + a scoped grid `<style>`; the record's
+/// own link and the project link (which a fieldview cannot carry — it
+/// has no `|safe` content) sit in a context line above it.
 fn render_wp_detail(
     wp: &op_db::work_packages::WorkPackageRow,
     status_name: &str,
@@ -711,125 +847,62 @@ fn render_wp_detail(
     let class = project_work_item();
     let basis = wp_basis();
     let detail = skin(&basis, WP_DETAIL_ORDER);
-    let mut columns: Vec<RenderColumn> = vec![RenderColumn::new("id", "#", ColumnKind::IdLink)];
-    columns.extend(columns_for(&basis, &detail.mask, detail.order, &class));
+    let placed = wp_split_layout(&basis, &detail.mask);
 
-    let wp_href = format!("/work_packages/{}", wp.id);
-    // `project` is the only association whose target has a live route
-    // today (`nav::route_for("Project")`), so this is the only link;
-    // when another association gains a route this expression starts
-    // producing a link for it too, with no code change here.
-    let project_href = nav_href(&class, "project", wp.project_id)
-        .unwrap_or_else(|| format!("/projects/{}", wp.project_id));
-    let start_date = wp
-        .start_date
-        .map(|d| d.to_string())
-        .unwrap_or_else(|| "—".to_string());
-    let due_date = wp
-        .due_date
-        .map(|d| d.to_string())
-        .unwrap_or_else(|| "—".to_string());
-    let estimated_hours = wp
-        .estimated_hours
-        .map(|h| format!("{h:.2}"))
-        .unwrap_or_else(|| "—".to_string());
-    let description_html = format!("<p>{}</p>", esc(wp.description.as_deref().unwrap_or("—")));
-    let done = wp.done_ratio.clamp(0, 100) as u8;
-
-    let cells: Vec<CellSource<'_>> = vec![
-        CellSource {
-            column: &columns[0],
-            css_classes: "",
-            data: CellData::IdLink {
-                id: wp.id as u64,
-                href: &wp_href,
-            },
-        },
-        CellSource {
-            column: &columns[1],
-            css_classes: "",
-            data: CellData::Plain { value: status_name },
-        },
-        CellSource {
-            column: &columns[2],
-            css_classes: "",
-            data: CellData::RecordRef {
-                label: project_name,
-                href: &project_href,
-                target_concept: "project",
-            },
-        },
-        CellSource {
-            column: &columns[3],
-            css_classes: "",
-            data: CellData::Plain { value: type_name },
-        },
-        CellSource {
-            column: &columns[4],
-            css_classes: "",
-            data: CellData::Plain {
-                value: priority_name,
-            },
-        },
-        CellSource {
-            column: &columns[5],
-            css_classes: "",
-            data: CellData::Plain { value: author_name },
-        },
-        CellSource {
-            column: &columns[6],
-            css_classes: "",
-            data: CellData::Plain {
-                value: assignee_name,
-            },
-        },
-        CellSource {
-            column: &columns[7],
-            css_classes: "",
-            data: CellData::Plain { value: &start_date },
-        },
-        CellSource {
-            column: &columns[8],
-            css_classes: "",
-            data: CellData::Plain { value: &due_date },
-        },
-        CellSource {
-            column: &columns[9],
-            css_classes: "",
-            data: CellData::Plain {
-                value: &estimated_hours,
-            },
-        },
-        CellSource {
-            column: &columns[10],
-            css_classes: "",
-            data: CellData::ProgressBar { pct: done },
-        },
-        CellSource {
-            column: &columns[11],
-            css_classes: "",
-            data: CellData::RichText {
-                body: &description_html,
-            },
-        },
-    ];
+    let dash = || "—".to_string();
+    let value_for = |name: &str| -> String {
+        match name {
+            "status" => status_name.to_string(),
+            "project" => project_name.to_string(),
+            "type" => type_name.to_string(),
+            "priority" => priority_name.to_string(),
+            "author" => author_name.to_string(),
+            "assignee" => assignee_name.to_string(),
+            "start_date" => wp.start_date.map(|d| d.to_string()).unwrap_or_else(dash),
+            "due_date" => wp.due_date.map(|d| d.to_string()).unwrap_or_else(dash),
+            "estimated_hours" => wp
+                .estimated_hours
+                .map(|h| format!("{h:.2}"))
+                .unwrap_or_else(dash),
+            "done_ratio" => format!("{}%", wp.done_ratio.clamp(0, 100)),
+            "description" => wp.description.clone().unwrap_or_else(dash),
+            _ => dash(),
+        }
+    };
 
     let concept = class.canonical_concept.clone().unwrap_or_default();
     let class_id = canonical_concept_id(&concept).unwrap_or(0);
 
-    let headline = esc(&wp.subject);
-    let subtitle = format!("#{} · {status_name} · {project_name}", wp.id);
+    let fields: Vec<FieldView> = placed
+        .iter()
+        .map(|p| FieldView {
+            position: p.pos,
+            label: caption_for(p.name).to_string(),
+            predicate: format!("{concept}:{}", p.name),
+            value: value_for(p.name),
+        })
+        .collect();
 
-    render_detail(
-        class_id,
-        &concept,
-        wp.id as u64,
-        &headline,
-        &subtitle,
-        &columns,
-        &cells,
-    )
-    .unwrap_or_else(|e| format!("<pre>render error: {e}</pre>"))
+    // INTERIM node key: class id (8 hex) ++ work-package id (24 hex) —
+    // deterministic and stable, but NOT the canonical OGAR GUID mint
+    // (op-nexgen has no `NodeGuid` minter yet). Replace when it does.
+    let key_hex = format!("{:08x}{:024x}", class_id, wp.id as u64);
+
+    // Title is raw: `render_field_view` escapes every interpolation.
+    let title = wp.subject.as_str();
+    let view = render_field_view(class_id, &concept, &key_hex, title, &fields, &[])
+        .unwrap_or_else(|e| format!("<pre>render error: {e}</pre>"));
+
+    let wp_href = format!("/work_packages/{}", wp.id);
+    let project_href = nav_href(&class, "project", wp.project_id)
+        .unwrap_or_else(|| format!("/projects/{}", wp.project_id));
+    let context = format!(
+        "<p class=\"wp-context\"><a href=\"{wp_href}\">#{}</a> · <a href=\"{project_href}\">{}</a></p>",
+        wp.id,
+        esc(project_name),
+    );
+
+    format!("{context}<style>{}</style>{view}", wp_split_css(&placed))
 }
 
 // ── Work package edit ────────────────────────────────────────────────
@@ -2003,13 +2076,126 @@ mod tests {
         assert!(html.contains("Some rich description"), "{html}");
         // Numeric fields
         assert!(html.contains("3.50"), "{html}");
-        assert!(html.contains("aria-valuenow=\"40\""), "{html}");
+        assert!(html.contains(">40%<"), "{html}");
         // The link rewrite: project cell links to /projects/{id}, NOT
         // /api/v3/projects/{id}.
         assert!(html.contains("href=\"/projects/10\""), "{html}");
         assert!(!html.contains("/api/v3/projects/10"), "{html}");
         // The record's own id link points at /work_packages/{id}.
         assert!(html.contains("/work_packages/101"), "{html}");
+    }
+
+    fn detail_html() -> String {
+        let mut wp = work_package(101, "Fix the login bug", 10, 2, 40);
+        wp.estimated_hours = Some(3.5);
+        render_wp_detail(
+            &wp,
+            "In Progress",
+            "Nexgen",
+            "Bug",
+            "High",
+            "Jane Doe",
+            "John Smith",
+        )
+    }
+
+    fn basis_pos(name: &str) -> usize {
+        wp_basis()
+            .iter()
+            .position(|b| b == name)
+            .unwrap_or_else(|| panic!("{name} not in wp basis"))
+    }
+
+    /// The detail page is OGAR's addressed field view: one section, one
+    /// `data-field-pos` per emitted field, equal to its basis index.
+    #[test]
+    fn detail_is_an_addressed_fieldview_at_basis_positions() {
+        let html = detail_html();
+        assert_eq!(
+            html.matches("class=\"ogar-fieldview\"").count(),
+            1,
+            "{html}"
+        );
+        for name in ["status", "estimated_hours", "start_date", "description"] {
+            let pos = basis_pos(name);
+            assert!(
+                html.contains(&format!("data-field-pos=\"{pos}\"")),
+                "{name} at {pos} missing: {html}"
+            );
+        }
+        // Exactly the fields of the split table, no more.
+        assert_eq!(
+            html.matches("class=\"fieldview-field\" data-field-pos=")
+                .count(),
+            WP_FIELD_SPLIT.len(),
+            "{html}"
+        );
+    }
+
+    /// Left fields land in grid column 1, right fields in column 2.
+    #[test]
+    fn detail_split_css_places_left_and_right_columns() {
+        let html = detail_html();
+        let status = basis_pos("status");
+        let hours = basis_pos("estimated_hours");
+        assert!(
+            html.contains(&format!(
+                "[data-field-pos=\"{status}\"]{{grid-column:1;grid-row:4}}"
+            )),
+            "{html}"
+        );
+        assert!(
+            html.contains(&format!(
+                "[data-field-pos=\"{hours}\"]{{grid-column:2;grid-row:7}}"
+            )),
+            "{html}"
+        );
+        // Three full-width rows (type/project/author) precede the split, so
+        // status is row 4 and estimated_hours (4th right field) row 7.
+        // Full-width group (type) spans both columns in row 1.
+        let ty = basis_pos("type");
+        assert!(
+            html.contains(&format!(
+                "[data-field-pos=\"{ty}\"]{{grid-column:1 / -1;grid-row:1}}"
+            )),
+            "{html}"
+        );
+    }
+
+    /// The mask is the gate (Redmine's `disabled_core_fields`): a field
+    /// whose bit is off is not placed.
+    #[test]
+    fn detail_mask_gates_fields() {
+        let basis = wp_basis();
+        let pos = basis_pos("priority");
+        assert!(WP_FIELD_SPLIT.iter().any(|(n, _, _)| *n == "priority"));
+        let universe: Vec<&str> = basis.iter().map(String::as_str).collect();
+        let without: Vec<&str> = WP_DETAIL_ORDER
+            .iter()
+            .copied()
+            .filter(|n| *n != "priority")
+            .collect();
+        let mask = WideFieldMask::from_universe_present(&universe, &without).unwrap();
+        let placed = wp_split_layout(&basis, &mask);
+        assert!(placed.iter().all(|p| p.pos as usize != pos), "{placed:?}");
+        let css = wp_split_css(&placed);
+        assert!(!css.contains(&format!("data-field-pos=\"{pos}\"")), "{css}");
+        // And with the full mask it IS placed (anti-vacuity).
+        let full = skin(&basis, WP_DETAIL_ORDER);
+        assert!(wp_split_layout(&basis, &full.mask)
+            .iter()
+            .any(|p| p.pos as usize == pos));
+    }
+
+    /// Untrusted subject / description text is escaped, never raw.
+    #[test]
+    fn detail_escapes_script_in_subject_and_description() {
+        let mut wp = work_package(7, "<script>alert(1)</script>", 10, 2, 0);
+        wp.description = Some("<script>x()</script>".to_string());
+        let html = render_wp_detail(&wp, "New", "P", "Bug", "High", "A", "B");
+        assert!(!html.contains("<script>"), "{html}");
+        assert!(html.contains("&lt;script&gt;alert(1)"), "{html}");
+        assert!(html.contains("&lt;script&gt;x()"), "{html}");
     }
 
     /// Same proof for the project detail page: fake `ProjectRow` in, HTML
