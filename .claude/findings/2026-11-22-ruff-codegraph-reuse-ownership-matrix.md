@@ -95,6 +95,63 @@ lance-graph-codegraph mapper facts (not re-read): it reads `*.rows.bin`/`*.rows.
 and residuals and never writes artifacts; its non-test source uses no dt64 lane or
 BindStore (only `graph.rs:9` imports dt64 axis/map types); r2il is not a dependency.
 
+## 5b. `rails-codegraph` hard-coded parts, classified
+
+Source: the mapper's HARDCODED / Ruby-reading / UPSTREAM-SHAPED sections for all 53
+files of `zammad-rs/crates/rails-codegraph` (read by me in full; file:line claims were
+not re-read in the source except where marked verified). Five classes, per the brief:
+
+**A. Application literals that belong in `zammad.toml` / `openproject.toml`.**
+`plug/layout.rs` `ZAMMAD_CONCEPTS` (45 class→id rows), `ZAMMAD_ISLAND = 0x050D`,
+`plug/island.rs` `ISLAND_BASIS`, `plug.rs` consumer/`EXPECTED`/`NAMESPACE = "zammad"`/
+`LAB_ISLAND` and the identity text, `report.rs` `ORACLE_DRIVERS` and the Zammad
+checklist formulas (the crate itself calls these app-owned), and application names in
+file names at `bin/rails-codegraph.rs:111,117` (`f000-matrix-zammad.json`,
+`hotplug-identity-zammad.json`). The 18-key `config_intake::KEYS` table is already a
+config-intake mechanism (derives config from source); it is the seed for an
+OpenProject intake, not something to copy.
+
+**B. Generic Rails semantics that belong in ruff / OGAR / the polyfill.**
+- Ruby parsed directly with `lib-ruby-parser` in three places: `crosswalk.rs`,
+  `config_intake/scan.rs`, `intake/sites.rs` (class/module structure, `included do`,
+  `include/extend/prepend`, definers, lambdas, `abstract_class=`, `load_defaults`,
+  receiver typing, scope/association sites). The brief says not to duplicate Ruby
+  parsing in `rails-codegraph`; these are the extraction extensions the doc itself
+  lists as missing from ruff ore (singleton defs, general call edges, receiver typing).
+- Rails name tables: `AR_MUTATORS` (a copy of ruff's `pub(crate)` list, per its own
+  doc), `RAILS_APP_DIRS`, `CORE_DEFINERS`, `DEFINER_CALLS`, `EVAL_CALLS`, `TERMINALS`
+  (`count`, `exists?`, `any?`), association-kind strings.
+- Text scanners for `Gemfile`, `Gemfile.lock`, `config/application.rb`,
+  `config/routes.rb`, `.po` files.
+
+**C. Capability lance-graph already has.** Not established. The store vocabulary
+(`#version 2`, `CALLS_RESOLVED`, `RECEIVER_*`, …) is restated in
+`rails-codegraph/src/intake.rs:271-341`; whether `lance-graph-codegraph` exports those
+names as constants is **uninspected**.
+
+**D. Missing functionality, and where it already lives.** Verified in ruff:
+`crates/ruff_charon/src/store.rs` already provides a codegraph store with `Row`,
+`Store`, `fnv64`, per-crate artifacts and the same `#version N` / `#schema <names>`
+discipline as `ruff_r2il::sink`, and `ruff_charon` is the Rust/Charon intake arm. So
+the Rails side writes the same artifact shape by its own code (`intake.rs`) while the
+Rust side writes it from ruff. A single ruff-owned store writer shared by the Ruby
+and Charon arms is what lets Rails facts and Charon facts land in one store and be
+compared at shared addresses. Separately, lance-graph gaps recorded in the zammad-rs
+doc (§8): `grade` is read by nothing (`diag.rs:55`, `228-262` hard-code
+`Grade::Compiler`), `unknown` is empty for non-Rust rows, `UNRESOLVED_CALL`'s object
+column is ignored. Those need a lance-graph PR from a clean checkout.
+
+**E. Duplicates that disagree or are private copies.** Association target
+resolution and module/concern expansion (zammad-rs doc §7; both differences have
+tests that must survive unification). Private copies: `fnv.rs` restates
+`ruff_charon::store::fnv64` ("ruff_charon is not a dependency of this workspace"),
+`shadow_report::fingerprint` copies a private `rails_f000::matrix::fingerprint`, and
+`plug.rs` mirrors a lab-only `dt64-hotplug-probe::register_activated`.
+
+Typed Slag is the model for unresolved behaviour: `SlagReason` has no catch-all, each
+variant names the missing fact, the stage that supplies it and the remedy class. zammad-rs
+reports 16882 Slag facts for OpenProject (doc §5); none of that is executable behaviour.
+
 ## 6. What this does not establish
 
 - No behavioural result: nothing here executes an OpenProject workflow in Rust and
@@ -103,8 +160,7 @@ BindStore (only `graph.rs:9` imports dt64 axis/map types); r2il is not a depende
   only harvest coverage was measured.
 - The existing oracle records contract validation outcomes only; it has no callback
   journal.
-- The `rails-codegraph` source was mapped by an agent that had not finished when this
-  was written; rows 1-6 rest on the zammad-rs document, not on code I read.
+- `rails-codegraph` source was mapped by an agent (finished; I read its HARDCODED section, not the source). Rows 1-6 rest on the zammad-rs document. Only the `ruff_charon::store` facts in 5b-D were checked against ruff source.
 - Authentication was not compared; do not merge the two applications' auth
   implementations on this evidence.
 
