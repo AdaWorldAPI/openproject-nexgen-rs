@@ -12,7 +12,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use a2ui_layout::{LayoutMode, Region, ZONES_CSS};
-use axum::extract::{Form, Path, State};
+use axum::extract::{Extension, Form, Path, State};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 
 use ogar_render_askama::{
@@ -37,7 +38,12 @@ use op_db::{
 use crate::health::AppState;
 use crate::layout;
 use crate::nav;
+use crate::signin::Who;
 use crate::viewfilter;
+use crate::write_guard::{
+    self, actor_key, EditOptions, PgWpStore, Principal, StoreError, WpStore, CSRF_FIELD,
+    EDIT_PROJECT, EDIT_WORK_PACKAGES,
+};
 
 // ── Field basis + FieldMask-driven column projection ─────────────────
 //
@@ -607,21 +613,21 @@ fn detail_toolbar(edit_href: &str) -> String {
 pub async fn work_package_detail(
     Path(id): Path<i64>,
     State(state): State<Arc<AppState>>,
-) -> Html<String> {
+) -> Response {
     let Some(pool) = state.db.clone() else {
-        return not_connected_page("Work package", "this page");
+        return not_connected_page("Work package", "this page").into_response();
     };
 
-    let Some(wp) = op_db::WorkPackageRepository::new(pool.clone())
-        .find_by_id(id)
-        .await
-        .ok()
-        .flatten()
-    else {
-        return Html(page_shell(
-            "Work package not found",
-            &format!("<main><p class=\"empty\">Work package #{id} not found.</p></main>"),
-        ));
+    // `Ok(None)` is 404; a database error is 500 (never collapsed into "not found").
+    let wp = match lookup(
+        op_db::WorkPackageRepository::new(pool.clone())
+            .find_by_id(id)
+            .await,
+        "Work package",
+        id,
+    ) {
+        Ok(wp) => wp,
+        Err(resp) => return resp,
     };
 
     let status_name = StatusRepository::new(pool.clone())
@@ -693,6 +699,7 @@ pub async fn work_package_detail(
         &format!("Work package #{id} — {}", esc(&wp.subject)),
         &format!("{toolbar}<main>{fragment}</main>"),
     ))
+    .into_response()
 }
 
 /// Which part of the detail grid a field lives in.
@@ -912,49 +919,170 @@ fn render_wp_detail(
 /// same family-edge lookup tables [`work_package_detail`] resolves names
 /// from, but kept as `(id, label)` pairs here instead of collapsing to a
 /// single resolved string.
+///
+/// Only someone who may edit the work package gets the form (403 otherwise);
+/// the form carries a CSRF token bound to this browser and actor.
 pub async fn work_package_edit_form(
     Path(id): Path<i64>,
     State(state): State<Arc<AppState>>,
-) -> Html<String> {
+    headers: HeaderMap,
+    who: Option<Extension<Who>>,
+) -> Response {
     let Some(pool) = state.db.clone() else {
-        return not_connected_page("Edit work package", "this page");
+        return not_connected_page("Edit work package", "this page").into_response();
     };
+    let who = who.map(|Extension(w)| w);
+    let ctx = WriteCtx::from_request(who.as_ref(), &headers);
+    edit_form_core(&PgWpStore { pool }, id, &ctx).await
+}
 
-    let Some(wp) = op_db::WorkPackageRepository::new(pool.clone())
-        .find_by_id(id)
+/// Request-derived inputs of a guarded write: the signed-in identity, the request headers (for
+/// the CSRF cookie), and the process-level policy (anonymous opt-in, CSRF secret, cookie flags).
+struct WriteCtx<'a> {
+    who: Option<&'a Who>,
+    headers: &'a HeaderMap,
+    allow_anonymous: bool,
+    secret: &'a [u8],
+    secure_cookie: bool,
+}
+
+impl<'a> WriteCtx<'a> {
+    fn from_request(who: Option<&'a Who>, headers: &'a HeaderMap) -> Self {
+        WriteCtx {
+            who,
+            headers,
+            allow_anonymous: crate::env_flag("OP_ALLOW_ANONYMOUS"),
+            secret: write_guard::secret(),
+            secure_cookie: write_guard::deploy_is_https(),
+        }
+    }
+
+    /// Does the submitted form carry a token issued to this browser for this actor?
+    fn csrf_ok(&self, form: &HashMap<String, String>) -> bool {
+        write_guard::token_valid(
+            self.secret,
+            write_guard::cookie_from_headers(self.headers).as_deref(),
+            form.get(CSRF_FIELD).map(String::as_str),
+            &actor_key(self.who),
+        )
+    }
+}
+
+/// A plain status page (the body text is escaped).
+fn status_page(status: StatusCode, title: &str, message: &str) -> Response {
+    (
+        status,
+        Html(page_shell(
+            title,
+            &format!("<main><p class=\"empty\">{}</p></main>", esc(message)),
+        )),
+    )
+        .into_response()
+}
+
+fn forbidden(message: &str) -> Response {
+    status_page(StatusCode::FORBIDDEN, "Forbidden", message)
+}
+
+/// Log a store failure and answer 500 without echoing the database error to the page.
+fn internal_error(e: impl std::fmt::Display) -> Response {
+    tracing::error!("write path: store error: {e}");
+    status_page(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Internal error",
+        "Something went wrong on the server.",
+    )
+}
+
+/// Turn a repository lookup into the record or the right error page: `Ok(None)` is 404,
+/// `Err(_)` is 500. (A database failure must never read as "not found".)
+#[expect(
+    clippy::result_large_err,
+    reason = "the Err is the ready-to-send error page, returned straight to the handler"
+)]
+fn lookup<T, E: std::fmt::Display>(
+    r: Result<Option<T>, E>,
+    what: &str,
+    id: i64,
+) -> Result<T, Response> {
+    match r {
+        Ok(Some(v)) => Ok(v),
+        Ok(None) => Err(status_page(
+            StatusCode::NOT_FOUND,
+            &format!("{what} not found"),
+            &format!("{what} #{id} not found."),
+        )),
+        Err(e) => Err(internal_error(e)),
+    }
+}
+
+/// Require `permission` for the work package's project (OpenProject `edit_work_packages`).
+#[expect(
+    clippy::result_large_err,
+    reason = "the Err is the ready-to-send error page, returned straight to the handler"
+)]
+async fn authorize_wp<S: WpStore>(
+    store: &S,
+    ctx: &WriteCtx<'_>,
+    wp: &op_db::work_packages::WorkPackageRow,
+    permission: &str,
+) -> Result<(), Response> {
+    let active = store
+        .project_active(wp.project_id)
         .await
-        .ok()
-        .flatten()
-    else {
-        return Html(page_shell(
-            "Work package not found",
-            &format!("<main><p class=\"empty\">Work package #{id} not found.</p></main>"),
-        ));
+        .map_err(internal_error)?;
+    let principal = store
+        .principal(ctx.who, wp.project_id, ctx.allow_anonymous)
+        .await
+        .map_err(internal_error)?;
+    if write_guard::may(&principal, active, permission) {
+        Ok(())
+    } else {
+        Err(forbidden("You are not allowed to edit this work package."))
+    }
+}
+
+/// Core of [`work_package_edit_form`], generic over the store so it is testable without a DB.
+async fn edit_form_core<S: WpStore>(store: &S, id: i64, ctx: &WriteCtx<'_>) -> Response {
+    let wp = match lookup(store.find_wp(id).await, "Work package", id) {
+        Ok(wp) => wp,
+        Err(resp) => return resp,
     };
+    if let Err(resp) = authorize_wp(store, ctx, &wp, EDIT_WORK_PACKAGES).await {
+        return resp;
+    }
 
-    let statuses = StatusRepository::new(pool.clone())
-        .find_all(200, 0)
-        .await
-        .unwrap_or_default();
-    let types = TypeRepository::new(pool.clone())
-        .find_all(200, 0)
-        .await
-        .unwrap_or_default();
-    let priorities = PriorityRepository::new(pool.clone())
-        .find_all(200, 0)
-        .await
-        .unwrap_or_default();
-    let users = UserRepository::new(pool)
-        .find_all(500, 0)
-        .await
-        .unwrap_or_default();
+    let EditOptions {
+        statuses,
+        types,
+        priorities,
+        users,
+    } = store.edit_options().await;
 
-    let fragment = render_wp_edit(&wp, &statuses, &types, &priorities, &users);
+    // Reuse the browser's CSRF cookie when it has one; otherwise issue one with this response.
+    let existing = write_guard::cookie_from_headers(ctx.headers);
+    let (cookie, fresh) = match existing {
+        Some(c) => (c, false),
+        None => (write_guard::new_cookie_value(), true),
+    };
+    let token = write_guard::token_for(ctx.secret, &cookie, &actor_key(ctx.who));
 
-    Html(page_shell(
+    let fragment = render_wp_edit(&wp, &statuses, &types, &priorities, &users, &token);
+    let mut resp = Html(page_shell(
         &format!("Edit work package #{id}"),
         &format!("{BREADCRUMB}<main>{fragment}</main>"),
     ))
+    .into_response();
+    resp.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    if fresh {
+        if let Ok(v) =
+            HeaderValue::from_str(&write_guard::set_cookie_value(&cookie, ctx.secure_cookie))
+        {
+            resp.headers_mut().append(header::SET_COOKIE, v);
+        }
+    }
+    resp
 }
 
 /// Render the work-package edit form fragment (pure — no DB access),
@@ -975,6 +1103,7 @@ fn render_wp_edit(
     types: &[TypeRow],
     priorities: &[PriorityRow],
     users: &[UserRow],
+    csrf_token: &str,
 ) -> String {
     let class = project_work_item();
     let basis = wp_basis();
@@ -1146,11 +1275,11 @@ fn render_wp_edit(
     let src = FormSource {
         method: "post",
         action: &action,
-        // SECURITY: empty csrf_token — this write route rides the same
-        // anonymous demo posture as the rest of op-server
-        // (OP_ALLOW_ANONYMOUS); a production deploy needs real CSRF
-        // tokens plus auth in front of this route.
-        csrf_token: "",
+        // Signed double-submit token (see `write_guard`): the POST handler
+        // rejects a missing or wrong `authenticity_token` with 403. An empty
+        // token would make the form emit no field at all, so callers always
+        // pass a real one.
+        csrf_token,
         record_id: Some(wp.id as u64),
         legend: &legend,
         submit_label: "Save",
@@ -1171,36 +1300,98 @@ fn render_wp_edit(
 /// than trusted from the form) both to 404 cleanly on a deleted record
 /// and to supply [`parse_wp_update`] with the family-edge fields the
 /// edit form doesn't surface.
+///
+/// Guards, in order, each answering before anything is written: missing
+/// record 404 / lookup failure 500, not allowed to edit 403, bad CSRF token
+/// 403, malformed field 422.
 pub async fn work_package_update(
     Path(id): Path<i64>,
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    who: Option<Extension<Who>>,
     Form(form): Form<HashMap<String, String>>,
 ) -> Response {
     let Some(pool) = state.db.clone() else {
         return not_connected_page("Update work package", "this action").into_response();
     };
+    let who = who.map(|Extension(w)| w);
+    let ctx = WriteCtx::from_request(who.as_ref(), &headers);
+    update_core(&PgWpStore { pool }, id, &ctx, &form).await
+}
 
-    let repo = op_db::WorkPackageRepository::new(pool);
-    let Some(existing) = repo.find_by_id(id).await.ok().flatten() else {
-        return Html(page_shell(
-            "Work package not found",
-            &format!("<main><p class=\"empty\">Work package #{id} not found.</p></main>"),
-        ))
-        .into_response();
+/// Core of [`work_package_update`], generic over the store so every guard is testable without a
+/// DB. `store.update_wp` is reached only after all of them pass.
+async fn update_core<S: WpStore>(
+    store: &S,
+    id: i64,
+    ctx: &WriteCtx<'_>,
+    form: &HashMap<String, String>,
+) -> Response {
+    let existing = match lookup(store.find_wp(id).await, "Work package", id) {
+        Ok(wp) => wp,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = authorize_wp(store, ctx, &existing, EDIT_WORK_PACKAGES).await {
+        return resp;
+    }
+    if !ctx.csrf_ok(form) {
+        return forbidden("Missing or invalid form token. Reload the edit page and try again.");
+    }
+    let dto = match parse_wp_update(form, &existing) {
+        Ok(dto) => dto,
+        Err(e) => return unprocessable(id, &e),
     };
 
-    let dto = parse_wp_update(&form, &existing);
+    match store.update_wp(id, dto).await {
+        Ok(()) => Redirect::to(&format!("/work_packages/{id}")).into_response(),
+        Err(e) => internal_error(e),
+    }
+}
 
-    match repo.update(id, dto).await {
-        Ok(_) => Redirect::to(&format!("/work_packages/{id}")).into_response(),
-        Err(e) => Html(page_shell(
-            "Could not save work package",
-            &format!(
-                "<main><p class=\"empty\">Save failed: {}</p></main>",
-                esc(&e.to_string())
-            ),
-        ))
-        .into_response(),
+/// A submitted field that is present but unreadable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FieldError {
+    /// The form key, e.g. `start_date`.
+    field: &'static str,
+    /// What was submitted.
+    value: String,
+    /// What the field accepts, in words.
+    expected: &'static str,
+}
+
+/// HTTP 422 naming the offending field; nothing was saved.
+fn unprocessable(id: i64, e: &FieldError) -> Response {
+    let body = format!(
+        "<main><p class=\"empty\">Could not save: <strong>{caption}</strong> (<code>{field}</code>) \
+is not valid. Expected {expected}; got “{value}”. No changes were saved.</p>\
+<p><a href=\"/work_packages/{id}/edit\">← Back to the form</a></p></main>",
+        caption = esc(caption_for(e.field)),
+        field = esc(e.field),
+        expected = esc(e.expected),
+        value = esc(&e.value),
+    );
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Html(page_shell("Invalid work package field", &body)),
+    )
+        .into_response()
+}
+
+/// Read one optional form field. Blank (or absent) is `Ok(None)`; a non-blank value that `p`
+/// cannot read is an error naming the field — never silently `None`.
+fn parse_field<T>(
+    form: &HashMap<String, String>,
+    key: &'static str,
+    expected: &'static str,
+    p: fn(&str) -> Option<T>,
+) -> Result<Option<T>, FieldError> {
+    match form.get(key).map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        None => Ok(None),
+        Some(raw) => p(raw).map(Some).ok_or_else(|| FieldError {
+            field: key,
+            value: raw.to_string(),
+            expected,
+        }),
     }
 }
 
@@ -1222,26 +1413,32 @@ pub async fn work_package_update(
 fn parse_wp_update(
     form: &HashMap<String, String>,
     existing: &op_db::work_packages::WorkPackageRow,
-) -> UpdateWorkPackageDto {
+) -> Result<UpdateWorkPackageDto, FieldError> {
     let non_empty = |k: &str| form.get(k).map(|s| s.trim()).filter(|s| !s.is_empty());
+    let int: fn(&str) -> Option<i64> = |s| s.parse().ok();
+    let date: fn(&str) -> Option<chrono::NaiveDate> =
+        |s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok();
 
     let subject = non_empty("subject").map(str::to_string);
     let description = non_empty("description").map(str::to_string);
-    let type_id = non_empty("type_id").and_then(|s| s.parse::<i64>().ok());
-    let status_id = non_empty("status_id").and_then(|s| s.parse::<i64>().ok());
-    let priority_id = non_empty("priority_id").and_then(|s| s.parse::<i64>().ok());
-    let assigned_to_id = non_empty("assigned_to_id").and_then(|s| s.parse::<i64>().ok());
-    let start_date =
-        non_empty("start_date").and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-    let due_date =
-        non_empty("due_date").and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-    let estimated_hours = non_empty("estimated_hours").and_then(|s| s.parse::<f64>().ok());
-    let done_ratio = non_empty("done_ratio").and_then(|s| s.parse::<i32>().ok());
-    let lock_version = non_empty("lock_version")
-        .and_then(|s| s.parse::<i32>().ok())
-        .unwrap_or(existing.lock_version);
+    let type_id = parse_field(form, "type_id", "a whole number", int)?;
+    let status_id = parse_field(form, "status_id", "a whole number", int)?;
+    let priority_id = parse_field(form, "priority_id", "a whole number", int)?;
+    let assigned_to_id = parse_field(form, "assigned_to_id", "a whole number", int)?;
+    let start_date = parse_field(form, "start_date", "a date as YYYY-MM-DD", date)?;
+    let due_date = parse_field(form, "due_date", "a date as YYYY-MM-DD", date)?;
+    let estimated_hours = parse_field(form, "estimated_hours", "a number", |s| {
+        s.parse::<f64>().ok().filter(|h| h.is_finite())
+    })?;
+    let done_ratio = parse_field(form, "done_ratio", "a whole number", |s| {
+        s.parse::<i32>().ok()
+    })?;
+    let lock_version = parse_field(form, "lock_version", "a whole number", |s| {
+        s.parse::<i32>().ok()
+    })?
+    .unwrap_or(existing.lock_version);
 
-    UpdateWorkPackageDto {
+    Ok(UpdateWorkPackageDto {
         subject,
         description,
         type_id,
@@ -1257,7 +1454,7 @@ fn parse_wp_update(
         version_id: existing.version_id,
         category_id: existing.category_id,
         lock_version,
-    }
+    })
 }
 
 // ── Project index ────────────────────────────────────────────────────
@@ -1586,39 +1783,83 @@ fn render_project_detail(row: &ProjectRow) -> String {
 // ── Project edit ─────────────────────────────────────────────────────
 
 /// GET `/projects/:id/edit` — the render-bake `HtmlForm` edit page,
-/// pre-filled from the record.
+/// pre-filled from the record. Requires `edit_project` in this project (403
+/// otherwise); the form carries a CSRF token bound to this browser and actor.
 pub async fn project_edit_form(
     Path(id): Path<i64>,
     State(state): State<Arc<AppState>>,
-) -> Html<String> {
+    headers: HeaderMap,
+    who: Option<Extension<Who>>,
+) -> Response {
     let Some(pool) = state.db.clone() else {
-        return not_connected_page("Edit project", "this page");
+        return not_connected_page("Edit project", "this page").into_response();
     };
+    let who = who.map(|Extension(w)| w);
+    let ctx = WriteCtx::from_request(who.as_ref(), &headers);
 
-    let Some(row) = ProjectRepository::new(pool)
-        .find_by_id(id)
-        .await
-        .ok()
-        .flatten()
-    else {
-        return Html(page_shell(
-            "Project not found",
-            &format!("<main><p class=\"empty\">Project #{id} not found.</p></main>"),
-        ));
+    let row = match lookup(
+        ProjectRepository::new(pool.clone()).find_by_id(id).await,
+        "Project",
+        id,
+    ) {
+        Ok(row) => row,
+        Err(resp) => return resp,
     };
+    if let Err(resp) = authorize_project(&pool, &ctx, &row, EDIT_PROJECT).await {
+        return resp;
+    }
 
-    let fragment = render_project_edit(&row);
+    let existing = write_guard::cookie_from_headers(ctx.headers);
+    let (cookie, fresh) = match existing {
+        Some(c) => (c, false),
+        None => (write_guard::new_cookie_value(), true),
+    };
+    let token = write_guard::token_for(ctx.secret, &cookie, &actor_key(ctx.who));
 
-    Html(page_shell(
+    let fragment = render_project_edit(&row, &token);
+    let mut resp = Html(page_shell(
         &format!("Edit project #{id}"),
         &format!("{BREADCRUMB}<main>{fragment}</main>"),
     ))
+    .into_response();
+    resp.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    if fresh {
+        if let Ok(v) =
+            HeaderValue::from_str(&write_guard::set_cookie_value(&cookie, ctx.secure_cookie))
+        {
+            resp.headers_mut().append(header::SET_COOKIE, v);
+        }
+    }
+    resp
+}
+
+/// Require `permission` in the project (OpenProject's project-scoped `allowed_in_project?`).
+#[expect(
+    clippy::result_large_err,
+    reason = "the Err is the ready-to-send error page, returned straight to the handler"
+)]
+async fn authorize_project(
+    pool: &sqlx::PgPool,
+    ctx: &WriteCtx<'_>,
+    project: &ProjectRow,
+    permission: &str,
+) -> Result<(), Response> {
+    let principal: Principal =
+        write_guard::load_principal(pool, ctx.who, project.id, ctx.allow_anonymous)
+            .await
+            .map_err(|e: StoreError| internal_error(e))?;
+    if write_guard::may(&principal, project.active, permission) {
+        Ok(())
+    } else {
+        Err(forbidden("You are not allowed to edit this project."))
+    }
 }
 
 /// Render the project edit form fragment (pure — no DB access). Kept
 /// separate from the async handler so it's testable without a live DB
 /// pool (mirrors [`render_wp_edit`] / [`render_project_detail`]).
-fn render_project_edit(row: &ProjectRow) -> String {
+fn render_project_edit(row: &ProjectRow, csrf_token: &str) -> String {
     let class = project_class();
     let basis = project_basis();
     let form = skin(&basis, PROJECT_FORM_ORDER);
@@ -1672,9 +1913,8 @@ fn render_project_edit(row: &ProjectRow) -> String {
     let src = FormSource {
         method: "post",
         action: &action,
-        // SECURITY: see the identical note on `render_wp_edit` — empty
-        // csrf_token is the demo posture, not a production stance.
-        csrf_token: "",
+        // Signed double-submit token — see `render_wp_edit` and `write_guard`.
+        csrf_token,
         record_id: Some(row.id as u64),
         legend: &legend,
         submit_label: "Save",
@@ -1691,29 +1931,37 @@ fn render_project_edit(row: &ProjectRow) -> String {
 }
 
 /// POST `/projects/:id/edit` — apply the submitted edit form and
-/// redirect back to the detail page.
+/// redirect back to the detail page. Guards, each before any write: missing
+/// project 404 / lookup failure 500, no `edit_project` 403, bad CSRF token 403.
 pub async fn project_update(
     Path(id): Path<i64>,
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    who: Option<Extension<Who>>,
     Form(form): Form<HashMap<String, String>>,
 ) -> Response {
     let Some(pool) = state.db.clone() else {
         return not_connected_page("Update project", "this action").into_response();
     };
+    let who = who.map(|Extension(w)| w);
+    let ctx = WriteCtx::from_request(who.as_ref(), &headers);
 
-    let repo = ProjectRepository::new(pool);
+    let repo = ProjectRepository::new(pool.clone());
+    let existing = match lookup(repo.find_by_id(id).await, "Project", id) {
+        Ok(row) => row,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = authorize_project(&pool, &ctx, &existing, EDIT_PROJECT).await {
+        return resp;
+    }
+    if !ctx.csrf_ok(&form) {
+        return forbidden("Missing or invalid form token. Reload the edit page and try again.");
+    }
     let dto = parse_project_update(&form);
 
     match repo.update(id, dto).await {
         Ok(_) => Redirect::to(&format!("/projects/{id}")).into_response(),
-        Err(e) => Html(page_shell(
-            "Could not save project",
-            &format!(
-                "<main><p class=\"empty\">Save failed: {}</p></main>",
-                esc(&e.to_string())
-            ),
-        ))
-        .into_response(),
+        Err(e) => internal_error(e),
     }
 }
 
@@ -2282,7 +2530,7 @@ mod tests {
         let priorities = vec![priority(4, "Low"), priority(5, "High")];
         let users = vec![user(7, "Jane", "Doe"), user(8, "John", "Smith")];
 
-        let html = render_wp_edit(&wp, &statuses, &types, &priorities, &users);
+        let html = render_wp_edit(&wp, &statuses, &types, &priorities, &users, "tok");
 
         assert!(html.contains("<form"), "{html}");
         assert!(html.contains("method=\"post\""), "{html}");
@@ -2347,7 +2595,7 @@ mod tests {
         form.insert("description".to_string(), "New body".to_string());
         form.insert("lock_version".to_string(), "5".to_string());
 
-        let dto = parse_wp_update(&form, &existing);
+        let dto = parse_wp_update(&form, &existing).expect("valid form parses");
 
         assert_eq!(dto.subject.as_deref(), Some("New subject"));
         assert_eq!(dto.description.as_deref(), Some("New body"));
@@ -2381,7 +2629,7 @@ mod tests {
         row.public = false;
         row.active = true;
 
-        let html = render_project_edit(&row);
+        let html = render_project_edit(&row, "tok");
 
         assert!(html.contains("<form"), "{html}");
         assert!(html.contains("action=\"/projects/10/edit\""), "{html}");
@@ -2560,5 +2808,580 @@ mod tests {
         assert!(html.contains("Stacked item two"), "{html}");
         // Stacked rows use the narrower (project-less) column set.
         assert!(!html.contains("href=\"/projects/10\""), "{html}");
+    }
+}
+
+/// The write-path guards, exercised through the same `edit_form_core` / `update_core` the
+/// handlers call, over a fake [`WpStore`] that records every write it is asked to make.
+#[cfg(test)]
+mod write_path_tests {
+    use super::*;
+    use chrono::Utc;
+    use http_body_util::BodyExt;
+    use std::collections::HashSet;
+    use std::sync::Mutex;
+
+    const SECRET: &[u8] = b"write-path-test-secret-0123456789";
+    /// The project the work package lives in.
+    const PROJECT: i64 = 10;
+    /// Another project the signed-in member belongs to.
+    const OTHER_PROJECT: i64 = 20;
+
+    fn wp() -> op_db::work_packages::WorkPackageRow {
+        op_db::work_packages::WorkPackageRow {
+            id: 101,
+            subject: "Old subject".into(),
+            description: None,
+            project_id: PROJECT,
+            type_id: 1,
+            status_id: 1,
+            priority_id: None,
+            author_id: 1,
+            assigned_to_id: None,
+            responsible_id: None,
+            start_date: None,
+            due_date: None,
+            estimated_hours: None,
+            done_ratio: 0,
+            parent_id: None,
+            version_id: None,
+            category_id: None,
+            lock_version: 1,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    struct Fake {
+        wp: Result<Option<op_db::work_packages::WorkPackageRow>, StoreError>,
+        active: Result<bool, StoreError>,
+        principal_fails: bool,
+        /// Permissions of the signed-in user, per project (membership is project-scoped).
+        memberships: HashMap<i64, HashSet<String>>,
+        admin: bool,
+        updates: Mutex<Vec<(i64, UpdateWorkPackageDto)>>,
+        update_fails: bool,
+    }
+
+    impl Fake {
+        fn new() -> Self {
+            Fake {
+                wp: Ok(Some(wp())),
+                active: Ok(true),
+                principal_fails: false,
+                memberships: HashMap::new(),
+                admin: false,
+                updates: Mutex::new(Vec::new()),
+                update_fails: false,
+            }
+        }
+        fn member_of(mut self, project: i64, perms: &[&str]) -> Self {
+            self.memberships
+                .insert(project, perms.iter().map(|p| (*p).to_string()).collect());
+            self
+        }
+        fn writes(&self) -> usize {
+            self.updates.lock().unwrap().len()
+        }
+    }
+
+    impl WpStore for Fake {
+        async fn find_wp(
+            &self,
+            _id: i64,
+        ) -> Result<Option<op_db::work_packages::WorkPackageRow>, StoreError> {
+            self.wp.clone()
+        }
+        async fn project_active(&self, _project_id: i64) -> Result<bool, StoreError> {
+            self.active.clone()
+        }
+        async fn principal(
+            &self,
+            who: Option<&Who>,
+            project_id: i64,
+            allow_anonymous: bool,
+        ) -> Result<Principal, StoreError> {
+            if self.principal_fails {
+                return Err(StoreError("boom".into()));
+            }
+            Ok(match who {
+                None => Principal::Anonymous {
+                    allowed: allow_anonymous,
+                },
+                Some(Who::Caller { .. }) => Principal::User {
+                    admin: self.admin,
+                    active: true,
+                    // Scoped to the project the handler asked about.
+                    permissions: self
+                        .memberships
+                        .get(&project_id)
+                        .cloned()
+                        .unwrap_or_default(),
+                },
+                Some(_) => Principal::Anonymous { allowed: false },
+            })
+        }
+        async fn edit_options(&self) -> EditOptions {
+            EditOptions::default()
+        }
+        async fn update_wp(&self, id: i64, dto: UpdateWorkPackageDto) -> Result<(), StoreError> {
+            if self.update_fails {
+                return Err(StoreError("db down".into()));
+            }
+            self.updates.lock().unwrap().push((id, dto));
+            Ok(())
+        }
+    }
+
+    fn alice() -> Who {
+        Who::Caller {
+            actor: "oidc:alice".into(),
+            role: "Member".into(),
+        }
+    }
+
+    fn headers_with_cookie(cookie: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(
+            header::COOKIE,
+            format!("{}={cookie}", write_guard::CSRF_COOKIE)
+                .parse()
+                .unwrap(),
+        );
+        h
+    }
+
+    fn ctx<'a>(who: Option<&'a Who>, headers: &'a HeaderMap, anon: bool) -> WriteCtx<'a> {
+        WriteCtx {
+            who,
+            headers,
+            allow_anonymous: anon,
+            secret: SECRET,
+            secure_cookie: false,
+        }
+    }
+
+    fn good_form(cookie: &str, actor: &str) -> HashMap<String, String> {
+        let mut f = HashMap::new();
+        f.insert("subject".into(), "New subject".into());
+        f.insert(
+            CSRF_FIELD.into(),
+            write_guard::token_for(SECRET, cookie, actor),
+        );
+        f
+    }
+
+    async fn body(resp: Response) -> String {
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    fn cookie() -> String {
+        write_guard::new_cookie_value()
+    }
+
+    // ── positive ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn an_authorized_member_with_a_valid_token_updates_and_is_redirected() {
+        let store = Fake::new().member_of(PROJECT, &[EDIT_WORK_PACKAGES]);
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let resp = update_core(
+            &store,
+            101,
+            &ctx(Some(&who), &headers, false),
+            &good_form(&c, "oidc:alice"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(resp.headers()[header::LOCATION], "/work_packages/101");
+        let updates = store.updates.lock().unwrap();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].0, 101);
+        assert_eq!(updates[0].1.subject.as_deref(), Some("New subject"));
+    }
+
+    #[tokio::test]
+    async fn an_admin_without_a_membership_may_edit() {
+        let mut store = Fake::new();
+        store.admin = true;
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let resp = update_core(
+            &store,
+            101,
+            &ctx(Some(&who), &headers, false),
+            &good_form(&c, "oidc:alice"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(store.writes(), 1);
+    }
+
+    #[tokio::test]
+    async fn anonymous_may_write_only_with_the_explicit_opt_in() {
+        let c = cookie();
+        let headers = headers_with_cookie(&c);
+        let form = good_form(&c, "anonymous");
+
+        let store = Fake::new();
+        let denied = update_core(&store, 101, &ctx(None, &headers, false), &form).await;
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+        assert_eq!(store.writes(), 0);
+
+        let store = Fake::new();
+        let allowed = update_core(&store, 101, &ctx(None, &headers, true), &form).await;
+        assert_eq!(allowed.status(), StatusCode::SEE_OTHER);
+        assert_eq!(store.writes(), 1);
+    }
+
+    // ── authorization ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn a_member_without_the_edit_permission_gets_403_and_no_write() {
+        let store = Fake::new().member_of(PROJECT, &["view_work_packages"]);
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let resp = update_core(
+            &store,
+            101,
+            &ctx(Some(&who), &headers, false),
+            &good_form(&c, "oidc:alice"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(store.writes(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_user_with_no_membership_at_all_gets_403_and_no_write() {
+        let store = Fake::new();
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let resp = update_core(
+            &store,
+            101,
+            &ctx(Some(&who), &headers, false),
+            &good_form(&c, "oidc:alice"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(store.writes(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_member_of_another_project_may_not_edit_this_projects_work_package() {
+        // Full edit rights, but in OTHER_PROJECT; the work package is in PROJECT.
+        let store = Fake::new().member_of(OTHER_PROJECT, &[EDIT_WORK_PACKAGES]);
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let resp = update_core(
+            &store,
+            101,
+            &ctx(Some(&who), &headers, false),
+            &good_form(&c, "oidc:alice"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(store.writes(), 0);
+    }
+
+    #[tokio::test]
+    async fn an_archived_project_allows_no_edit_even_for_an_admin() {
+        let mut store = Fake::new();
+        store.admin = true;
+        store.active = Ok(false);
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let resp = update_core(
+            &store,
+            101,
+            &ctx(Some(&who), &headers, false),
+            &good_form(&c, "oidc:alice"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(store.writes(), 0);
+    }
+
+    #[tokio::test]
+    async fn the_edit_form_is_not_rendered_for_someone_who_cannot_edit() {
+        let store = Fake::new().member_of(PROJECT, &["view_work_packages"]);
+        let who = alice();
+        let headers = HeaderMap::new();
+        let resp = edit_form_core(&store, 101, &ctx(Some(&who), &headers, false)).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert!(resp.headers().get(header::SET_COOKIE).is_none());
+        let html = body(resp).await;
+        assert!(!html.contains("<form"), "{html}");
+        assert!(!html.contains(CSRF_FIELD), "{html}");
+    }
+
+    // ── CSRF ─────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn a_missing_csrf_token_gets_403_and_no_write() {
+        let store = Fake::new().member_of(PROJECT, &[EDIT_WORK_PACKAGES]);
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let mut form = good_form(&c, "oidc:alice");
+        form.remove(CSRF_FIELD);
+        let resp = update_core(&store, 101, &ctx(Some(&who), &headers, false), &form).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(store.writes(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_missing_csrf_cookie_gets_403_and_no_write() {
+        let store = Fake::new().member_of(PROJECT, &[EDIT_WORK_PACKAGES]);
+        let (who, c) = (alice(), cookie());
+        let headers = HeaderMap::new(); // token is right for `c`, but the browser sent no cookie
+        let resp = update_core(
+            &store,
+            101,
+            &ctx(Some(&who), &headers, false),
+            &good_form(&c, "oidc:alice"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(store.writes(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_wrong_csrf_token_gets_403_and_no_write() {
+        let store = Fake::new().member_of(PROJECT, &[EDIT_WORK_PACKAGES]);
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let mut form = good_form(&c, "oidc:alice");
+        form.insert(CSRF_FIELD.into(), "0".repeat(64));
+        let resp = update_core(&store, 101, &ctx(Some(&who), &headers, false), &form).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(store.writes(), 0);
+    }
+
+    #[tokio::test]
+    async fn another_actors_token_does_not_authorize_this_actors_write() {
+        let store = Fake::new().member_of(PROJECT, &[EDIT_WORK_PACKAGES]);
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let form = good_form(&c, "oidc:mallory"); // minted for someone else
+        let resp = update_core(&store, 101, &ctx(Some(&who), &headers, false), &form).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(store.writes(), 0);
+    }
+
+    #[tokio::test]
+    async fn the_edit_form_embeds_a_token_that_the_update_then_accepts() {
+        let store = Fake::new().member_of(PROJECT, &[EDIT_WORK_PACKAGES]);
+        let who = alice();
+        let no_cookie = HeaderMap::new();
+        let resp = edit_form_core(&store, 101, &ctx(Some(&who), &no_cookie, false)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let set_cookie = resp.headers()[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert!(set_cookie.contains("HttpOnly") && set_cookie.contains("SameSite=Strict"));
+        let cookie_value = set_cookie
+            .strip_prefix("op_csrf=")
+            .and_then(|r| r.split(';').next())
+            .unwrap()
+            .to_owned();
+        let html = body(resp).await;
+        let token = write_guard::token_for(SECRET, &cookie_value, "oidc:alice");
+        assert!(
+            html.contains(&format!("name=\"{CSRF_FIELD}\" value=\"{token}\"")),
+            "{html}"
+        );
+
+        // Round trip: the browser returns the cookie and posts the embedded token.
+        let headers = headers_with_cookie(&cookie_value);
+        let mut form = HashMap::new();
+        form.insert("subject".to_string(), "Round trip".to_string());
+        form.insert(CSRF_FIELD.to_string(), token);
+        let resp = update_core(&store, 101, &ctx(Some(&who), &headers, false), &form).await;
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        assert_eq!(store.writes(), 1);
+
+        // A browser that already holds a cookie is not issued another.
+        let again = edit_form_core(&store, 101, &ctx(Some(&who), &headers, false)).await;
+        assert!(again.headers().get(header::SET_COOKIE).is_none());
+    }
+
+    // ── 422 on malformed fields ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn a_malformed_date_gets_422_naming_the_field_and_no_write() {
+        for (field, bad) in [
+            ("start_date", "2026-13-45"),
+            ("start_date", "tomorrow"),
+            ("due_date", "31/12/2026"),
+            ("due_date", "2026-02-30"),
+        ] {
+            let store = Fake::new().member_of(PROJECT, &[EDIT_WORK_PACKAGES]);
+            let (who, c) = (alice(), cookie());
+            let headers = headers_with_cookie(&c);
+            let mut form = good_form(&c, "oidc:alice");
+            form.insert(field.into(), bad.into());
+            let resp = update_core(&store, 101, &ctx(Some(&who), &headers, false), &form).await;
+            assert_eq!(
+                resp.status(),
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "{field}={bad}"
+            );
+            let html = body(resp).await;
+            assert!(html.contains(field), "names the field: {html}");
+            assert!(html.contains(bad), "echoes the value: {html}");
+            assert_eq!(store.writes(), 0, "{field}={bad}: nothing may be saved");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_blank_date_still_clears_it_and_is_not_an_error() {
+        let store = Fake::new().member_of(PROJECT, &[EDIT_WORK_PACKAGES]);
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let mut form = good_form(&c, "oidc:alice");
+        form.insert("start_date".into(), "".into());
+        form.insert("due_date".into(), "2026-12-31".into());
+        let resp = update_core(&store, 101, &ctx(Some(&who), &headers, false), &form).await;
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        let updates = store.updates.lock().unwrap();
+        assert_eq!(updates[0].1.start_date, None);
+        assert_eq!(
+            updates[0].1.due_date,
+            chrono::NaiveDate::from_ymd_opt(2026, 12, 31)
+        );
+    }
+
+    #[test]
+    fn malformed_numeric_fields_are_errors_too_not_silently_dropped() {
+        let existing = wp();
+        for (field, bad) in [
+            ("estimated_hours", "lots"),
+            ("estimated_hours", "NaN"),
+            ("done_ratio", "half"),
+            ("assigned_to_id", "bob"),
+            ("status_id", "x"),
+            ("lock_version", "-"),
+        ] {
+            let mut form = HashMap::new();
+            form.insert(field.to_string(), bad.to_string());
+            let err = parse_wp_update(&form, &existing).unwrap_err();
+            assert_eq!(err.field, field, "{field}={bad}");
+        }
+    }
+
+    // ── 404 vs 500 ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn a_missing_work_package_is_404_on_form_and_update_and_never_writes() {
+        let mut store = Fake::new();
+        store.wp = Ok(None);
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let cx = ctx(Some(&who), &headers, false);
+        assert_eq!(
+            edit_form_core(&store, 101, &cx).await.status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            update_core(&store, 101, &cx, &good_form(&c, "oidc:alice"))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(store.writes(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_lookup_failure_is_500_not_404_and_never_writes() {
+        let mut store = Fake::new();
+        store.wp = Err(StoreError("connection reset".into()));
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let cx = ctx(Some(&who), &headers, false);
+        let form_resp = edit_form_core(&store, 101, &cx).await;
+        assert_eq!(form_resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        // The database error text is logged, not shown.
+        assert!(!body(form_resp).await.contains("connection reset"));
+        assert_eq!(
+            update_core(&store, 101, &cx, &good_form(&c, "oidc:alice"))
+                .await
+                .status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(store.writes(), 0);
+    }
+
+    #[tokio::test]
+    async fn an_authorization_lookup_failure_is_500_and_never_writes() {
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let cx = ctx(Some(&who), &headers, false);
+
+        let mut store = Fake::new().member_of(PROJECT, &[EDIT_WORK_PACKAGES]);
+        store.principal_fails = true;
+        assert_eq!(
+            update_core(&store, 101, &cx, &good_form(&c, "oidc:alice"))
+                .await
+                .status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(store.writes(), 0);
+
+        let mut store = Fake::new().member_of(PROJECT, &[EDIT_WORK_PACKAGES]);
+        store.active = Err(StoreError("timeout".into()));
+        assert_eq!(
+            update_core(&store, 101, &cx, &good_form(&c, "oidc:alice"))
+                .await
+                .status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(store.writes(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_failed_save_is_500_not_a_200_page() {
+        let mut store = Fake::new().member_of(PROJECT, &[EDIT_WORK_PACKAGES]);
+        store.update_fails = true;
+        let (who, c) = (alice(), cookie());
+        let headers = headers_with_cookie(&c);
+        let resp = update_core(
+            &store,
+            101,
+            &ctx(Some(&who), &headers, false),
+            &good_form(&c, "oidc:alice"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    /// The detail route's lookup (it needs the whole DB for display names, so its 404/500
+    /// decision is the shared `lookup` helper, tested directly).
+    #[tokio::test]
+    async fn lookup_maps_none_to_404_and_errors_to_500_and_found_to_the_record() {
+        let found: Result<Option<i32>, StoreError> = Ok(Some(7));
+        assert_eq!(lookup(found, "Work package", 1).ok(), Some(7));
+        let none: Result<Option<i32>, StoreError> = Ok(None);
+        assert_eq!(
+            lookup(none, "Work package", 1).unwrap_err().status(),
+            StatusCode::NOT_FOUND
+        );
+        let err: Result<Option<i32>, StoreError> = Err(StoreError("x".into()));
+        assert_eq!(
+            lookup(err, "Work package", 1).unwrap_err().status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[test]
+    fn the_rendered_forms_carry_the_token_field() {
+        let html = render_wp_edit(&wp(), &[], &[], &[], &[], "TOKEN-WP");
+        assert!(
+            html.contains("name=\"authenticity_token\" value=\"TOKEN-WP\""),
+            "{html}"
+        );
     }
 }
