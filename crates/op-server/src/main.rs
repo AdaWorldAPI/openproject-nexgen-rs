@@ -39,6 +39,7 @@ mod signin_map;
 #[cfg(test)]
 mod signin_tests;
 mod viewfilter;
+mod write_guard;
 
 use health::{AppState, HealthChecker, HealthConfig};
 use metrics::Metrics;

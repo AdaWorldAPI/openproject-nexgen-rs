@@ -36,6 +36,10 @@ serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 anyhow.workspace = true
+# Write-path guard: HMAC-SHA256 CSRF tokens (hand-rolled over sha2, no extra crate) + OS entropy.
+sha2 = "0.10"
+hmac = "0.12"
+getrandom = "0.2"
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }
@@ -43,6 +47,5 @@ http-body-util = "0.1"
 # The fake identity provider of web-login's tests is reused as it is
 # (`#[path]` include in `signin_tests.rs`), so its dependencies are needed here.
 base64 = "0.22"
-getrandom = "0.2"
 ogar-encryption = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 p256 = { git = "https://github.com/AdaWorldAPI/elliptic-curves", branch = "master", default-features = false, features = ["ecdsa", "alloc"] }
