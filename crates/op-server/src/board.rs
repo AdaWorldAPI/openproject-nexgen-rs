@@ -11,6 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use a2ui_layout::{LayoutMode, Region, ZONES_CSS};
 use axum::extract::{Form, Path, State};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 
@@ -1687,34 +1688,46 @@ fn parse_project_update(form: &HashMap<String, String>) -> UpdateProjectDto {
 /// top of the `html_list_view` spine markup (`.ogar-list`, `table.list`,
 /// `tr.group`, `.progress`).
 fn page_shell(title: &str, body_html: &str) -> String {
-    // Layer-0 region composition: which chrome regions render is a masked
-    // ClassView (crate::layout). `content` is always `body_html`; the header,
-    // side menu, right menu, and footer are gated by the region mask.
-    let regions = layout::default_region_mask();
-    let header_region = if layout::region_on(&regions, "header") {
+    page_shell_with(title, body_html, &layout::default_region_mask())
+}
+
+/// [`page_shell`] with an explicit region mask. Layer-0 region composition:
+/// which chrome regions render is a masked ClassView (crate::layout). The
+/// center zone is always `body_html`; the header, side menu, right menu, and
+/// footer are gated by the mask. Zones use the shared `a2ui-layout`
+/// vocabulary: op `header` = `TopBar`, `left_menu` = `LeftNav`, `main` =
+/// `Center`, `right_menu` = `RightPanel`, `footer` = `BottomBar`.
+fn page_shell_with(title: &str, body_html: &str, regions: &WideFieldMask) -> String {
+    let header_region = if layout::region_on(regions, "header") {
         format!(
-            "<nav class=\"topnav\"><a href=\"/\" class=\"topnav-brand\">OpenProject RS</a>{}</nav>",
+            "<nav class=\"{} topnav\"><a href=\"/\" class=\"topnav-brand\">OpenProject RS</a>{}</nav>",
+            Region::TopBar.marker(),
             topnav_menu_links(),
         )
     } else {
         String::new()
     };
-    let left_menu_region = if layout::region_on(&regions, "left_menu") {
+    let left_menu_region = if layout::region_on(regions, "left_menu") {
         format!(
-            "<aside class=\"sidemenu-region\">{}</aside>",
+            "<aside class=\"{} sidemenu-region\">{}</aside>",
+            Region::LeftNav.marker(),
             layout::left_menu_html()
         )
     } else {
         String::new()
     };
-    let right_menu_region = if layout::region_on(&regions, "right_menu") {
-        "<aside class=\"sidemenu-region rightmenu\"></aside>".to_string()
+    let right_menu_region = if layout::region_on(regions, "right_menu") {
+        format!(
+            "<aside class=\"{} sidemenu-region rightmenu\"></aside>",
+            Region::RightPanel.marker()
+        )
     } else {
         String::new()
     };
-    let footer_region = if layout::region_on(&regions, "footer") {
+    let footer_region = if layout::region_on(regions, "footer") {
         format!(
-            "<footer class=\"page-footer\">{}</footer>",
+            "<footer class=\"{} page-footer\">{}</footer>",
+            Region::BottomBar.marker(),
             layout::footer_html()
         )
     } else {
@@ -1728,6 +1741,7 @@ fn page_shell(title: &str, body_html: &str) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <style>
+{zones_css}
   :root {{ color-scheme: light dark; }}
   * {{ box-sizing: border-box; }}
   body {{
@@ -1815,14 +1829,12 @@ fn page_shell(title: &str, body_html: &str) -> String {
   .progress .progress-bar {{ height: 100%; background: #36b37e; }}
   .progress .progress-label {{ position: absolute; left: 108px; top: -3px; font-size: 0.75rem; color: #6b778c; }}
   td.nodata {{ text-align: center; color: #6b778c; padding: 2rem; }}
-  .page-grid {{ display: flex; align-items: stretch; min-height: calc(100vh - 2.4rem); }}
   aside.sidemenu-region {{ flex: 0 0 13rem; background: #fff; border-right: 1px solid #dfe1e6; padding: 0.75rem 0; }}
   .sidemenu ul {{ list-style: none; margin: 0; padding: 0; }}
   .sidemenu-primary a {{ display: block; padding: 0.5rem 1.25rem; color: #172b4d; font-weight: 600; }}
   .sidemenu-primary a:hover {{ background: #ebecf0; text-decoration: none; }}
   .sidemenu-soon-label {{ padding: 0.75rem 1.25rem 0.25rem; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: #6b778c; }}
   .sidemenu-soon li span {{ display: block; padding: 0.35rem 1.25rem; color: #a5adba; font-size: 0.85rem; cursor: not-allowed; }}
-  .page-content {{ flex: 1 1 auto; min-width: 0; }}
   footer.page-footer {{ padding: 0.75rem 1.5rem; background: #091e42; color: #7a869a; font-size: 0.75rem; }}
   @media (prefers-color-scheme: dark) {{
     aside.sidemenu-region {{ background: #22272b; border-right-color: #3a3f45; }}
@@ -1842,9 +1854,12 @@ fn page_shell(title: &str, body_html: &str) -> String {
 </style>
 </head>
 <body>
-{header}<div class="page-grid">{left_menu}<div class="page-content">{body_html}</div>{right_menu}</div>{footer}
+<div class="a2-shell">{header}<div class="a2-body {mode}">{left_menu}<div class="{center}">{body_html}</div>{right_menu}</div>{footer}</div>
 </body>
 </html>"#,
+        zones_css = ZONES_CSS,
+        mode = LayoutMode::Standard.class(),
+        center = Region::Center.marker(),
         header = header_region,
         left_menu = left_menu_region,
         right_menu = right_menu_region,
@@ -2243,19 +2258,41 @@ mod tests {
     #[test]
     fn page_shell_composes_layout_regions() {
         let html = page_shell("T", "<main><p>content here</p></main>");
-        assert!(html.contains("class=\"topnav\""), "header region");
-        assert!(html.contains("class=\"page-grid\""), "region grid");
+        // The zones CSS names every marker, so check the emitted class
+        // attribute (`class="<marker> ..."`), not bare substrings.
+        let zone = |html: &str, r: Region| html.contains(&format!("class=\"{} ", r.marker()));
+        assert!(html.contains("class=\"a2-shell\""), "shell");
+        assert!(html.contains("class=\"a2-body "), "body grid");
+        assert!(zone(&html, Region::TopBar), "top bar zone");
+        assert!(zone(&html, Region::LeftNav), "left nav zone");
         assert!(
-            html.contains("class=\"sidemenu-region\""),
-            "left side menu present"
+            html.contains(&format!("class=\"{}\"", Region::Center.marker())),
+            "center zone"
         );
+        assert!(zone(&html, Region::BottomBar), "bottom bar zone");
         assert!(
             html.contains("Coming soon"),
             "deferred lanes shown in side menu"
         );
         assert!(html.contains("content here"), "main content region");
-        assert!(html.contains("class=\"page-footer\""), "footer region");
-        assert!(!html.contains("rightmenu"), "right_menu is off by default");
+        assert!(
+            !zone(&html, Region::RightPanel),
+            "right_menu is off by default"
+        );
+    }
+
+    /// The region mask gates the right panel in both directions: turning
+    /// `right_menu` on emits the RightPanel zone; turning `left_menu` off
+    /// drops the LeftNav zone.
+    #[test]
+    fn page_shell_region_mask_gates_right_panel() {
+        let zone = |html: &str, r: Region| html.contains(&format!("class=\"{} ", r.marker()));
+        let on = layout::region_mask(&["global", "header", "right_menu", "main"]);
+        let html = page_shell_with("T", "<p>x</p>", &on);
+        assert!(zone(&html, Region::RightPanel), "right panel on");
+        assert!(!zone(&html, Region::LeftNav), "left nav off");
+        assert!(!zone(&html, Region::BottomBar), "footer off");
+        assert!(zone(&html, Region::TopBar), "header on");
     }
 
     /// `stacked_mask` (via `wp_stacked_skin`) drops `project` from the

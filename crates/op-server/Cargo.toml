@@ -18,6 +18,7 @@ op-auth = { path = "../op-auth" }
 ogar-render-askama = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 ogar-vocab = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+a2ui-layout = { git = "https://github.com/AdaWorldAPI/a2ui-rs", branch = "main" }
 
 axum.workspace = true
 sqlx.workspace = true
