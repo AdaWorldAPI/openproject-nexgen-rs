@@ -146,11 +146,81 @@ order is not file order: taking the walk's file order with generated callbacks l
 declarations (`app/models/work_package.rb:69-70`): the trace has them after `meetings`, because the
 `modules/storages` patch declares them again and Rails moves a re-registered filter to the end, and
 the walk does not enter `modules/`. That is the `AssociationFromModule` gap, not an ordering error.
+With the intake the storages patch is now found, but it is `BodyUnreadable` (see Engine patches), so the
+3 differences remain.
+
+### Engine patches (`oracle/intake.json`)
+
+OpenProject's plugin modules change core models through a DSL, not by file location. An engine
+calls `patches %i[WorkPackage]`, which queues `WorkPackage.include(<Plugin>::Patches::WorkPackagePatch)`
+for `config.to_prepare` (`lib/open_project/plugins/acts_as_op_engine.rb:105-114`, `to_prepare` at `:107`,
+`include` at `:111`). The sibling calls are `patch_with_namespace` (`:116-129`, with a `rescue NameError`
+fallback to the un-namespaced patch name at `:122-124`) and `include_module` / `prepend_module`
+(`:131-137`, via `add_module_to_classes`, `:361-371`). The test reads `oracle/intake.json` (the roots,
+how to find engines, the engine order, and one rule per call) and names no OpenProject module itself.
+
+- The calls come from ruff: `Declaration::DslCall` (the catch-all for class-body calls ruff does not
+  promote) carries the call name and its rendered arguments, in statement order.
+- A patch runs after the target class body has loaded, so its declarations register after the model's
+  own. `include` runs the module's `included do` block then (`concern.rb:129-140`), unless the module is
+  already an ancestor (`acts_as_op_engine.rb:111`); `prepend` registers no callback (`concern.rb:142-152`).
+- Order across engines is the order the module gems are required (`Gemfile.modules`), because an
+  engine's `to_prepare` blocks are queued by its initializer and engine initializers run in railtie
+  order. Within an engine, statement order. This is an assumption read from Rails, not something the
+  trace contradicts or confirms yet (see Order below).
+- Patches found: 34 engines, 62 calls matched by a rule. For `WorkPackage` 4 `patches` includes resolve
+  (backlogs, meeting, storages, bim, in that order); for `Watcher` none; no engine, initializer or
+  `to_prepare` block in `modules/` patches `Watcher`, and none patches `WorkPackage` by `.include` /
+  `.prepend` / `class_eval` outside the DSL (checked by search, each engine read).
+- Unresolved calls get a closed `PatchSlag`; `ArgsUnreadable` and `PatchFileNotFound` must be 0.
+
+| `PatchSlag` | count | stage |
+|---|---:|---|
+| `TargetUnreadable` | 38 | ruff extension: `walk::render_node` renders `Hash` but not `Kwargs`, so `include_module "X", into: "WorkPackage"` arrives as `"X", <expr>`. All of costs, repositories, resource_management and budgets use this form. |
+| `BodyUnreadable` | 24 | ruff extension: storages and bim patch modules register through `def self.included(base) ... base.class_eval do ... end`; `module_ore` walks only a direct `included do`. |
+| `ArgsUnreadable`, `PatchFileNotFound` | 0 | |
+
+Ledger, attributed per change (157 entries; every column keeps `matched + slag == total`):
+
+| reason | (a) main as merged | (b) after ruff #155 only | (c) after the modules intake |
+|---|---:|---:|---:|
+| matched to a declaration | 89 | 89 | 91 |
+| of which only a generated callback matches | 65 | 65 | 67 |
+| slag AssociationFromModule | 24 | 24 | 21 |
+| slag AssociationFromPlugin | 5 | 5 | 5 |
+| slag AssociationNotInCheckout | 15 | 15 | 15 |
+| slag DefinedInModule | 1 | 1 | 1 |
+| slag DefinedInPlugin | 7 | 7 | 7 |
+| slag FromGem | 8 | 8 | 8 |
+| slag ValidatorFromModule | 1 | 1 | 0 |
+| slag ChainFileNotHarvested | n/a | n/a | 2 |
+| slag ModelWithoutClassFile | 3 | 3 | 3 |
+| slag GeneratedUndecided | 4 | 4 | 4 |
+| declared (source) callbacks | 37 | 37 | 38 |
+| order: groups compared / differing | 19 / 3 | 19 / 3 | 19 / 3 |
+
+(b) moves nothing: ruff #155 makes option-dependent generated rules `Undecided` when an association
+carries a keyword splat, and no association on `WorkPackage` or `Watcher` does.
+
+(c) adds the two `belongs_to` of the backlogs patch (`:sprint`, `:backlog_bucket`: +2 matched, both
+through generated callbacks) and meeting's `around_destroy` (declared; its chain is not exercised by a
+create, so it is `ChainNotExercised`). `ChainFileNotHarvested` is the new closed reason for a name that a
+harvested file spells but the harvest produced no declaration for: `:bcf_issue` (bim's patch, the
+`BodyUnreadable` shape) and `validates:numericality:story_points` (backlogs, a `validates_numericality_of`
+helper, which `walk` sends to the `DslCall` catch-all). Both used to read as module slag
+(`AssociationNotInCheckout`, `ValidatorFromModule`); naming them says the file was found and ruff did not
+read it. The negative controls are unchanged: 0 matches with every name reversed; reversing only the
+generated names drops exactly the generated matches. A run without the intake is part of the test and
+must not match more than the run with it.
 
 The slag reasons name the next extension, cheapest first:
 
-1. `AssociationFromModule`, `DefinedInModule`, `ValidatorFromModule` (26): codegraph config. Walk
-   `modules/*/app` and `modules/*/lib` patch files and follow the engines' `include` of them into `WorkPackage`.
+1. `AssociationFromModule`, `DefinedInModule` (22) and the 62 patch calls: the intake above walks
+   `modules/*` and follows `patches`. What is left needs two ruff changes, in this order: render keyword
+   arguments in `walk::render_node` (unlocks the 38 `include_module` calls, hence costs, repositories,
+   resource_management and budgets), and walk `def self.included(base)` + `base.class_eval` bodies and the
+   `validates_*_of` helpers (unlocks storages' `has_many :file_links` / `:storages` redeclaration, which
+   is the 3 ordering differences, bim's `:bcf_issue`, and backlogs' `story_points` validator).
 2. `AssociationFromPlugin`, `DefinedInPlugin` (12): codegraph config for `lib_static/plugins`, plus a
    ruff extension that expands the `acts_as_*` macro to the callbacks and associations it registers.
 3. `ConditionalOptionNotEvaluated` (7): ruff extension. `if:` lambdas arrive as `<expr>`; lowering
