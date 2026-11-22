@@ -27,3 +27,47 @@ recorded).
 Every `CreateContract` case that sets an author fails on `author_id`, admin included: the real create
 service sets the author itself. The `writable` maps are unaffected; the Create `valid` results carry
 that error.
+
+## Service oracle
+
+`work_package_service.rb` runs `WorkPackages::CreateService` itself, not only the
+contract, and writes `work-package-service-trace.json`: per case the service result,
+the ordered callback journal of the call (setup is not journaled; every body runs;
+the label comes from the chain that is running), the transaction depth of each
+journaled callback, row-count deltas, enqueued job classes, and whether the
+persisted record passes ActiveRecord validation on its own.
+
+Each case commits, so `after_commit` fires. The script truncates every table before
+each case and refuses to start on a non-empty `work_packages`: run it only against a
+disposable test database.
+
+```bash
+RAILS_ENV=test bin/rails runner /path/to/this/repo/oracle/work_package_service.rb
+```
+
+Reproduced at OpenProject `2725194`, Ruby 4.0.10, Rails 8.1.4.1, PostgreSQL 16.15:
+two consecutive runs give identical bytes. The contract oracle above reproduces
+the committed trace byte-for-byte on the same setup.
+
+What the four cases show, and what they do not:
+
+- The create path journals 162 callbacks on WorkPackage, Watcher and
+  WorkPackageHierarchy; the one `after_commit` callback (`call_after_create_hook`)
+  runs at transaction depth 0, after the commit.
+- Without permissions the contract refuses before any save: 65 validation-phase
+  callbacks, no row written.
+- `ar_valid_after_persist` is true in every successful case, and for this service it
+  must be: `ModelContract#valid?` runs `model.valid?` before the contract's own
+  validations (`app/contracts/model_contract.rb:85-88`) unless the contract sets
+  `validate_model?` to false, and `WorkPackages::CreateContract` / `UpdateContract`
+  do not. The model validations have therefore already run when
+  `create_service.rb:64` saves with `validate: false`; the skip avoids running them
+  twice, it does not drop them. The contract is the superset (model validations +
+  writable/permission checks + its own `validate` rules), so a port that copies only
+  the model validations loses the contract half. The contracts that genuinely skip
+  model validation are `WorkPackages::CreateNoteContract` and
+  `WorkPackages::CopyProjectContract` (`validate_model? = false`); a case through one
+  of them is the one that separates the two.
+- `create_child_of_automatic_parent` journals exactly what a parentless create
+  does: with no dates or work on either record the ancestor update saves nothing,
+  so the `validate: false` saves in `update_ancestors_service.rb` are not exercised.

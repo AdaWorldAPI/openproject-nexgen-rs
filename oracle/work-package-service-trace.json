@@ -1,0 +1,3478 @@
+{
+  "cases": [
+    {
+      "ar_errors_after_persist": [],
+      "ar_valid_after_persist": true,
+      "changed_attributes": [
+        "author_id",
+        "created_at",
+        "id",
+        "position",
+        "priority_id",
+        "project_id",
+        "status_id",
+        "subject",
+        "type_id",
+        "updated_at"
+      ],
+      "enqueued_jobs": [
+        "Journals::CompletedJob",
+        "Notifications::WorkflowJob",
+        "WorkPackages::WorkflowJob"
+      ],
+      "errors": {},
+      "journal": [
+        {
+          "callback": "normalize_changed_in_place_attributes",
+          "model": "WorkPackage",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "check_top_position",
+          "model": "WorkPackage",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_semantic_aliases",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_semantic_identifier_fields",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:presence:priority,project,type,author,status",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:inclusion:done_ratio",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:done_ratio",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:estimated_hours",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:remaining_hours",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:derived_remaining_hours",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:date:due_date",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:date:start_date",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:inclusion:origin_source",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_work_package_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_target_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_observed_in_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_work_package_categories",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_categories",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_follows_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_precedes_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_blocks_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_duplicates_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_duplicated_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_members",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_member_principals",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_reminders",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_labelings",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_labels",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_label_id_replacements",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_time_entries",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_file_links",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_storages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_changesets_workpackages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_changesets",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_github_pull_requests_workpackages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_github_pull_requests",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_meeting_agenda_items",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_meeting_outcomes",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_meetings",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_custom_values",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ct_validate",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_children",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_ancestor_hierarchies",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_self_and_ancestors",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_descendant_hierarchies",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_self_and_descendants",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_paper_trail_audits",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_attachments",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_attachments_claimable",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_journals",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_cost_entries",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:story_points",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_branches",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_commit_work_packages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_commits",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_issue_work_packages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_issues",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_merge_request_work_packages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_merge_requests",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_budget",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_allocated_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ensure_no_duplicate_errors",
+          "model": "WorkPackage",
+          "phase": "after_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "mirror_category_replacements_to_category_id",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "abort_save_with_label_names",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_project",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_type",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_status",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_author",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_assigned_to",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_responsible",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_project_phase_definition",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_priority",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_category",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "close_duplicates",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "update_done_ratio_from_status",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "ensure_custom_values_complete",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ct_before_save",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_parent",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_sprint",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_backlog_bucket",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_budget",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "around_save_collection_association",
+          "model": "WorkPackage",
+          "phase": "around_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "default_assign",
+          "model": "WorkPackage",
+          "phase": "before_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "avoid_collision",
+          "model": "WorkPackage",
+          "phase": "before_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_semantic_aliases",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_work_package_versions",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_versions",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_target_versions",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_observed_in_versions",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_work_package_categories",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_categories",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_follows_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_precedes_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_blocks_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_duplicates_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_duplicated_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_members",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_member_principals",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_reminders",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_labelings",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_labels",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_time_entries",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_changesets_workpackages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_changesets",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_github_pull_requests_workpackages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_github_pull_requests",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_meeting_agenda_items",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_meeting_outcomes",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_meetings",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_watchers",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_watcher_users",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_custom_values",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_children",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_ancestor_hierarchies",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_self_and_ancestors",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_descendant_hierarchies",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_self_and_descendants",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_paper_trail_audits",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_attachments",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_journals",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_cost_entries",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_branches",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_commit_work_packages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_commits",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_issue_work_packages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_issues",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_merge_request_work_packages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_merge_requests",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_allocated_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_file_links",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_storages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_bcf_issue",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "persist_version_associations",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "persist_category_associations",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "persist_label_associations",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "touch_customizable",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "reset_custom_values_change_tracker",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ct_after_save",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "normalize_changed_in_place_attributes",
+          "model": "WorkPackageHierarchy",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_ancestor",
+          "model": "WorkPackageHierarchy",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_descendant",
+          "model": "WorkPackageHierarchy",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "persist_attachments_claimed",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "save_journals",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "clear_scope_changed",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "normalize_changed_in_place_attributes",
+          "model": "Watcher",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:presence:watchable,user",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:uniqueness:user_id",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_active_user",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_user_allowed_to_watch",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "normalize_changed_in_place_attributes",
+          "model": "Watcher",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:presence:watchable,user",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:uniqueness:user_id",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_active_user",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_user_allowed_to_watch",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_watchable",
+          "model": "Watcher",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_user",
+          "model": "Watcher",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "call_after_create_hook",
+          "model": "WorkPackage",
+          "phase": "after_commit",
+          "tx_depth": 0
+        }
+      ],
+      "name": "create_member",
+      "persisted": true,
+      "row_deltas": {
+        "journals": 1,
+        "watchers": 1,
+        "work_package_journals": 1,
+        "work_packages": 1
+      },
+      "service": "WorkPackages::CreateService",
+      "success": true,
+      "user": "member"
+    },
+    {
+      "ar_errors_after_persist": null,
+      "ar_valid_after_persist": null,
+      "changed_attributes": [],
+      "enqueued_jobs": [],
+      "errors": {
+        "base": [
+          {
+            "error": "error_unauthorized"
+          }
+        ],
+        "priority_id": [
+          {
+            "error": "error_readonly"
+          }
+        ],
+        "project_id": [
+          {
+            "error": "error_readonly"
+          }
+        ],
+        "status_id": [
+          {
+            "error": "error_readonly"
+          }
+        ],
+        "subject": [
+          {
+            "error": "error_readonly"
+          }
+        ],
+        "type_id": [
+          {
+            "error": "error_readonly"
+          }
+        ]
+      },
+      "journal": [
+        {
+          "callback": "normalize_changed_in_place_attributes",
+          "model": "WorkPackage",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "check_top_position",
+          "model": "WorkPackage",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_semantic_aliases",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_semantic_identifier_fields",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:presence:priority,project,type,author,status",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:inclusion:done_ratio",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:done_ratio",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:estimated_hours",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:remaining_hours",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:derived_remaining_hours",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:date:due_date",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:date:start_date",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:inclusion:origin_source",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_work_package_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_target_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_observed_in_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_work_package_categories",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_categories",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_follows_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_precedes_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_blocks_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_duplicates_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_duplicated_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_members",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_member_principals",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_reminders",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_labelings",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_labels",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_label_id_replacements",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_time_entries",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_file_links",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_storages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_changesets_workpackages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_changesets",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_github_pull_requests_workpackages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_github_pull_requests",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_meeting_agenda_items",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_meeting_outcomes",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_meetings",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_custom_values",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ct_validate",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_children",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_ancestor_hierarchies",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_self_and_ancestors",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_descendant_hierarchies",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_self_and_descendants",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_paper_trail_audits",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_attachments",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_attachments_claimable",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_journals",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_cost_entries",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:story_points",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_branches",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_commit_work_packages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_commits",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_issue_work_packages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_issues",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_merge_request_work_packages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_merge_requests",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_budget",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_allocated_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ensure_no_duplicate_errors",
+          "model": "WorkPackage",
+          "phase": "after_validation",
+          "tx_depth": 1
+        }
+      ],
+      "name": "create_no_permission",
+      "persisted": false,
+      "row_deltas": {},
+      "service": "WorkPackages::CreateService",
+      "success": false,
+      "user": "member_no_permissions"
+    },
+    {
+      "ar_errors_after_persist": [],
+      "ar_valid_after_persist": true,
+      "changed_attributes": [
+        "author_id",
+        "created_at",
+        "id",
+        "position",
+        "priority_id",
+        "project_id",
+        "status_id",
+        "subject",
+        "type_id",
+        "updated_at"
+      ],
+      "enqueued_jobs": [
+        "Journals::CompletedJob",
+        "Notifications::WorkflowJob",
+        "WorkPackages::WorkflowJob"
+      ],
+      "errors": {},
+      "journal": [
+        {
+          "callback": "normalize_changed_in_place_attributes",
+          "model": "WorkPackage",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "check_top_position",
+          "model": "WorkPackage",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_semantic_aliases",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_semantic_identifier_fields",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:presence:priority,project,type,author,status",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:inclusion:done_ratio",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:done_ratio",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:estimated_hours",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:remaining_hours",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:derived_remaining_hours",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:date:due_date",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:date:start_date",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:inclusion:origin_source",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_work_package_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_target_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_observed_in_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_work_package_categories",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_categories",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_follows_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_precedes_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_blocks_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_duplicates_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_duplicated_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_members",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_member_principals",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_reminders",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_labelings",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_labels",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_label_id_replacements",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_time_entries",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_file_links",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_storages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_changesets_workpackages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_changesets",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_github_pull_requests_workpackages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_github_pull_requests",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_meeting_agenda_items",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_meeting_outcomes",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_meetings",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_custom_values",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ct_validate",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_children",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_ancestor_hierarchies",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_self_and_ancestors",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_descendant_hierarchies",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_self_and_descendants",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_paper_trail_audits",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_attachments",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_attachments_claimable",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_journals",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_cost_entries",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:story_points",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_branches",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_commit_work_packages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_commits",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_issue_work_packages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_issues",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_merge_request_work_packages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_merge_requests",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_budget",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_allocated_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ensure_no_duplicate_errors",
+          "model": "WorkPackage",
+          "phase": "after_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "mirror_category_replacements_to_category_id",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "abort_save_with_label_names",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_project",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_type",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_status",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_author",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_assigned_to",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_responsible",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_project_phase_definition",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_priority",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_category",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "close_duplicates",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "update_done_ratio_from_status",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "ensure_custom_values_complete",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ct_before_save",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_parent",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_sprint",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_backlog_bucket",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_budget",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "around_save_collection_association",
+          "model": "WorkPackage",
+          "phase": "around_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "default_assign",
+          "model": "WorkPackage",
+          "phase": "before_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "avoid_collision",
+          "model": "WorkPackage",
+          "phase": "before_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_semantic_aliases",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_work_package_versions",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_versions",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_target_versions",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_observed_in_versions",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_work_package_categories",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_categories",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_follows_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_precedes_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_blocks_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_duplicates_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_duplicated_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_members",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_member_principals",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_reminders",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_labelings",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_labels",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_time_entries",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_changesets_workpackages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_changesets",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_github_pull_requests_workpackages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_github_pull_requests",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_meeting_agenda_items",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_meeting_outcomes",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_meetings",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_watchers",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_watcher_users",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_custom_values",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_children",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_ancestor_hierarchies",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_self_and_ancestors",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_descendant_hierarchies",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_self_and_descendants",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_paper_trail_audits",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_attachments",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_journals",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_cost_entries",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_branches",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_commit_work_packages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_commits",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_issue_work_packages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_issues",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_merge_request_work_packages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_merge_requests",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_allocated_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_file_links",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_storages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_bcf_issue",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "persist_version_associations",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "persist_category_associations",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "persist_label_associations",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "touch_customizable",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "reset_custom_values_change_tracker",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ct_after_save",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "normalize_changed_in_place_attributes",
+          "model": "WorkPackageHierarchy",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_ancestor",
+          "model": "WorkPackageHierarchy",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_descendant",
+          "model": "WorkPackageHierarchy",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "persist_attachments_claimed",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "save_journals",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "clear_scope_changed",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "normalize_changed_in_place_attributes",
+          "model": "Watcher",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:presence:watchable,user",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:uniqueness:user_id",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_active_user",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_user_allowed_to_watch",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "normalize_changed_in_place_attributes",
+          "model": "Watcher",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:presence:watchable,user",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:uniqueness:user_id",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_active_user",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_user_allowed_to_watch",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_watchable",
+          "model": "Watcher",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_user",
+          "model": "Watcher",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "call_after_create_hook",
+          "model": "WorkPackage",
+          "phase": "after_commit",
+          "tx_depth": 0
+        }
+      ],
+      "name": "create_admin",
+      "persisted": true,
+      "row_deltas": {
+        "journals": 1,
+        "watchers": 1,
+        "work_package_journals": 1,
+        "work_packages": 1
+      },
+      "service": "WorkPackages::CreateService",
+      "success": true,
+      "user": "admin"
+    },
+    {
+      "ar_errors_after_persist": [],
+      "ar_valid_after_persist": true,
+      "changed_attributes": [
+        "author_id",
+        "created_at",
+        "id",
+        "parent_id",
+        "position",
+        "priority_id",
+        "project_id",
+        "status_id",
+        "subject",
+        "type_id",
+        "updated_at"
+      ],
+      "enqueued_jobs": [
+        "Journals::CompletedJob",
+        "Notifications::WorkflowJob",
+        "WorkPackages::WorkflowJob"
+      ],
+      "errors": {},
+      "journal": [
+        {
+          "callback": "normalize_changed_in_place_attributes",
+          "model": "WorkPackage",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "check_top_position",
+          "model": "WorkPackage",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_semantic_aliases",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_semantic_identifier_fields",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:presence:priority,project,type,author,status",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:inclusion:done_ratio",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:done_ratio",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:estimated_hours",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:remaining_hours",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:derived_remaining_hours",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:date:due_date",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:date:start_date",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:inclusion:origin_source",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_work_package_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_target_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_observed_in_versions",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_work_package_categories",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_categories",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_follows_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_precedes_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_blocks_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_duplicates_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_duplicated_relations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_members",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_member_principals",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_reminders",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_labelings",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_labels",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_label_id_replacements",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_time_entries",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_file_links",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_storages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_changesets_workpackages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_changesets",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_github_pull_requests_workpackages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_github_pull_requests",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_meeting_agenda_items",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_meeting_outcomes",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_meetings",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_custom_values",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ct_validate",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_children",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_ancestor_hierarchies",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_self_and_ancestors",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_descendant_hierarchies",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_self_and_descendants",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_paper_trail_audits",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_attachments",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_attachments_claimable",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_journals",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_cost_entries",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:numericality:story_points",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_branches",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_commit_work_packages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_commits",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_issue_work_packages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_issues",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_merge_request_work_packages",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_repository_merge_requests",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_budget",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_associated_records_for_allocated_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ensure_no_duplicate_errors",
+          "model": "WorkPackage",
+          "phase": "after_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "mirror_category_replacements_to_category_id",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "abort_save_with_label_names",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_project",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_type",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_status",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_author",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_assigned_to",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_responsible",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_project_phase_definition",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_priority",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_category",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "close_duplicates",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "update_done_ratio_from_status",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "ensure_custom_values_complete",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ct_before_save",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_parent",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_sprint",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_backlog_bucket",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_budget",
+          "model": "WorkPackage",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "around_save_collection_association",
+          "model": "WorkPackage",
+          "phase": "around_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "default_assign",
+          "model": "WorkPackage",
+          "phase": "before_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "avoid_collision",
+          "model": "WorkPackage",
+          "phase": "before_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_semantic_aliases",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_work_package_versions",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_versions",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_target_versions",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_observed_in_versions",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_work_package_categories",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_categories",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_follows_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_precedes_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_blocks_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_duplicates_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_duplicated_relations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_members",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_member_principals",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_reminders",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_labelings",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_labels",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_time_entries",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_changesets_workpackages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_changesets",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_github_pull_requests_workpackages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_github_pull_requests",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_meeting_agenda_items",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_meeting_outcomes",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_meetings",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_watchers",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_watcher_users",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_custom_values",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_children",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_ancestor_hierarchies",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_self_and_ancestors",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_descendant_hierarchies",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_self_and_descendants",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_paper_trail_audits",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_attachments",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_journals",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_cost_entries",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_branches",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_commit_work_packages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_commits",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_issue_work_packages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_issues",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_merge_request_work_packages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_repository_merge_requests",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_allocated_resource_allocations",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_file_links",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_storages",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_bcf_issue",
+          "model": "WorkPackage",
+          "phase": "after_create",
+          "tx_depth": 1
+        },
+        {
+          "callback": "persist_version_associations",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "persist_category_associations",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "persist_label_associations",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "touch_customizable",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "reset_custom_values_change_tracker",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "_ct_after_save",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "normalize_changed_in_place_attributes",
+          "model": "WorkPackageHierarchy",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_ancestor",
+          "model": "WorkPackageHierarchy",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_descendant",
+          "model": "WorkPackageHierarchy",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "persist_attachments_claimed",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "save_journals",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "clear_scope_changed",
+          "model": "WorkPackage",
+          "phase": "after_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "normalize_changed_in_place_attributes",
+          "model": "Watcher",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:presence:watchable,user",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:uniqueness:user_id",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_active_user",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_user_allowed_to_watch",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "normalize_changed_in_place_attributes",
+          "model": "Watcher",
+          "phase": "before_validation",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:presence:watchable,user",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validates:uniqueness:user_id",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_active_user",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "validate_user_allowed_to_watch",
+          "model": "Watcher",
+          "phase": "before_validate",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_watchable",
+          "model": "Watcher",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "autosave_associated_records_for_user",
+          "model": "Watcher",
+          "phase": "before_save",
+          "tx_depth": 1
+        },
+        {
+          "callback": "call_after_create_hook",
+          "model": "WorkPackage",
+          "phase": "after_commit",
+          "tx_depth": 0
+        }
+      ],
+      "name": "create_child_of_automatic_parent",
+      "persisted": true,
+      "row_deltas": {
+        "journals": 1,
+        "watchers": 1,
+        "work_package_journals": 1,
+        "work_packages": 1
+      },
+      "service": "WorkPackages::CreateService",
+      "success": true,
+      "user": "member"
+    }
+  ],
+  "journal_limits": [
+    "Proc callbacks run but are not named in the journal",
+    "tx_depth is ActiveRecord open_transactions at the callback; 0 means outside any transaction"
+  ],
+  "source": {
+    "rails": "8.1.4.1",
+    "repo": "AdaWorldAPI/openproject",
+    "rev": "2725194454c895dfab6ff2685d9688b0cba53068",
+    "ruby": "4.0.10"
+  },
+  "stubs": [
+    "ActionMailer::Base.delivery_method = :test (no mail is delivered)",
+    "ActiveJob::Base.queue_adapter = :test (no job is performed; enqueued job classes are recorded)",
+    "Rails.cache replaced by ActiveSupport::Cache::NullStore",
+    "RequestStore cleared between cases"
+  ]
+}
