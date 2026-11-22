@@ -267,6 +267,26 @@ fn resolve_bind_addr(env_port: Option<String>, fallback: SocketAddr) -> anyhow::
 }
 
 /// Initialize tracing/logging
+/// The request span for `TraceLayer`, recording the path but never the query.
+///
+/// tower-http's default span records the full URI. With sign-in on, that puts
+/// the OIDC `code` and `state` of every `/auth/callback?code=…&state=…` into
+/// the logs (the default filter enables `tower_http=debug`). web-login
+/// promises that codes never reach the logs, so the span must not either.
+fn request_span<B>(req: &axum::http::Request<B>) -> tracing::Span {
+    tracing::debug_span!(
+        "request",
+        method = %req.method(),
+        path = %logged_path(req.uri()),
+        version = ?req.version(),
+    )
+}
+
+/// The part of a request URI that may be logged: the path, without the query.
+fn logged_path(uri: &axum::http::Uri) -> &str {
+    uri.path()
+}
+
 fn init_tracing() {
     tracing_subscriber::registry()
         .with(
@@ -386,7 +406,7 @@ fn build_router_with(
     router
         .layer(
             ServiceBuilder::new()
-                .layer(TraceLayer::new_for_http())
+                .layer(TraceLayer::new_for_http().make_span_with(request_span))
                 .layer(CompressionLayer::new())
                 .layer(
                     CorsLayer::new()
@@ -548,5 +568,20 @@ mod tests {
                 "input {bad:?} should yield a diagnostic naming the value; got {msg}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod request_span_tests {
+    use super::logged_path;
+
+    #[test]
+    fn the_logged_path_drops_the_oidc_callback_query() {
+        let uri: axum::http::Uri = "/auth/callback?code=SECRET-CODE&state=SECRET-STATE"
+            .parse()
+            .expect("valid uri");
+        let logged = logged_path(&uri);
+        assert_eq!(logged, "/auth/callback");
+        assert!(!logged.contains("SECRET"), "{logged}");
     }
 }
