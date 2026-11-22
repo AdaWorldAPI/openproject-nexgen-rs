@@ -56,10 +56,18 @@ What the four cases show, and what they do not:
   runs at transaction depth 0, after the commit.
 - Without permissions the contract refuses before any save: 65 validation-phase
   callbacks, no row written.
-- `ar_valid_after_persist` is true in every successful case, so these fixtures do
-  not yet separate the contract's validation from ActiveRecord's: the
-  `save(validate: false)` boundary is observable but not exercised. A case whose
-  record passes the contract and fails model validation is still needed.
+- `ar_valid_after_persist` is true in every successful case, and for this service it
+  must be: `ModelContract#valid?` runs `model.valid?` before the contract's own
+  validations (`app/contracts/model_contract.rb:85-88`) unless the contract sets
+  `validate_model?` to false, and `WorkPackages::CreateContract` / `UpdateContract`
+  do not. The model validations have therefore already run when
+  `create_service.rb:64` saves with `validate: false`; the skip avoids running them
+  twice, it does not drop them. The contract is the superset (model validations +
+  writable/permission checks + its own `validate` rules), so a port that copies only
+  the model validations loses the contract half. The contracts that genuinely skip
+  model validation are `WorkPackages::CreateNoteContract` and
+  `WorkPackages::CopyProjectContract` (`validate_model? = false`); a case through one
+  of them is the one that separates the two.
 - `create_child_of_automatic_parent` journals exactly what a parentless create
   does: with no dates or work on either record the ancestor update saves nothing,
   so the `validate: false` saves in `update_ancestors_service.rb` are not exercised.
