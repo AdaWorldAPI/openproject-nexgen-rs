@@ -107,3 +107,12 @@ parking_lot = "0.12"
 dashmap = "5.5"
 regex = "1.10"
 url = "2.5"
+
+# Temporary: ruff_ruby_spo::extract_contract_guards (used by
+# op-codegen-pipeline/tests/guard_differential.rs, merged in #119) is on ruff
+# branch claude/ruby-contract-guards (ruff PR #151), not yet on ruff main.
+# A patch, not a per-crate branch pin, so every crate that pulls ruff gets
+# the same source. Remove this block once ruff #151 merges.
+[patch."https://github.com/AdaWorldAPI/ruff"]
+ruff_ruby_spo    = { git = "https://www.github.com/AdaWorldAPI/ruff", branch = "claude/ruby-contract-guards" }
+ruff_spo_triplet = { git = "https://www.github.com/AdaWorldAPI/ruff", branch = "claude/ruby-contract-guards" }
