@@ -34,8 +34,7 @@ fn extract_triples_produces_locked_shape() {
     // — the model-stratum-only `extract_triples` never populates fields
     // (D-AR-3 stub, by doctrine: AR models carry no fields on their own).
     let (triples, report) = extract_triples_with_schema(&fixture_tree());
-    let has =
-        |s: &str, p: &str, o: &str| triples.iter().any(|t| t.s == s && t.p == p && t.o == o);
+    let has = |s: &str, p: &str, o: &str| triples.iter().any(|t| t.s == s && t.p == p && t.o == o);
 
     assert_eq!(report.columns_from, "baseline-only");
     assert_eq!(report.tables_seen, 2, "work_packages.rb + time_entries.rb");
@@ -44,7 +43,11 @@ fn extract_triples_produces_locked_shape() {
 
     // Spot-check the locked shape (same assertions as the integration test in
     // ruff_ruby_spo, here exercised through the OP entry point).
-    assert!(has("openproject:WorkPackage", "rdf:type", "ogit:ObjectType"));
+    assert!(has(
+        "openproject:WorkPackage",
+        "rdf:type",
+        "ogit:ObjectType"
+    ));
     assert!(has(
         "openproject:WorkPackage.compute_total_hours",
         "raises",
@@ -68,8 +71,16 @@ fn filter_to_core_keeps_fixture_models() {
     let mut g = extract_graph(&fixture_tree());
     let before = g.models.len();
     filter_to_core(&mut g);
-    assert_eq!(g.models.len(), before, "fixture is all core, nothing dropped");
-    assert!(g.models.iter().all(|m| CORE_V3_RESOURCES.contains(&m.name.as_str())));
+    assert_eq!(
+        g.models.len(),
+        before,
+        "fixture is all core, nothing dropped"
+    );
+    assert!(
+        g.models
+            .iter()
+            .all(|m| CORE_V3_RESOURCES.contains(&m.name.as_str()))
+    );
 }
 
 #[test]
@@ -79,8 +90,12 @@ fn extract_core_triples_matches_extract_triples_on_pure_core_fixture() {
     // is preserved by both paths but we don't depend on that here).
     let mut full = extract_triples(&fixture_tree());
     let mut core = extract_core_triples(&fixture_tree());
-    full.sort_by(|a, b| (a.s.as_str(), a.p.as_str(), a.o.as_str()).cmp(&(b.s.as_str(), b.p.as_str(), b.o.as_str())));
-    core.sort_by(|a, b| (a.s.as_str(), a.p.as_str(), a.o.as_str()).cmp(&(b.s.as_str(), b.p.as_str(), b.o.as_str())));
+    full.sort_by(|a, b| {
+        (a.s.as_str(), a.p.as_str(), a.o.as_str()).cmp(&(b.s.as_str(), b.p.as_str(), b.o.as_str()))
+    });
+    core.sort_by(|a, b| {
+        (a.s.as_str(), a.p.as_str(), a.o.as_str()).cmp(&(b.s.as_str(), b.p.as_str(), b.o.as_str()))
+    });
     assert_eq!(full.len(), core.len());
     for (a, b) in full.iter().zip(core.iter()) {
         assert_eq!((&a.s, &a.p, &a.o), (&b.s, &b.p, &b.o));

@@ -23,9 +23,9 @@
 
 use std::path::Path;
 
+use ogar_vocab::ports::OpenProjectPort;
 use op_codegen_pipeline::ogar_consumer::compile_op;
 use op_codegen_pipeline::{filter_to_core, CORE_V3_RESOURCES, NAMESPACE};
-use ogar_vocab::ports::OpenProjectPort;
 
 #[test]
 fn harvest_denominator_probe() {
@@ -71,7 +71,10 @@ fn harvest_denominator_probe() {
 
     eprintln!("== WAVE 0 — harvest-denominator smoke probe (OpenProject corpus) ==");
     eprintln!("total_models_extracted (pre-filter_to_core): {total_models_extracted}");
-    eprintln!("core_classes (post-filter_to_core, compiled): {core_classes} of {}", CORE_V3_RESOURCES.len());
+    eprintln!(
+        "core_classes (post-filter_to_core, compiled): {core_classes} of {}",
+        CORE_V3_RESOURCES.len()
+    );
     eprintln!("core resources DROPPED (curated but not extract+compiled): {dropped:?}");
     eprintln!("sum_fields (Σ attributes+associations over compiled classes): {sum_fields}");
     eprintln!("sum_actions (Σ .actions.len() over compiled classes): {sum_actions}");
@@ -87,7 +90,10 @@ fn harvest_denominator_probe() {
         "core_classes drifted from the pinned 16-of-18 baseline; check `dropped` — a \
          curated resource stopped surviving extract+compile"
     );
-    assert!(sum_actions > 0, "sum_actions is zero — harvest regression (no ActionDefs lifted)");
+    assert!(
+        sum_actions > 0,
+        "sum_actions is zero — harvest regression (no ActionDefs lifted)"
+    );
 
     // DRIFT FUSE — EXPECTED to blow when the W3 migration-replay schema
     // stratum lands (it changes both the model census and WorkPackage's

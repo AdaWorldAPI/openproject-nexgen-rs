@@ -241,7 +241,13 @@ fn rails_test_leg_body_triage() {
     eprintln!("hooks total (lifecycle, phase-filtered): {}", c.total());
     eprintln!(
         "verb-classes: guard-pure {} / compute-pure {} / self-feedback {} / write+raise {} / read-only {} / no-facts {} / blocks {}",
-        c.guard_pure, c.compute_pure, c.self_feedback, c.write_raise, c.read_only, c.no_facts, c.blocks
+        c.guard_pure,
+        c.compute_pure,
+        c.self_feedback,
+        c.write_raise,
+        c.read_only,
+        c.no_facts,
+        c.blocks
     );
     eprintln!(
         "behavioural arm {}: PASS {} ({:.1}%) order-free recoverable / FAIL {} ({:.1}%) order-dependent tail",
@@ -283,7 +289,6 @@ fn rails_test_leg_body_triage() {
         );
     }
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────
 // PROBE-OGAR-RECIPE-CODEBOOK — the "rolling bucket" refinement of F17.
@@ -419,8 +424,13 @@ fn rails_recipe_codebook_correlation() {
     let n = |k: &str| *hist.get(k).unwrap_or(&0);
     // Behavioural arm = everything with facts except pure Observe/Empty.
     // J1 split the old `SelfMap` bucket into `Default` + `Normalize`.
-    let arm = n("Cascade") + n("Compute") + n("Default") + n("Normalize") + n("Guard")
-        + n("Compensate") + n("WriteRaise");
+    let arm = n("Cascade")
+        + n("Compute")
+        + n("Default")
+        + n("Normalize")
+        + n("Guard")
+        + n("Compensate")
+        + n("WriteRaise");
     let essential = n("Compensate") + n("WriteRaise");
     let recoverable = arm - essential;
     let upper = 100.0 * recoverable as f64 / arm as f64;

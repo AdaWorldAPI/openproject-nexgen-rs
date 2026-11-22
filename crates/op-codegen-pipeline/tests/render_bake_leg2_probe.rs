@@ -44,7 +44,7 @@ use std::path::{Path, PathBuf};
 use lance_graph_contract::class_view::{FieldMask, WideFieldMask};
 use ogar_render_askama::{render_class_with_methods, render_class_with_methods_wide};
 use ogar_vocab::Class;
-use ruff_ruby_spo::{RepresenterFieldSet, extract_representer_field_sets};
+use ruff_ruby_spo::{extract_representer_field_sets, RepresenterFieldSet};
 
 /// `Issue` -> `issue`, `WorkPackage` -> `work_package` — the conventional
 /// Rails receiver ident. Also doubles as the camelCase-decl-name -> snake
@@ -310,7 +310,10 @@ fn render_bake_leg2_op_representers() {
         "== render bake leg 2 ({ns}) == {} representer files with declarations under lib/api/v3",
         sets.len()
     );
-    assert!(!sets.is_empty(), "no representer field sets — extractor regression");
+    assert!(
+        !sets.is_empty(),
+        "no representer field sets — extractor regression"
+    );
 
     // 3+4. File -> model mapping, field resolution, masks + parity.
     let mut rows: Vec<Leg2Row> = Vec::new();
@@ -494,8 +497,8 @@ fn render_bake_leg2_op_representers() {
     }
 
     // CONV-1 — Jaccard(Redmine-Issue [leg 1 artifact, C4-renamed], OP-WorkPackage [this leg]).
-    let leg1_masks_path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude/harvest/redmine-view-bake/masks.ndjson");
+    let leg1_masks_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.claude/harvest/redmine-view-bake/masks.ndjson");
     let leg1_content = std::fs::read_to_string(&leg1_masks_path).unwrap_or_else(|e| {
         panic!(
             "CONV-1: failed to read committed leg-1 artifact {}: {e}",
@@ -513,8 +516,12 @@ fn render_bake_leg2_op_representers() {
 
     let seed_path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude/harvest/c4-rename-seed.ndjson");
-    let seed_content = std::fs::read_to_string(&seed_path)
-        .unwrap_or_else(|e| panic!("CONV-1: failed to read C4 rename seed {}: {e}", seed_path.display()));
+    let seed_content = std::fs::read_to_string(&seed_path).unwrap_or_else(|e| {
+        panic!(
+            "CONV-1: failed to read C4 rename seed {}: {e}",
+            seed_path.display()
+        )
+    });
     let mut rename_map: BTreeMap<String, String> = BTreeMap::new();
     for line in seed_content.lines() {
         if line.trim().is_empty() {
@@ -549,15 +556,24 @@ fn render_bake_leg2_op_representers() {
         .flat_map(|r| r.present.iter().cloned())
         .collect();
 
-    let intersection: Vec<String> = redmine_after_rename.intersection(&op_fields).cloned().collect();
+    let intersection: Vec<String> = redmine_after_rename
+        .intersection(&op_fields)
+        .cloned()
+        .collect();
     let union_count = redmine_after_rename.union(&op_fields).count();
     let jaccard = if union_count == 0 {
         0.0
     } else {
         intersection.len() as f64 / union_count as f64
     };
-    let redmine_only: Vec<String> = redmine_after_rename.difference(&op_fields).cloned().collect();
-    let op_only: Vec<String> = op_fields.difference(&redmine_after_rename).cloned().collect();
+    let redmine_only: Vec<String> = redmine_after_rename
+        .difference(&op_fields)
+        .cloned()
+        .collect();
+    let op_only: Vec<String> = op_fields
+        .difference(&redmine_after_rename)
+        .cloned()
+        .collect();
 
     eprintln!(
         "CONV-1: jaccard={jaccard:.3} intersection={intersection:?} redmine_only={redmine_only:?} \
@@ -609,7 +625,8 @@ fn render_bake_leg2_op_representers() {
 
     // 5. Park the artifact when asked.
     if std::env::var_os("BAKE_OUT").is_some() {
-        let out = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude/harvest/op-representer-bake");
+        let out =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude/harvest/op-representer-bake");
         std::fs::create_dir_all(out.join("samples")).unwrap();
 
         let mut order = String::new();

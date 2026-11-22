@@ -61,24 +61,24 @@ pub const NAMESPACE: &str = ruff_ruby_spo::NAMESPACE;
 /// filtering follows the *input* order (which `ruff_ruby_spo::extract`
 /// produces sorted by class name — also stable), independent of this list.
 pub const CORE_V3_RESOURCES: &[&str] = &[
-    "Activity",     // partial coverage (op-db row type)
-    "Attachment",   // partial
-    "Category",     // partial
-    "Journal",      // partial
-    "Member",       // core (op-models)
-    "News",         // core
-    "Priority",     // core
-    "Project",      // core
-    "Query",        // partial
-    "Relation",     // partial
-    "Role",         // core
-    "Status",       // core
-    "TimeEntry",    // core
-    "Type",         // core
-    "User",         // core
-    "Version",      // core
-    "Watcher",      // partial
-    "WorkPackage",  // core
+    "Activity",    // partial coverage (op-db row type)
+    "Attachment",  // partial
+    "Category",    // partial
+    "Journal",     // partial
+    "Member",      // core (op-models)
+    "News",        // core
+    "Priority",    // core
+    "Project",     // core
+    "Query",       // partial
+    "Relation",    // partial
+    "Role",        // core
+    "Status",      // core
+    "TimeEntry",   // core
+    "Type",        // core
+    "User",        // core
+    "Version",     // core
+    "Watcher",     // partial
+    "WorkPackage", // core
 ];
 
 /// Extract an OpenProject Rails source tree into a [`ModelGraph`].
