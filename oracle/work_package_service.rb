@@ -75,14 +75,18 @@ ActiveRecord::Base.descendants.each do |klass|
   klass.__callbacks.each do |chain, callbacks|
     callbacks.each do |cb|
       f = cb.filter
-      kind = cb.kind
       case f
       when Symbol
-        next if instrumented.include?([klass, f, chain])
+        # One method can be registered on several chains (autosave callbacks are
+        # both after_create and after_update), so the label is read from the chain
+        # that is running, never from the registration being wrapped.
+        next if instrumented.include?([klass, f])
 
-        instrumented << [klass, f, chain]
+        instrumented << [klass, f]
         methods.define_method(f) do |*args, **kw, &blk|
-          journal(self, chain, kind, f.to_s)
+          ch = $chain_stack.last
+          slot = self.class.__callbacks[ch]&.find { |c| c.filter == f }&.kind || :unknown
+          journal(self, ch, slot, f.to_s)
           super(*args, **kw, &blk)
         end
       when Proc
@@ -138,7 +142,7 @@ def member_user(project, permissions = PERMISSIONS)
 end
 
 def params_for(project, extra = {})
-  { subject: "oracle subject", project:, type: project.types.first,
+  { subject: "oracle subject", project:, type: project.enabled_types.first,
     status: Status.default || create(:default_status), priority: IssuePriority.default || create(:default_priority) }.merge(extra)
 end
 
@@ -162,7 +166,20 @@ CASES = {
   }
 }.freeze
 
+# Each case commits; the next case starts from an empty database so committed
+# fixture rows (types, statuses, priorities with fixed names) cannot collide.
+KEEP_TABLES = %w[schema_migrations ar_internal_metadata].freeze
+
+def reset_db!
+  conn = ActiveRecord::Base.connection
+  tables = conn.tables - KEEP_TABLES
+  conn.execute("TRUNCATE #{tables.map { |t| conn.quote_table_name(t) }.join(', ')} RESTART IDENTITY CASCADE")
+end
+
+abort "refusing to run: work_packages is not empty (use a disposable database)" unless WorkPackage.none?
+
 cases = CASES.map do |name, builder|
+  reset_db!
   RequestStore.clear! if defined?(RequestStore)
   User.current = nil
   user, label, params = builder.call
