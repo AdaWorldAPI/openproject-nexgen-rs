@@ -1,6 +1,15 @@
 //! OpenProject RS Server
 //!
 //! Production-ready HTTP server for OpenProject Rust implementation.
+//!
+//! ## Sign-in (optional)
+//!
+//! With `OP_SIGNIN_OIDC_ISSUER` unset the server serves exactly as before. With it set,
+//! people sign in at Zitadel (`/auth/login`, `/auth/callback`, `/auth/logout`) and the
+//! rendered pages (board, work packages, projects) require a session; `/health*`,
+//! `/metrics*` and the `/api/v3` JSON API are not covered by the page sign-in. The
+//! variables, and the sign-in map that turns provider role keys into an OpenProject role,
+//! are documented in [`signin_config`] and [`signin_map`].
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -23,6 +32,12 @@ mod health;
 mod layout;
 mod metrics;
 mod nav;
+mod signin;
+mod signin_config;
+mod signin_gate;
+mod signin_map;
+#[cfg(test)]
+mod signin_tests;
 mod viewfilter;
 
 use health::{AppState, HealthChecker, HealthConfig};
@@ -186,8 +201,17 @@ async fn main() -> anyhow::Result<()> {
         db: db.map(|d| d.pool().clone()),
     });
 
+    // Sign-in is on only when OP_SIGNIN_OIDC_ISSUER is set; a half-configured sign-in
+    // stops the start instead of serving open pages.
+    let signin = signin_config::Settings::from_env(|k| std::env::var(k).ok())
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+        .map(|s| s.into_gate(Box::new(web_login::ReqwestHttp::new())))
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    info!(signin = signin.is_some(), "Sign-in");
+
     // Build router
-    let app = build_router(app_state.clone(), metrics.clone());
+    let app = build_router_with(app_state.clone(), metrics.clone(), signin);
 
     // Start server — honor $PORT for PaaS deploys (Railway / Heroku / Cloud Run /
     // Fly route their public edge to $PORT; the app must bind 0.0.0.0:$PORT or the
@@ -259,10 +283,20 @@ fn init_tracing() {
         .init();
 }
 
-/// Build the application router
+#[cfg(test)]
 fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
-    // Health check routes (no auth required)
-    let health_routes = Router::new()
+    build_router_with(state, metrics, None)
+}
+
+/// Build the application router, with the optional page sign-in. `None`: the router is what
+/// it was before the sign-in existed.
+fn build_router_with(
+    state: Arc<AppState>,
+    metrics: Arc<Metrics>,
+    signin: Option<signin_gate::Gate>,
+) -> Router {
+    // The rendered pages — the only routes the page sign-in covers.
+    let page_routes = Router::new()
         // The OGAR render-bake kanban board — a server-rendered HTML view
         // instead of a bare 404 / JSON landing page at the domain root.
         .route("/", get(board::board_page))
@@ -280,6 +314,14 @@ fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
             "/projects/:id/edit",
             get(board::project_edit_form).post(board::project_update),
         )
+        .with_state(state.clone());
+    let page_routes = match &signin {
+        Some(gate) => gate.protect(page_routes),
+        None => page_routes,
+    };
+
+    // Health check routes (no auth required)
+    let health_routes = Router::new()
         .route("/health", get(health::default_health_check))
         .route("/health_checks/default", get(health::default_health_check))
         .route("/health/live", get(health::liveness))
@@ -333,10 +375,15 @@ fn build_router(state: Arc<AppState>, metrics: Arc<Metrics>) -> Router {
     });
 
     // Main router
-    Router::new()
+    let mut router = Router::new()
+        .merge(page_routes)
         .merge(health_routes)
         .merge(metrics_routes)
-        .merge(openproject_api)
+        .merge(openproject_api);
+    if let Some(gate) = &signin {
+        router = router.merge(gate.routes());
+    }
+    router
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
