@@ -4,6 +4,18 @@
 //! compared with the declarations ruff harvests from the Rails class bodies
 //! (`ruff_ruby_spo::events`, ordered, with `if:` / `unless:` / `on:` options).
 //!
+//! Declarations come from `ruff_ruby_spo::events::source_ore_from` (classes and
+//! concern modules, with `included do` bodies, `includes` and `superclass`).
+//! Callbacks ActiveRecord generates from association macros come from
+//! `ruff_ruby_spo::rails_generated::derive`; they match like declared ones but
+//! are counted apart and carry the association and the Rails rule that
+//! registered them. Rules `derive` cannot decide are `Slag::GeneratedUndecided`.
+//!
+//! The test also rebuilds the order Rails registers each chain in (superclass
+//! first, `include` at its statement, a concern's dependencies before its
+//! `included` block, generated callbacks at their association) and compares it
+//! with the order the trace recorded. Differences are printed, not asserted.
+//!
 //! The contract arm (`writable:` guards) is a separate differential; see
 //! `oracle/README.md` for how the two relate.
 //!
@@ -26,14 +38,19 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use lib_ruby_parser::{Node, Parser, ParserOptions};
-use ruff_ruby_spo::events::{class_ore, Symbols};
+use ruff_ruby_spo::events::{source_ore_from, ClassOre, DeclOrigin, RailsEvent, Symbols};
+use ruff_ruby_spo::rails_generated::{
+    derive, Chain as GenChain, Filter as GenFilter, Generated, Kind as GenKind, RailsDefaults,
+};
 use ruff_ruby_spo::Declaration;
 use ruff_spo_triplet::{AssocKind, ConcernKind, ValidationKind};
 use serde_json::Value;
 
 /// Distinct journal entries matched to a declaration, measured on the committed trace.
-const MATCHED_FLOOR: usize = 24;
+const MATCHED_FLOOR: usize = 89;
+
+/// Of those, entries that match only through a generated callback.
+const MATCHED_GENERATED_FLOOR: usize = 65;
 
 /// Directories (relative to the checkout) a Zeitwerk constant is looked up in.
 const WALKED_ROOTS: &[&str] = &["app/models", "app/models/concerns", "lib"];
@@ -102,6 +119,12 @@ enum Slag {
     /// The record's class has no file to harvest: it is generated at runtime
     /// (closure_tree's `WorkPackageHierarchy`). Stage: Rails/gem polyfill.
     ModelWithoutClassFile,
+    /// `rails_generated::derive` returned `Undecided` for the association that
+    /// causes this callback: a rule applies but an option or application
+    /// setting is not a literal (a `has_and_belongs_to_many` middle model's
+    /// name needs the inflector). Stage: ruff extension (evaluate the option)
+    /// or `RailsDefaults`.
+    GeneratedUndecided,
 }
 
 impl Slag {
@@ -119,6 +142,7 @@ impl Slag {
             Slag::ValidatorFromFramework,
             Slag::ValidatesWithUndeclared,
             Slag::ModelWithoutClassFile,
+            Slag::GeneratedUndecided,
         ]
     }
 }
@@ -189,120 +213,6 @@ fn trace() -> Value {
 // Harvest: classes and concern modules -> ordered declarations
 // ─────────────────────────────────────────────────────────────────────────
 
-/// One class or module in a file, with every declaration ruff harvests from it.
-/// For a module, the declarations include those inside `included do ... end`.
-struct Unit {
-    name: String,
-    superclass: Option<String>,
-    decls: Vec<Declaration>,
-}
-
-fn const_name(node: &Node) -> Option<String> {
-    match node {
-        Node::Const(c) => {
-            let base = c.scope.as_deref().and_then(const_name);
-            Some(base.map_or_else(|| c.name.clone(), |b| format!("{b}::{}", c.name)))
-        }
-        _ => None,
-    }
-}
-
-/// Bodies of `included do ... end` blocks that are direct statements of a module body.
-fn included_bodies(body: &Node) -> Vec<&Node> {
-    let stmts: Vec<&Node> = match body {
-        Node::Begin(b) => b.statements.iter().collect(),
-        single => vec![single],
-    };
-    let mut out = Vec::new();
-    for s in stmts {
-        if let Node::Block(blk) = s {
-            if let Node::Send(call) = &*blk.call {
-                if call.recv.is_none() && call.method_name == "included" {
-                    if let Some(b) = blk.body.as_deref() {
-                        out.push(b);
-                    }
-                }
-            }
-        }
-    }
-    out
-}
-
-fn collect_units(node: &Node, ns: &[String], syms: &mut Symbols, out: &mut Vec<Unit>) {
-    match node {
-        Node::Begin(b) => {
-            for s in &b.statements {
-                collect_units(s, ns, syms, out);
-            }
-        }
-        Node::Module(m) => {
-            let mut nested = ns.to_vec();
-            let local = const_name(&m.name).unwrap_or_default();
-            nested.push(local);
-            let qualified = nested.join("::");
-            if let Some(body) = m.body.as_deref() {
-                let mut decls: Vec<Declaration> = class_ore(&qualified, &qualified, body, syms)
-                    .declarations
-                    .into_iter()
-                    .map(|e| e.decl)
-                    .collect();
-                for inc in included_bodies(body) {
-                    decls.extend(
-                        class_ore(&qualified, &qualified, inc, syms)
-                            .declarations
-                            .into_iter()
-                            .map(|e| e.decl),
-                    );
-                }
-                out.push(Unit {
-                    name: qualified,
-                    superclass: None,
-                    decls,
-                });
-                collect_units(body, &nested, syms, out);
-            }
-        }
-        Node::Class(c) => {
-            let local = const_name(&c.name).unwrap_or_default();
-            let qualified = if ns.is_empty() {
-                local.clone()
-            } else {
-                format!("{}::{local}", ns.join("::"))
-            };
-            if let Some(body) = c.body.as_deref() {
-                let decls = class_ore(&qualified, &qualified, body, syms)
-                    .declarations
-                    .into_iter()
-                    .map(|e| e.decl)
-                    .collect();
-                out.push(Unit {
-                    name: qualified,
-                    superclass: c.superclass.as_deref().and_then(const_name),
-                    decls,
-                });
-                let mut nested = ns.to_vec();
-                nested.push(local);
-                collect_units(body, &nested, syms, out);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn parse_units(src: &str) -> Vec<Unit> {
-    let options = ParserOptions {
-        buffer_name: "<callback-differential>".to_string(),
-        ..Default::default()
-    };
-    let Some(ast) = Parser::new(src.as_bytes().to_vec(), options).do_parse().ast else {
-        return Vec::new();
-    };
-    let mut syms = Symbols::default();
-    let mut out = Vec::new();
-    collect_units(&ast, &[], &mut syms, &mut out);
-    out
-}
-
 /// `WorkPackage::SchedulingRules` -> `work_package/scheduling_rules`.
 fn underscore(name: &str) -> String {
     let mut out = String::new();
@@ -334,19 +244,18 @@ fn underscore(name: &str) -> String {
     out
 }
 
-/// A class or module found in a walked root and its harvested declarations.
+/// A class or module found in a walked root and its harvested ore.
 struct Ancestor {
     name: String,
     file: String,
-    decls: Vec<Declaration>,
+    ore: ClassOre,
 }
-
-/// `(name, superclass, declarations)` of each class or module in one file.
-type FileUnits = Vec<(String, Option<String>, Vec<Declaration>)>;
 
 struct Harvest {
     src: PathBuf,
-    cache: BTreeMap<String, FileUnits>,
+    /// File -> every class and module in it (`source_ore_from`: modules carry
+    /// their `included do` declarations, `includes` and `superclass`).
+    cache: BTreeMap<String, Vec<ClassOre>>,
     /// Include targets the walk could not find a unit for, with the includer.
     unresolved: Vec<(String, String)>,
 }
@@ -360,31 +269,25 @@ impl Harvest {
         }
     }
 
-    fn load(&mut self, rel: &str) -> &FileUnits {
+    fn load(&mut self, rel: &str) -> &Vec<ClassOre> {
         if !self.cache.contains_key(rel) {
             let text = std::fs::read_to_string(self.src.join(rel)).unwrap_or_default();
-            let units = parse_units(&text)
-                .into_iter()
-                .map(|u| (u.name, u.superclass, u.decls))
-                .collect();
+            let mut syms = Symbols::default();
+            let units = source_ore_from(rel, &text, "op", &mut syms);
             self.cache.insert(rel.to_string(), units);
         }
         &self.cache[rel]
     }
 
     /// Find constant `name` in the walked roots.
-    fn find(&mut self, name: &str) -> Option<(String, Option<String>, Vec<Declaration>)> {
+    fn find(&mut self, name: &str) -> Option<(String, ClassOre)> {
         let path = format!("{}.rb", underscore(name));
         for root in WALKED_ROOTS {
             let rel = format!("{root}/{path}");
             if self.src.join(&rel).is_file() {
-                let hit = self
-                    .load(&rel)
-                    .iter()
-                    .find(|(n, _, _)| n == name)
-                    .map(|(_, s, d)| (s.clone(), d.clone()));
-                if let Some((s, d)) = hit {
-                    return Some((rel, s, d));
+                let hit = self.load(&rel).iter().find(|o| o.name == name).cloned();
+                if let Some(ore) = hit {
+                    return Some((rel, ore));
                 }
             }
         }
@@ -392,11 +295,7 @@ impl Harvest {
     }
 
     /// Resolve `module` as written inside `from`: innermost enclosing namespace first.
-    fn resolve(
-        &mut self,
-        from: &str,
-        module: &str,
-    ) -> Option<(String, String, Option<String>, Vec<Declaration>)> {
+    fn resolve(&mut self, from: &str, module: &str) -> Option<(String, String, ClassOre)> {
         let module = module.trim_start_matches("::");
         let mut ns: Vec<&str> = from.split("::").collect();
         loop {
@@ -405,8 +304,8 @@ impl Harvest {
             } else {
                 format!("{}::{module}", ns.join("::"))
             };
-            if let Some((file, s, d)) = self.find(&candidate) {
-                return Some((candidate, file, s, d));
+            if let Some((file, ore)) = self.find(&candidate) {
+                return Some((candidate, file, ore));
             }
             ns.pop()?;
         }
@@ -425,25 +324,33 @@ impl Harvest {
         if !seen.insert(name.to_string()) {
             return;
         }
-        let Some((file, superclass, decls)) = self.find(name) else {
+        let Some((file, ore)) = self.find(name) else {
             return;
         };
-        let includes: Vec<String> = decls
-            .iter()
-            .filter_map(|d| match d {
-                Declaration::Concern(c)
-                    if matches!(c.kind, ConcernKind::Include | ConcernKind::Prepend)
-                        && !c.module.is_empty() =>
-                {
-                    Some(c.module.clone())
-                }
-                _ => None,
-            })
-            .collect();
+        // A class's own include/prepend are `Concern` declarations; a module
+        // lists them in `includes` (and keeps the markers too, so dedupe).
+        let mut includes: Vec<String> = Vec::new();
+        let mut push = |kind: ConcernKind, module: &str| {
+            if matches!(kind, ConcernKind::Include | ConcernKind::Prepend)
+                && !module.is_empty()
+                && !includes.iter().any(|m| m == module)
+            {
+                includes.push(module.to_string());
+            }
+        };
+        for e in &ore.declarations {
+            if let Declaration::Concern(c) = &e.decl {
+                push(c.kind, &c.module);
+            }
+        }
+        for i in &ore.includes {
+            push(i.kind, &i.module);
+        }
+        let superclass = ore.superclass.clone();
         out.push(Ancestor {
             name: name.to_string(),
             file,
-            decls,
+            ore,
         });
         for m in includes {
             match self.resolve(name, &m) {
@@ -485,7 +392,36 @@ struct Declared {
     options: Vec<(String, String)>,
     /// `on:` implied by the macro name (`after_update_commit`).
     implied_on: Option<&'static str>,
+    /// `Some` when ActiveRecord generated this callback from an association
+    /// macro (`ruff_ruby_spo::rails_generated`), `None` when written in source.
+    generated: Option<GeneratedFrom>,
 }
+
+/// Provenance of a generated callback: the association declaration that caused
+/// it and the Rails rule (`file:line` in the vendored gem) that registers it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GeneratedFrom {
+    association: String,
+    rule: String,
+}
+
+/// `config.active_record.belongs_to_required_by_default` and
+/// `ActiveRecord.belongs_to_required_validates_foreign_key` as OpenProject
+/// (`2725194`) sets them, read from source:
+///
+/// - `belongs_to_required_by_default = false`: `config/application.rb:79`
+///   (explicit, overriding `load_defaults 6.1`, `config/application.rb:63`).
+/// - `belongs_to_required_validates_foreign_key = true`: not set by OpenProject
+///   (the 7.1 initializer line is commented out,
+///   `config/initializers/new_framework_defaults_7_1.rb:206`). `load_defaults 6.1`
+///   predates 7.1, so `railties-8.1.4.1/lib/rails/application/configuration.rb:285`
+///   (the only place that turns it off, inside the 7.1 branch) does not run, and
+///   the framework default stays: `activerecord-8.1.4.1/lib/active_record/railtie.rb:40`
+///   and `active_record.rb:352`.
+const OP_RAILS_DEFAULTS: RailsDefaults = RailsDefaults {
+    belongs_to_required_by_default: Some(false),
+    belongs_to_required_validates_foreign_key: Some(true),
+};
 
 const VALIDATES_COMMON_OPTIONS: &[&str] = &[
     "allow_nil",
@@ -515,9 +451,9 @@ fn split_phase(phase: &str) -> Option<(String, String, Option<&'static str>)> {
     Some((kind.to_string(), chain.to_string(), implied))
 }
 
-fn declared_of(origin: &str, decls: &[Declaration]) -> Vec<Declared> {
+fn declared_of(origin: &str, events: &[RailsEvent]) -> Vec<Declared> {
     let mut out = Vec::new();
-    for d in decls {
+    for d in events.iter().map(|e| &e.decl) {
         match d {
             Declaration::Callback(cb) => {
                 let Some((kind, chain, implied_on)) = split_phase(&cb.phase) else {
@@ -535,6 +471,7 @@ fn declared_of(origin: &str, decls: &[Declaration]) -> Vec<Declared> {
                     origin: origin.to_string(),
                     options: cb.options.clone(),
                     implied_on,
+                    generated: None,
                 });
             }
             Declaration::Validation(v) => {
@@ -567,6 +504,7 @@ fn declared_of(origin: &str, decls: &[Declaration]) -> Vec<Declared> {
                                 origin: origin.to_string(),
                                 options: v.options.clone(),
                                 implied_on: None,
+                                generated: None,
                             });
                         }
                         (Filter::Block, false)
@@ -583,6 +521,7 @@ fn declared_of(origin: &str, decls: &[Declaration]) -> Vec<Declared> {
                         origin: origin.to_string(),
                         options: v.options.clone(),
                         implied_on: None,
+                        generated: None,
                     });
                 }
             }
@@ -592,10 +531,80 @@ fn declared_of(origin: &str, decls: &[Declaration]) -> Vec<Declared> {
     out
 }
 
+/// What `rails_generated` returns for one ancestor, as matchable callbacks, plus
+/// the rules it could not decide.
+struct GeneratedOf {
+    /// Each generated callback with the seq of the declaration that caused it.
+    callbacks: Vec<(u32, Declared)>,
+    undecided: Vec<UndecidedRow>,
+}
+
+#[derive(Debug, Clone)]
+struct UndecidedRow {
+    origin: String,
+    association: String,
+    rule: String,
+    reason: String,
+}
+
+fn generated_of(origin: &str, ore: &ClassOre) -> GeneratedOf {
+    let mut out = GeneratedOf {
+        callbacks: Vec::new(),
+        undecided: Vec::new(),
+    };
+    for g in derive(&ore.declarations, OP_RAILS_DEFAULTS) {
+        match g {
+            Generated::Callback(cb) => {
+                let chain = match cb.chain {
+                    GenChain::Save => "save",
+                    GenChain::Create => "create",
+                    GenChain::Update => "update",
+                    GenChain::Validate => "validate",
+                    GenChain::Validation => "validation",
+                };
+                let kind = match cb.kind {
+                    GenKind::Before => "before",
+                    GenKind::After => "after",
+                    GenKind::Around => "around",
+                };
+                let filter = match cb.filter {
+                    GenFilter::Method(m) => Filter::Method(m),
+                    GenFilter::PresenceValidator { attribute } => Filter::Validator {
+                        kind: "presence".into(),
+                        attr: attribute,
+                    },
+                };
+                out.callbacks.push((
+                    cb.origin.declaration_seq,
+                    Declared {
+                        chain: chain.into(),
+                        kind: kind.into(),
+                        filter,
+                        origin: origin.to_string(),
+                        options: cb.options,
+                        implied_on: None,
+                        generated: Some(GeneratedFrom {
+                            association: cb.association,
+                            rule: cb.origin.rule,
+                        }),
+                    },
+                ));
+            }
+            Generated::Undecided(u) => out.undecided.push(UndecidedRow {
+                origin: origin.to_string(),
+                association: u.association,
+                rule: u.rule,
+                reason: u.reason,
+            }),
+        }
+    }
+    out
+}
+
 fn association_names(ancestors: &[Ancestor]) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for a in ancestors {
-        for d in &a.decls {
+        for d in a.ore.declarations.iter().map(|e| &e.decl) {
             if let Declaration::Association(assoc) = d {
                 if matches!(
                     assoc.kind,
@@ -610,6 +619,143 @@ fn association_names(ancestors: &[Ancestor]) -> BTreeSet<String> {
         }
     }
     out
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Effective registration order
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Four orders are kept apart here:
+//   (a) source order of declarations inside one class or module body;
+//   (b) concern inclusion order;
+//   (c) superclass expansion;
+//   (d) the order Rails registers callbacks in, which is what a chain runs in.
+// `Harvest::effective` rebuilds (d) from (a)-(c):
+//   - a superclass is fully expanded before the class's own body
+//     (a class body runs after `class A < B` has loaded B);
+//   - `include M` runs M's `included` block at the include statement, in
+//     statement order (`ActiveSupport::Concern#append_features`,
+//     activesupport-8.1.4.1/lib/active_support/concern.rb:129-140);
+//   - first the concern's own dependencies, i.e. the modules it includes in its
+//     body (`concern.rb:131` records them, `:135` includes them into the real
+//     base, before `:138` runs the included block);
+//   - a module already in the ancestors is not re-run (`concern.rb:134`
+//     `return false if base < self`), including one a superclass or an earlier
+//     concern already brought in;
+//   - `prepend` runs the prepended block only (`concern.rb:142-152`), never the
+//     included block, so it does not touch callback registration order;
+//   - a generated association callback is registered at its association
+//     declaration's position (`autosave_association.rb`, called from the macro);
+//   - re-registering a symbol filter on the same chain and kind replaces the
+//     earlier one and moves it to the end (ActiveSupport::Callbacks,
+//     activesupport-8.1.4.1/lib/active_support/callbacks.rb:645-663,
+//     `append_one` -> `remove_duplicates` -> `@chain.push`).
+// A chain then runs in registration order for before, around and (because
+// ActiveModel registers `after_*` with `prepend: true`,
+// activemodel-8.1.4.1/lib/active_model/callbacks.rb:146, and the sequence
+// compiles the chain in reverse, activesupport callbacks.rb:619-621 with
+// `after` pushing at :535-539) after callbacks too.
+
+struct EffState {
+    included: BTreeSet<String>,
+    out: Vec<Declared>,
+}
+
+impl EffState {
+    fn push(&mut self, d: Declared) {
+        if let Filter::Method(name) = &d.filter {
+            self.out.retain(|e| {
+                !(e.chain == d.chain
+                    && e.kind == d.kind
+                    && matches!(&e.filter, Filter::Method(n) if n == name))
+            });
+        }
+        self.out.push(d);
+    }
+}
+
+impl Harvest {
+    /// The model's callbacks in Rails registration order.
+    fn effective(&mut self, model: &str) -> Vec<Declared> {
+        let mut st = EffState {
+            included: BTreeSet::new(),
+            out: Vec::new(),
+        };
+        let mut guard = BTreeSet::new();
+        self.eff_class(model, &mut st, &mut guard);
+        st.out
+    }
+
+    fn eff_class(&mut self, name: &str, st: &mut EffState, guard: &mut BTreeSet<String>) {
+        if !guard.insert(name.to_string()) {
+            return;
+        }
+        let Some((_, ore)) = self.find(name) else {
+            return;
+        };
+        if let Some(sup) = ore.superclass.as_deref() {
+            if let Some((resolved, ..)) = self.resolve(name, sup) {
+                self.eff_class(&resolved, st, guard);
+            }
+        }
+        self.eff_body(name, &ore, false, st);
+    }
+
+    /// Walk one body in source order. For a module (`included_only`), only
+    /// the `included do` events run on the includer.
+    fn eff_body(&mut self, name: &str, ore: &ClassOre, included_only: bool, st: &mut EffState) {
+        let generated = generated_of(name, ore);
+        for e in &ore.declarations {
+            let runs = !included_only || matches!(e.origin, DeclOrigin::Included { .. });
+            if !runs {
+                continue;
+            }
+            if let Declaration::Concern(c) = &e.decl {
+                if matches!(c.kind, ConcernKind::Include) && !c.module.is_empty() {
+                    self.eff_include(name, &c.module, st);
+                }
+                continue;
+            }
+            for d in declared_of(name, std::slice::from_ref(e)) {
+                st.push(d);
+            }
+            for (seq, g) in &generated.callbacks {
+                if *seq == e.seq {
+                    st.push(g.clone());
+                }
+            }
+        }
+    }
+
+    fn eff_include(&mut self, from: &str, module: &str, st: &mut EffState) {
+        let Some((resolved, _, ore)) = self.resolve(from, module) else {
+            return;
+        };
+        if !st.included.insert(resolved.clone()) {
+            return;
+        }
+        // Dependencies: modules included in the module body, before its block.
+        let mut deps: Vec<String> = Vec::new();
+        for e in &ore.declarations {
+            if let (Declaration::Concern(c), DeclOrigin::Body) = (&e.decl, &e.origin) {
+                if matches!(c.kind, ConcernKind::Include) && !c.module.is_empty() {
+                    deps.push(c.module.clone());
+                }
+            }
+        }
+        for i in &ore.includes {
+            if matches!(i.kind, ConcernKind::Include)
+                && matches!(i.origin, DeclOrigin::Body)
+                && !deps.contains(&i.module)
+            {
+                deps.push(i.module.clone());
+            }
+        }
+        for d in deps {
+            self.eff_include(&resolved, &d, st);
+        }
+        self.eff_body(&resolved, &ore, true, st);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -909,7 +1055,16 @@ fn reversed(d: &Declared) -> Declared {
 }
 
 struct ModelCtx {
+    /// Declared in source, ancestors in the walk's visit order.
     declared: Vec<Declared>,
+    /// Generated by ActiveRecord from the association declarations.
+    generated: Vec<Declared>,
+    /// Rules `rails_generated` could not decide for this model.
+    undecided: Vec<UndecidedRow>,
+    /// Associations declared with `has_and_belongs_to_many`.
+    habtm: BTreeSet<String>,
+    /// Source plus generated callbacks in Rails registration order.
+    effective: Vec<Declared>,
     assocs: BTreeSet<String>,
     ancestor_files: BTreeSet<String>,
     has_file: bool,
@@ -930,9 +1085,30 @@ fn classify(f: &Fired, ctx: &ModelCtx, ev: &Evidence) -> (Slag, String) {
                 .or_else(|| name.strip_prefix("validate_associated_records_for_"));
             if let Some(x) = assoc {
                 if ctx.assocs.contains(x) {
+                    if let Some(u) = ctx.undecided.iter().find(|u| u.association == x) {
+                        return (
+                            Slag::GeneratedUndecided,
+                            format!("association :{x}: {} ({})", u.reason, u.rule),
+                        );
+                    }
                     return (
                         Slag::AssociationAutosave,
                         format!("association :{x} declared"),
+                    );
+                }
+                // The middle has_many of a habtm is named
+                // `[<class>.downcase.pluralize, <assoc>].sort.join("_")`
+                // (builder/has_and_belongs_to_many.rb:228-230). This guess only
+                // picks the slag reason; it never produces a match.
+                let plural = format!("{}s", model.to_lowercase());
+                if let Some(h) = ctx.habtm.iter().find(|h| {
+                    let mut pair = [plural.as_str(), h.as_str()];
+                    pair.sort_unstable();
+                    pair.join("_") == x
+                }) {
+                    return (
+                        Slag::GeneratedUndecided,
+                        format!("middle has_many of habtm :{h} (name needs the inflector)"),
                     );
                 }
                 let files = ev.relevant(ev.assocs.get(x), model, ctx);
@@ -971,7 +1147,15 @@ fn classify(f: &Fired, ctx: &ModelCtx, ev: &Evidence) -> (Slag, String) {
                 }
             }
         }
-        FiredFilter::Validator { attr, .. } => {
+        FiredFilter::Validator { kind, attr } => {
+            if kind == "presence" {
+                if let Some(u) = ctx.undecided.iter().find(|u| &u.association == attr) {
+                    return (
+                        Slag::GeneratedUndecided,
+                        format!("association :{attr}: {} ({})", u.reason, u.rule),
+                    );
+                }
+            }
             let files = ev.relevant(ev.validates.get(attr), model, ctx);
             match files.iter().find(|p| bucket(p) == Bucket::Module) {
                 Some(p) => (
@@ -1028,10 +1212,20 @@ fn silent_reason(d: &Declared, fired_chains: &BTreeSet<String>) -> Silent {
 struct Outcome {
     /// distinct journal entries (model, phase, label) matched / total
     matched: usize,
+    /// Of `matched`: entries that needed a generated callback for at least one
+    /// of their expansions (no source declaration matches it).
+    matched_generated: usize,
+    /// Provenance of those: entry, association, Rails rule.
+    generated_matches: Vec<String>,
     total: usize,
     slag: BTreeMap<Slag, Vec<String>>,
+    /// Silent reasons of source-declared callbacks.
     silent: BTreeMap<Silent, Vec<String>>,
+    /// Silent reasons of generated callbacks.
+    generated_silent: BTreeMap<Silent, Vec<String>>,
     declared_total: usize,
+    generated_total: usize,
+    undecided_total: usize,
 }
 
 fn run(
@@ -1040,27 +1234,42 @@ fn run(
     ev: &Evidence,
     transform: impl Fn(&Declared) -> Declared,
 ) -> Outcome {
-    let declared: BTreeMap<&String, Vec<Declared>> = ctxs
+    // Source declarations first, generated ones after; `n_source` splits them.
+    let declared: BTreeMap<&String, (usize, Vec<Declared>)> = ctxs
         .iter()
-        .map(|(m, c)| (m, c.declared.iter().map(&transform).collect()))
+        .map(|(m, c)| {
+            let all: Vec<Declared> = c
+                .declared
+                .iter()
+                .chain(c.generated.iter())
+                .map(&transform)
+                .collect();
+            (m, (c.declared.len(), all))
+        })
         .collect();
     let mut used: BTreeMap<&String, BTreeSet<usize>> = BTreeMap::new();
     let mut fired_chains: BTreeMap<&String, BTreeSet<String>> = BTreeMap::new();
     let mut out = Outcome {
         matched: 0,
+        matched_generated: 0,
+        generated_matches: Vec::new(),
         total: entries.len(),
         slag: BTreeMap::new(),
         silent: BTreeMap::new(),
-        declared_total: declared.values().map(Vec::len).sum(),
+        generated_silent: BTreeMap::new(),
+        declared_total: declared.values().map(|(n, _)| *n).sum(),
+        generated_total: declared.values().map(|(n, v)| v.len() - n).sum(),
+        undecided_total: ctxs.values().map(|c| c.undecided.len()).sum(),
     };
     for ((model, phase, label), expanded) in entries {
         let ctx = &ctxs[model];
-        let decls = &declared[model];
+        let (n_source, decls) = &declared[model];
         fired_chains
             .entry(model)
             .or_default()
             .extend(expanded.iter().map(|f| f.chain.clone()));
         let mut all = true;
+        let mut via_generated: Vec<String> = Vec::new();
         for f in expanded {
             let hits: Vec<usize> = decls
                 .iter()
@@ -1077,25 +1286,48 @@ fn run(
                     .push(format!("{model} {phase} {label}  [{why}]"));
                 break;
             }
+            if hits.iter().all(|i| i >= n_source) {
+                if let Some(g) = &decls[hits[0]].generated {
+                    via_generated.push(format!(
+                        "{model} {phase} {label}  <- :{} ({})",
+                        g.association, g.rule
+                    ));
+                }
+            }
             used.entry(model).or_default().extend(hits);
         }
         if all {
             out.matched += 1;
+            if let Some(first) = via_generated.into_iter().next() {
+                out.matched_generated += 1;
+                out.generated_matches.push(first);
+            }
         }
     }
-    for (model, decls) in &declared {
+    for (model, (n_source, decls)) in &declared {
         let empty = BTreeSet::new();
         let u = used.get(model).unwrap_or(&empty);
         let chains = fired_chains.get(model).cloned().unwrap_or_default();
         for (i, d) in decls.iter().enumerate() {
             if !u.contains(&i) {
-                out.silent
-                    .entry(silent_reason(d, &chains))
-                    .or_default()
-                    .push(format!(
-                        "{model} {}_{} {:?} (from {}) options={:?}",
-                        d.kind, d.chain, d.filter, d.origin, d.options
-                    ));
+                let row = format!(
+                    "{model} {}_{} {:?} (from {}{}) options={:?}",
+                    d.kind,
+                    d.chain,
+                    d.filter,
+                    d.origin,
+                    d.generated.as_ref().map_or(String::new(), |g| format!(
+                        ", generated for :{} by {}",
+                        g.association, g.rule
+                    )),
+                    d.options
+                );
+                let map = if i < *n_source {
+                    &mut out.silent
+                } else {
+                    &mut out.generated_silent
+                };
+                map.entry(silent_reason(d, &chains)).or_default().push(row);
             }
         }
     }
@@ -1106,6 +1338,11 @@ impl fmt::Display for Outcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "fired (distinct entries): {}", self.total)?;
         writeln!(f, "  matched to a declaration: {}", self.matched)?;
+        writeln!(
+            f,
+            "    of which only a generated callback matches: {}",
+            self.matched_generated
+        )?;
         for s in Slag::all() {
             writeln!(
                 f,
@@ -1121,6 +1358,19 @@ impl fmt::Display for Outcome {
                 "  declared, never fired, {:?}: {}",
                 s,
                 self.silent.get(s).map_or(0, Vec::len)
+            )?;
+        }
+        writeln!(
+            f,
+            "generated callbacks: {} (undecided rules: {})",
+            self.generated_total, self.undecided_total
+        )?;
+        for s in Silent::all() {
+            writeln!(
+                f,
+                "  generated, never fired, {:?}: {}",
+                s,
+                self.generated_silent.get(s).map_or(0, Vec::len)
             )?;
         }
         Ok(())
@@ -1140,8 +1390,21 @@ fn contexts(
     for m in models {
         let ancestors = h.linearize(m);
         let mut declared = Vec::new();
+        let mut generated = Vec::new();
+        let mut undecided = Vec::new();
+        let mut habtm = BTreeSet::new();
         for a in &ancestors {
-            declared.extend(declared_of(&a.name, &a.decls));
+            declared.extend(declared_of(&a.name, &a.ore.declarations));
+            let g = generated_of(&a.name, &a.ore);
+            generated.extend(g.callbacks.into_iter().map(|(_, d)| d));
+            undecided.extend(g.undecided);
+            for e in &a.ore.declarations {
+                if let Declaration::Association(assoc) = &e.decl {
+                    if assoc.kind == AssocKind::HasAndBelongsToMany {
+                        habtm.insert(assoc.name.clone());
+                    }
+                }
+            }
         }
         out.insert(
             m.clone(),
@@ -1150,10 +1413,104 @@ fn contexts(
                 assocs: association_names(&ancestors),
                 ancestor_files: ancestors.iter().map(|a| a.file.clone()).collect(),
                 declared,
+                generated,
+                undecided,
+                habtm,
+                effective: h.effective(m),
             },
         );
     }
     (out, h.unresolved)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Order comparison (reported, not asserted)
+// ─────────────────────────────────────────────────────────────────────────
+
+#[derive(Default)]
+struct OrderReport {
+    /// (case, model, phase) groups with at least two matched entries.
+    groups: usize,
+    /// Groups whose recorded order differs from the reconstructed one.
+    differing: usize,
+    /// Adjacent pairs recorded in the opposite order to the reconstruction.
+    inversions: usize,
+    examples: Vec<String>,
+}
+
+/// Compare the order the trace recorded, per case and `(model, phase)`, with
+/// the rank of each matched entry in `chain_of(model)`. Membership is not in
+/// question here: an entry with an expansion that has no declaration is left
+/// out of the comparison.
+fn order_report<'a>(
+    chain_of: impl Fn(&str) -> &'a [Declared],
+    show_examples: usize,
+) -> OrderReport {
+    let t = trace();
+    let mut rep = OrderReport::default();
+    for case in t["cases"].as_array().expect("cases") {
+        let case_name = case["name"].as_str().unwrap_or("?");
+        let mut groups: BTreeMap<(String, String), Vec<(String, usize)>> = BTreeMap::new();
+        let mut seen: BTreeSet<EntryKey> = BTreeSet::new();
+        for e in case["journal"].as_array().expect("journal") {
+            let model = e["model"].as_str().expect("model");
+            let phase = e["phase"].as_str().expect("phase");
+            let label = e["callback"].as_str().expect("callback");
+            if !seen.insert((model.into(), phase.into(), label.into())) {
+                continue;
+            }
+            let Some(expanded) = parse_fired(model, phase, label) else {
+                continue;
+            };
+            let chain = chain_of(model);
+            let ranks: Option<Vec<usize>> = expanded
+                .iter()
+                .map(|f| chain.iter().position(|d| declared_matches(d, f)))
+                .collect();
+            if let Some(r) = ranks.and_then(|r| r.into_iter().min()) {
+                groups
+                    .entry((model.into(), phase.into()))
+                    .or_default()
+                    .push((label.into(), r));
+            }
+        }
+        for ((model, phase), seq) in groups {
+            if seq.len() < 2 {
+                continue;
+            }
+            rep.groups += 1;
+            let inv = seq.windows(2).filter(|w| w[0].1 > w[1].1).count();
+            if inv > 0 {
+                rep.differing += 1;
+                rep.inversions += inv;
+                if rep.examples.len() < show_examples {
+                    let mut expected = seq.clone();
+                    expected.sort_by_key(|(_, r)| *r);
+                    let rec: Vec<&str> = seq.iter().map(|(l, _)| l.as_str()).collect();
+                    let exp: Vec<&str> = expected.iter().map(|(l, _)| l.as_str()).collect();
+                    let at = rec.iter().zip(&exp).position(|(a, b)| a != b).unwrap_or(0);
+                    let window = |v: &[&str]| v[at..(at + 3).min(v.len())].join(" | ");
+                    rep.examples.push(format!(
+                        "{case_name} {model} {phase} ({} entries), first difference at #{at}: recorded [{}] vs reconstructed [{}]",
+                        rec.len(),
+                        window(&rec),
+                        window(&exp)
+                    ));
+                }
+            }
+        }
+    }
+    rep
+}
+
+fn print_order(label: &str, r: &OrderReport) {
+    eprintln!(
+        "order [{label}]: {} groups compared, {} differ, {} adjacent inversions",
+        r.groups, r.differing, r.inversions
+    );
+    for e in &r.examples {
+        eprintln!("     {e}");
+    }
 }
 
 #[test]
@@ -1170,11 +1527,19 @@ fn fired_callbacks_are_matched_or_named_slag() {
     );
     for (m, c) in &ctxs {
         eprintln!(
-            "  {m}: {} ancestors files, {} declared callbacks, {} associations",
+            "  {m}: {} ancestors files, {} declared callbacks, {} generated callbacks, {} undecided rules, {} associations",
             c.ancestor_files.len(),
             c.declared.len(),
+            c.generated.len(),
+            c.undecided.len(),
             c.assocs.len()
         );
+        for u in &c.undecided {
+            eprintln!(
+                "     undecided :{} (from {}) {} [{}]",
+                u.association, u.origin, u.reason, u.rule
+            );
+        }
     }
     for (from, m) in &unresolved {
         eprintln!("  unresolved include: {from} -> {m}");
@@ -1194,6 +1559,19 @@ fn fired_callbacks_are_matched_or_named_slag() {
             eprintln!("     {r}");
         }
     }
+    eprintln!(
+        "-- matched only through a generated callback ({})",
+        o.matched_generated
+    );
+    for r in o.generated_matches.iter().take(8) {
+        eprintln!("     {r}");
+    }
+    for (s, rows) in &o.generated_silent {
+        eprintln!("-- generated, never fired, {s:?} ({})", rows.len());
+        for r in rows.iter().take(6) {
+            eprintln!("     {r}");
+        }
+    }
 
     // Closed classification: every fired entry is matched or in exactly one slag bucket.
     let slag_total: usize = o.slag.values().map(Vec::len).sum();
@@ -1204,6 +1582,8 @@ fn fired_callbacks_are_matched_or_named_slag() {
     );
     let silent_total: usize = o.silent.values().map(Vec::len).sum();
     assert!(silent_total <= o.declared_total);
+    let gen_silent_total: usize = o.generated_silent.values().map(Vec::len).sum();
+    assert!(gen_silent_total <= o.generated_total);
 
     // Measured at OpenProject 2725194 (trace revision). A drop means the harvest
     // lost declarations; a rise means it gained some: re-measure and move the floor.
@@ -1213,23 +1593,84 @@ fn fired_callbacks_are_matched_or_named_slag() {
         o.matched,
         o.total
     );
+    assert!(
+        o.matched_generated >= MATCHED_GENERATED_FLOOR,
+        "matched through generated callbacks: {}, floor {MATCHED_GENERATED_FLOOR}",
+        o.matched_generated
+    );
     // A declared, unconditioned callback on an exercised chain that never fired
     // would be a real discrepancy, not slag.
+    assert!(
+        o.generated_silent
+            .get(&Silent::Unexplained)
+            .is_none_or(Vec::is_empty),
+        "generated callbacks that never fired and have no explanation: {:?}",
+        o.generated_silent.get(&Silent::Unexplained)
+    );
     assert!(
         o.silent.get(&Silent::Unexplained).is_none_or(Vec::is_empty),
         "declared callbacks that never fired and have no explanation: {:?}",
         o.silent.get(&Silent::Unexplained)
     );
 
-    // Negative control: spelled backwards, nothing may match.
+    // Negative control: every declared filter, source and generated, spelled
+    // backwards: nothing may match.
     let control = run(&ctxs, &entries, &ev, reversed);
     eprintln!(
-        "negative control: matched {} of {}",
+        "negative control (all reversed): matched {} of {}",
         control.matched, control.total
     );
     assert!(
         control.matched * 50 <= o.matched,
         "the matcher does not discriminate: {} matched with reversed names",
         control.matched
+    );
+    // Generated callbacks only: the matches that came from source must stay,
+    // the ones that needed a generated callback must go.
+    let control_gen = run(&ctxs, &entries, &ev, |d| {
+        if d.generated.is_some() {
+            reversed(d)
+        } else {
+            d.clone()
+        }
+    });
+    eprintln!(
+        "negative control (generated reversed): matched {} of {}, via generated {}",
+        control_gen.matched, control_gen.total, control_gen.matched_generated
+    );
+    assert_eq!(
+        control_gen.matched_generated, 0,
+        "a generated callback matched with its name reversed"
+    );
+    assert_eq!(
+        control_gen.matched + o.matched_generated,
+        o.matched,
+        "reversing generated names must drop exactly the generated matches"
+    );
+
+    // Order: reported, not asserted (yet). Only that the comparison ran.
+    let effective = order_report(|m| ctxs[m].effective.as_slice(), 6);
+    print_order("reconstructed Rails registration order", &effective);
+    let naive: BTreeMap<String, Vec<Declared>> = ctxs
+        .iter()
+        .map(|(m, c)| {
+            (
+                m.clone(),
+                c.declared
+                    .iter()
+                    .chain(c.generated.iter())
+                    .cloned()
+                    .collect(),
+            )
+        })
+        .collect();
+    let naive_rep = order_report(|m| naive[m].as_slice(), 3);
+    print_order(
+        "file order of the walk, generated last (not runtime order)",
+        &naive_rep,
+    );
+    assert!(
+        effective.groups > 0,
+        "the order comparison compared nothing"
     );
 }
