@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain comes from rust-toolchain.toml.
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt -p op-server -p op-codegen-pipeline -p ruff_openproject -p op-cli -- --check
+      - name: test
+        run: cargo test -p op-server -p op-codegen-pipeline -p ruff_openproject -p op-cli
+      # Tests that need an OpenProject checkout (RAILS_CORPUS_SRC, OP_CORPUS_SRC,
+      # OPENPROJECT_SRC) print a skip line and assert nothing here. This job
+      # therefore does not cover the real-corpus probes or the Ruby oracles; they
+      # are run locally against a pinned checkout (see oracle/README.md).
+      - name: note uncovered gates
+        run: echo "UNVERIFIED in CI - real-corpus probes and Ruby oracles need an OpenProject checkout"

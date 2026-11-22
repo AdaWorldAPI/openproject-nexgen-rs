@@ -59,7 +59,7 @@ use std::path::{Path, PathBuf};
 use lance_graph_contract::class_view::FieldMask;
 use ogar_render_askama::render_class_with_methods;
 use ogar_vocab::Class;
-use ruff_ruby_spo::{ViewFieldSet, ViewTarget, extract_view_field_sets_with_report};
+use ruff_ruby_spo::{extract_view_field_sets_with_report, ViewFieldSet, ViewTarget};
 
 /// `Issue` → `issue`, `TimeEntry` → `time_entry`, `WikiContentVersion` →
 /// `wiki_content_version` — the conventional Rails receiver ident.
@@ -224,8 +224,7 @@ fn render_bake_leg1_redmine() {
         });
         bases.insert(class.name.clone(), b);
     }
-    let by_name: BTreeMap<&str, &Class> =
-        classes.iter().map(|c| (c.name.as_str(), c)).collect();
+    let by_name: BTreeMap<&str, &Class> = classes.iter().map(|c| (c.name.as_str(), c)).collect();
 
     // 3. Views → field sets (+ the honest raw census).
     let (sets, report): (Vec<ViewFieldSet>, _) =
@@ -237,7 +236,10 @@ fn render_bake_leg1_redmine() {
         sets.len()
     );
     assert!(report.erb_files >= 100, "corpus too small — wrong path?");
-    assert!(!sets.is_empty(), "no view field sets — extractor regression");
+    assert!(
+        !sets.is_empty(),
+        "no view field sets — extractor regression"
+    );
 
     // 4. Masks + coverage + parity.
     let mut rows: Vec<BakeRow> = Vec::new();
@@ -367,8 +369,8 @@ fn render_bake_leg1_redmine() {
 
     // 5. Park the artifact when asked.
     if std::env::var_os("BAKE_OUT").is_some() {
-        let out = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../.claude/harvest/redmine-view-bake");
+        let out =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude/harvest/redmine-view-bake");
         std::fs::create_dir_all(out.join("samples")).unwrap();
         let mut order = String::new();
         for (model, b) in &bases {
