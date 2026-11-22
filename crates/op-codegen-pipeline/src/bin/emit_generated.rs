@@ -172,7 +172,10 @@ fn main() {
 
     let generated_dir = generated_dir_path();
     if let Err(e) = std::fs::create_dir_all(&generated_dir) {
-        eprintln!("emit_generated: failed to create {}: {e}", generated_dir.display());
+        eprintln!(
+            "emit_generated: failed to create {}: {e}",
+            generated_dir.display()
+        );
         process::exit(1);
     }
 
@@ -259,7 +262,10 @@ fn run_core(compiled: &[CompiledClass], generated_dir: &Path) {
             Err(e) => {
                 // An OGAR render/template failure on well-formed input is an
                 // upstream OGAR concern, not something to paper over here.
-                eprintln!("emit_generated: OGAR render failed for {}: {e}", cc.class.name);
+                eprintln!(
+                    "emit_generated: OGAR render failed for {}: {e}",
+                    cc.class.name
+                );
                 process::exit(1);
             }
         }
@@ -270,12 +276,19 @@ fn run_core(compiled: &[CompiledClass], generated_dir: &Path) {
 
     let mod_path = generated_dir.join("mod.rs");
     if let Err(e) = std::fs::write(&mod_path, render_mod_rs(&emitted)) {
-        eprintln!("emit_generated: failed to write {}: {e}", mod_path.display());
+        eprintln!(
+            "emit_generated: failed to write {}: {e}",
+            mod_path.display()
+        );
         process::exit(1);
     }
 
     eprintln!("== emit_generated (WAVE 2 / core) ledger ==");
-    eprintln!("emitted (narrow, OGAR-rendered): {} classes: {:?}", emitted.len(), emitted);
+    eprintln!(
+        "emitted (narrow, OGAR-rendered): {} classes: {:?}",
+        emitted.len(),
+        emitted
+    );
     eprintln!(
         "deferred_wide (>64 fields, W4's job): {} classes: {:?}",
         deferred_wide.len(),
@@ -295,7 +308,9 @@ fn run_emit_all(compiled: &[CompiledClass], generated_dir: &Path, total_models_e
         .unwrap_or(0);
     let wide_candidates_pre_quarantine = compiled
         .iter()
-        .filter(|cc| cc.class.attributes.len() + cc.class.associations.len() > FieldMask::MAX_FIELDS as usize)
+        .filter(|cc| {
+            cc.class.attributes.len() + cc.class.associations.len() > FieldMask::MAX_FIELDS as usize
+        })
         .count();
 
     let mut used_modules: HashSet<String> = HashSet::new();
@@ -394,7 +409,9 @@ fn run_emit_all(compiled: &[CompiledClass], generated_dir: &Path, total_models_e
         for a in &cc.class.associations {
             let target = a.class_name.as_deref().unwrap_or("?");
             match a.kind {
-                AssociationKind::BelongsTo => from.push(format!("belongs_to {} → {target}", a.name)),
+                AssociationKind::BelongsTo => {
+                    from.push(format!("belongs_to {} → {target}", a.name))
+                }
                 AssociationKind::HasOne => to.push(format!("has_one {} → {target}", a.name)),
                 AssociationKind::HasMany => to.push(format!("has_many {} → {target}", a.name)),
                 AssociationKind::HasAndBelongsToMany => {
@@ -410,8 +427,16 @@ fn run_emit_all(compiled: &[CompiledClass], generated_dir: &Path, total_models_e
         ar_rows.push(format!(
             "## {}\n  from: {}\n  to:   {}\n",
             cc.class.name,
-            if from.is_empty() { "—".to_string() } else { from.join(", ") },
-            if to.is_empty() { "—".to_string() } else { to.join(", ") },
+            if from.is_empty() {
+                "—".to_string()
+            } else {
+                from.join(", ")
+            },
+            if to.is_empty() {
+                "—".to_string()
+            } else {
+                to.join(", ")
+            },
         ));
 
         eprintln!(
@@ -425,7 +450,10 @@ fn run_emit_all(compiled: &[CompiledClass], generated_dir: &Path, total_models_e
 
     let mod_path = generated_dir.join("mod.rs");
     if let Err(e) = std::fs::write(&mod_path, render_mod_rs_all(&emitted)) {
-        eprintln!("emit_generated: failed to write {}: {e}", mod_path.display());
+        eprintln!(
+            "emit_generated: failed to write {}: {e}",
+            mod_path.display()
+        );
         process::exit(1);
     }
 
@@ -447,7 +475,10 @@ fn run_emit_all(compiled: &[CompiledClass], generated_dir: &Path, total_models_e
         eprintln!("emit_generated: failed to write {}: {e}", ar_path.display());
         process::exit(1);
     }
-    eprintln!("emit_all: ar_graph models={} from_edges={from_edges} to_edges={to_edges}", ar_rows.len());
+    eprintln!(
+        "emit_all: ar_graph models={} from_edges={from_edges} to_edges={to_edges}",
+        ar_rows.len()
+    );
     // Drop stale .rs files from a previous run (narrower quarantine list,
     // different collision layout, or a prior non-EMIT_ALL run) that are no
     // longer declared in mod.rs — keeps `src/generated/` an exact mirror of
@@ -464,8 +495,16 @@ fn run_emit_all(compiled: &[CompiledClass], generated_dir: &Path, total_models_e
     eprintln!(
         "wide (>64 fields, emitted): {wide}  [wide_candidates pre-quarantine: {wide_candidates_pre_quarantine}]"
     );
-    eprintln!("collisions_disambiguated: {} {:?}", collisions.len(), collisions);
-    eprintln!("quarantined_uncompilable: {} {:?}", quarantined.len(), quarantined);
+    eprintln!(
+        "collisions_disambiguated: {} {:?}",
+        collisions.len(),
+        collisions
+    );
+    eprintln!(
+        "quarantined_uncompilable: {} {:?}",
+        quarantined.len(),
+        quarantined
+    );
     eprintln!(
         "max_field_count_seen (attrs+assocs, over ALL {total_compiled} compiled classes, \
          emitted or not): {max_field_count_seen}"
@@ -660,9 +699,9 @@ fn render_mod_rs_all(modules: &[String]) -> String {
 const RUST_RESERVED: &[&str] = &[
     "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
     "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
-    "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use",
-    "where", "while", "async", "await", "dyn", "abstract", "become", "box", "do", "final",
-    "macro", "override", "priv", "typeof", "unsized", "virtual", "yield", "try",
+    "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where",
+    "while", "async", "await", "dyn", "abstract", "become", "box", "do", "final", "macro",
+    "override", "priv", "typeof", "unsized", "virtual", "yield", "try",
 ];
 
 /// `type` -> `r#type`, `work_package` -> `work_package` (unchanged). The
@@ -696,7 +735,10 @@ mod tests {
         // `collect_classes_with_namespace` doc). `::` must become a single
         // `_`, never leak through verbatim (illegal in both a file name
         // component people expect and a `pub mod` identifier).
-        assert_eq!(snake_case("Enumeration::ProjectStatus"), "enumeration_project_status");
+        assert_eq!(
+            snake_case("Enumeration::ProjectStatus"),
+            "enumeration_project_status"
+        );
         assert_eq!(snake_case("Storages::Project"), "storages_project");
         // No doubled/leading/trailing underscores from adjacent separators.
         assert_eq!(snake_case("A::B"), "a_b");
@@ -755,9 +797,7 @@ mod tests {
         assert!(out.contains("pub mod project;\n"));
         assert!(out.contains("pub mod work_package;\n"));
         // Declaration order follows the input order — callers sort first.
-        assert!(
-            out.find("pub mod project;").unwrap() < out.find("pub mod work_package;").unwrap()
-        );
+        assert!(out.find("pub mod project;").unwrap() < out.find("pub mod work_package;").unwrap());
     }
 
     #[test]
@@ -777,13 +817,18 @@ mod tests {
         // `std::env::set_var` races with other tests in this binary).
         for v in ["1", "true", "TRUE", "yes"] {
             assert!(
-                !v.trim().is_empty() && v.trim().to_ascii_lowercase() != "0" && v.trim().to_ascii_lowercase() != "false",
+                !v.trim().is_empty()
+                    && v.trim().to_ascii_lowercase() != "0"
+                    && v.trim().to_ascii_lowercase() != "false",
                 "{v} should read as truthy"
             );
         }
         for v in ["0", "false", "False", ""] {
             let v = v.trim().to_ascii_lowercase();
-            assert!(v.is_empty() || v == "0" || v == "false", "{v} should read as falsy");
+            assert!(
+                v.is_empty() || v == "0" || v == "false",
+                "{v} should read as falsy"
+            );
         }
     }
 }
