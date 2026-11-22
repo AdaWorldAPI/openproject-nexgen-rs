@@ -61,7 +61,7 @@ const WALKED_ROOTS: &[&str] = &["app/models", "app/models/concerns", "lib"];
 
 /// Why a callback that fired has no declaration in the harvested ancestors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Slag {
+pub enum Slag {
     /// `autosave_associated_records_for_X` / `validate_associated_records_for_X`
     /// where `X` is an association the harvest DID find. Rails writes these
     /// itself for every association. No new fact is needed: a Rails polyfill
@@ -149,7 +149,7 @@ impl Slag {
 
 /// Why a declared callback never fired in any recorded create case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Silent {
+pub enum Silent {
     /// The declaration has no symbol filter (`before_save { ... }`, a lambda, an
     /// object). The journal wraps only symbol filters and validators, so such a
     /// callback can never appear in it. Stage: oracle (journal procs).
@@ -372,7 +372,7 @@ impl Harvest {
 // ─────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum Filter {
+pub enum Filter {
     /// A symbol filter: `before_save :foo`, `validate :foo`.
     Method(String),
     /// One attribute of a `validates` call, for one validator kind.
@@ -384,25 +384,25 @@ enum Filter {
 }
 
 #[derive(Debug, Clone)]
-struct Declared {
-    chain: String,
-    kind: String,
-    filter: Filter,
-    origin: String,
-    options: Vec<(String, String)>,
+pub struct Declared {
+    pub chain: String,
+    pub kind: String,
+    pub filter: Filter,
+    pub origin: String,
+    pub options: Vec<(String, String)>,
     /// `on:` implied by the macro name (`after_update_commit`).
-    implied_on: Option<&'static str>,
+    pub implied_on: Option<&'static str>,
     /// `Some` when ActiveRecord generated this callback from an association
     /// macro (`ruff_ruby_spo::rails_generated`), `None` when written in source.
-    generated: Option<GeneratedFrom>,
+    pub generated: Option<GeneratedFrom>,
 }
 
 /// Provenance of a generated callback: the association declaration that caused
 /// it and the Rails rule (`file:line` in the vendored gem) that registers it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct GeneratedFrom {
-    association: String,
-    rule: String,
+pub struct GeneratedFrom {
+    pub association: String,
+    pub rule: String,
 }
 
 /// `config.active_record.belongs_to_required_by_default` and
@@ -764,23 +764,23 @@ impl Harvest {
 
 /// What the journal can name: never a block.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum FiredFilter {
+pub enum FiredFilter {
     Method(String),
     Validator { kind: String, attr: String },
     ValidatesWith(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct Fired {
-    model: String,
-    chain: String,
-    kind: String,
-    filter: FiredFilter,
+pub struct Fired {
+    pub model: String,
+    pub chain: String,
+    pub kind: String,
+    pub filter: FiredFilter,
     /// The journal's own label, for printing.
-    label: String,
+    pub label: String,
 }
 
-fn parse_fired(model: &str, phase: &str, label: &str) -> Option<Vec<Fired>> {
+pub fn parse_fired(model: &str, phase: &str, label: &str) -> Option<Vec<Fired>> {
     let (kind, chain) = phase.split_once('_')?;
     let mk = |filter| Fired {
         model: model.to_string(),
@@ -860,7 +860,7 @@ fn bucket(rel: &str) -> Bucket {
 }
 
 #[derive(Default)]
-struct Evidence {
+pub struct Evidence {
     /// method name -> files with a `def` of it
     defs: BTreeMap<String, BTreeSet<String>>,
     /// association name -> files with a `has_many` / `belongs_to` / ... line
@@ -970,7 +970,7 @@ fn scan_file(rel: &str, text: &str, models: &BTreeSet<String>, ev: &mut Evidence
 /// Scan every `.rb` file of the checkout except tests, assets and installed
 /// gems (`vendor/`: its presence varies between checkouts, and a filter defined
 /// only there is, by definition, not OpenProject's own).
-fn scan_tree(src: &Path, models: &BTreeSet<String>) -> Evidence {
+pub fn scan_tree(src: &Path, models: &BTreeSet<String>) -> Evidence {
     const SKIP: &[&str] = &[
         ".git",
         "node_modules",
@@ -1034,12 +1034,12 @@ fn filter_matches(d: &Filter, f: &FiredFilter) -> bool {
     }
 }
 
-fn declared_matches(d: &Declared, f: &Fired) -> bool {
+pub fn declared_matches(d: &Declared, f: &Fired) -> bool {
     d.chain == f.chain && d.kind == f.kind && filter_matches(&d.filter, &f.filter)
 }
 
 /// The negative control: every declared filter spelled backwards.
-fn reversed(d: &Declared) -> Declared {
+pub fn reversed(d: &Declared) -> Declared {
     let rev = |s: &str| s.chars().rev().collect::<String>();
     let mut out = d.clone();
     out.filter = match &d.filter {
@@ -1054,23 +1054,23 @@ fn reversed(d: &Declared) -> Declared {
     out
 }
 
-struct ModelCtx {
+pub struct ModelCtx {
     /// Declared in source, ancestors in the walk's visit order.
-    declared: Vec<Declared>,
+    pub declared: Vec<Declared>,
     /// Generated by ActiveRecord from the association declarations.
-    generated: Vec<Declared>,
+    pub generated: Vec<Declared>,
     /// Rules `rails_generated` could not decide for this model.
     undecided: Vec<UndecidedRow>,
     /// Associations declared with `has_and_belongs_to_many`.
     habtm: BTreeSet<String>,
     /// Source plus generated callbacks in Rails registration order.
-    effective: Vec<Declared>,
+    pub effective: Vec<Declared>,
     assocs: BTreeSet<String>,
     ancestor_files: BTreeSet<String>,
     has_file: bool,
 }
 
-fn classify(f: &Fired, ctx: &ModelCtx, ev: &Evidence) -> (Slag, String) {
+pub fn classify(f: &Fired, ctx: &ModelCtx, ev: &Evidence) -> (Slag, String) {
     if !ctx.has_file {
         return (
             Slag::ModelWithoutClassFile,
@@ -1176,7 +1176,7 @@ fn classify(f: &Fired, ctx: &ModelCtx, ev: &Evidence) -> (Slag, String) {
 
 /// `if:` / `unless:` on the declaration, or inside the option hash of the
 /// validator kind it declares (`validates :a, presence: { if: -> { ... } }`).
-fn has_condition(d: &Declared) -> bool {
+pub fn has_condition(d: &Declared) -> bool {
     let cond = |v: &str| v.contains(":if") || v.contains(":unless");
     d.options.iter().any(|(k, v)| {
         k == "if"
@@ -1185,7 +1185,7 @@ fn has_condition(d: &Declared) -> bool {
     })
 }
 
-fn silent_reason(d: &Declared, fired_chains: &BTreeSet<String>) -> Silent {
+pub fn silent_reason(d: &Declared, fired_chains: &BTreeSet<String>) -> Silent {
     if d.filter == Filter::Block {
         return Silent::BlockOrLambdaFilter;
     }
@@ -1381,7 +1381,7 @@ impl fmt::Display for Outcome {
 // The test
 // ─────────────────────────────────────────────────────────────────────────
 
-fn contexts(
+pub fn contexts(
     src: &Path,
     models: &BTreeSet<String>,
 ) -> (BTreeMap<String, ModelCtx>, Vec<(String, String)>) {
