@@ -25,6 +25,7 @@ members = [
     "crates/op-generated",
     "crates/op-surreal-ast",
     "crates/ruff_openproject",
+    "crates/web-login",
 ]
 
 [workspace.package]
