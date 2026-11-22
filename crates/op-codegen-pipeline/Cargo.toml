@@ -57,6 +57,11 @@ ogar-adapter-surrealql = { git = "https://github.com/AdaWorldAPI/OGAR", branch =
 # non-deprecated emit path the transpile targets. Optional; only the
 # ogar-emit consumer path pulls it. (Pre-W0 blocker fix, 2026-07-06.)
 ogar-render-askama     = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main", optional = true }
+# Class proposer (src/class_proposer.rs, copied from zammad-rs): its truth comes
+# from lance-graph-arm-discovery's translator. Same coordinates as zammad-rs.
+lance-graph-arm-discovery = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main", default-features = false }
+serde                  = { workspace = true }
+serde_json             = { workspace = true }
 
 [dev-dependencies]
 # Render-bake probe (tests/render_bake_probe.rs): harvests Rails views into
@@ -67,5 +72,3 @@ ogar-vocab           = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "
 ogar-from-ruff       = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 ogar-render-askama   = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
-# Guard differential (tests/guard_differential.rs) reads the committed contract trace.
-serde_json           = { workspace = true }

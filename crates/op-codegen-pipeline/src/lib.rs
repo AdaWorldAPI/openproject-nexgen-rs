@@ -54,6 +54,20 @@ pub mod ogar_consumer;
 /// [`nav_harvest`].
 pub mod field_harvest;
 
+/// What the class proposer reads of a contract crosswalk, filled from ruff's
+/// contract-guard lowering (no Ruby parsing in this crate).
+pub mod crosswalk;
+
+/// Inert class proposals: attributes of one model grouped by shared witness
+/// (copied 1:1 from zammad-rs; see the module doc for the copy provenance).
+pub mod class_proposer;
+
+/// Provenance strings the proposer's JSON output names. Both dependencies
+/// float on a branch; `Cargo.lock` pins the concrete revision.
+pub const RUFF_REV: &str = "floating: branch main (concrete rev in Cargo.lock)";
+/// See [`RUFF_REV`].
+pub const LANCE_GRAPH_REV: &str = "floating: branch main (concrete rev in Cargo.lock)";
+
 /// Klickweg harvest bridge: run the Rails `navigates_to` harvest (ruff #62)
 /// over an OpenProject source tree to produce the board's navigation edges —
 /// the harvested source of what `op-server::nav::NAV_EDGES` bakes by hand.
