@@ -67,5 +67,9 @@ ogar-vocab           = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "
 ogar-from-ruff       = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 ogar-render-askama   = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
-# Guard differential (tests/guard_differential.rs) reads the committed contract trace.
+# Guard and callback differentials read the committed oracle traces.
 serde_json           = { workspace = true }
+# Callback differential only: parses concern modules (`included do` bodies),
+# which ruff_ruby_spo::events::source_ore does not turn into class ore yet.
+# Test-local stopgap until that ruff extension lands; same requirement as ruff.
+lib-ruby-parser      = { version = "4.0", default-features = false }
