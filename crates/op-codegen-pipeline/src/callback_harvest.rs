@@ -252,7 +252,14 @@ impl Harvest {
         if !self.cache.contains_key(rel) {
             let text = std::fs::read_to_string(self.src.join(rel)).unwrap_or_default();
             let mut syms = Symbols::default();
-            let units = source_ore_from(rel, &text, "op", &mut syms);
+            let mut units = source_ore_from(rel, &text, "op", &mut syms);
+            // `source_ore_from` leaves `ClassOre::file` empty; the macro
+            // intake re-reads a call's source from it.
+            for u in &mut units {
+                if u.file.is_empty() {
+                    u.file = rel.to_string();
+                }
+            }
             self.cache.insert(rel.to_string(), units);
         }
         &self.cache[rel]
@@ -579,12 +586,12 @@ fn check_cites(
             };
             let text = std::fs::read_to_string(src.join(&path)).unwrap_or_default();
             let ok = match line {
-                Some(n) => text
-                    .lines()
-                    .nth(n as usize - 1)
+                Some(n) => n
+                    .checked_sub(1)
+                    .and_then(|i| text.lines().nth(i as usize))
                     .is_some_and(|l| l.contains(&needle)),
                 None => {
-                    text.contains(&needle) || text.contains(&needle.replace("def ", "def self."))
+                    has_def(&text, &needle) || has_def(&text, &needle.replace("def ", "def self."))
                 }
             };
             if !ok {
@@ -595,6 +602,19 @@ fn check_cites(
             }
         }
     }
+}
+
+/// Whether `text` contains `needle` (`def name`) as a whole method name: the
+/// character after it must not continue an identifier, so `def acts_as_list`
+/// does not match `def acts_as_list_item`. A `?`/`!`/`=` suffix is a different
+/// method, so it does not match either.
+fn has_def(text: &str, needle: &str) -> bool {
+    text.match_indices(needle).any(|(i, _)| {
+        text[i + needle.len()..]
+            .chars()
+            .next()
+            .is_none_or(|c| !(c.is_alphanumeric() || matches!(c, '_' | '?' | '!' | '=')))
+    })
 }
 
 /// `path` with its `*` directory segments expanded: the first file that
@@ -1547,6 +1567,64 @@ fn literal_pairs(text: &str) -> Option<Vec<(String, String)>> {
         .collect()
 }
 
+/// The argument text of the call that starts at byte `anchor` of `text`, with
+/// comments removed: the balanced `( ... )` when the name is followed by `(`,
+/// otherwise the rest of the statement (to a `;`, or a newline that does not
+/// continue the argument list with a trailing `,` or `\`). `None` when
+/// `anchor` is not a position in `text` or the parentheses are not closed.
+pub fn call_arg_text(text: &str, anchor: usize) -> Option<String> {
+    let rest = text.get(anchor..)?;
+    let name_len = rest
+        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .unwrap_or(rest.len());
+    let after = &rest[name_len..];
+    let (parens, body) = match after.strip_prefix('(') {
+        Some(body) => (true, body),
+        None => (false, after),
+    };
+    let (mut quote, mut comment) = (None::<char>, false);
+    let mut depth = 1i32;
+    let mut out = String::new();
+    // The last significant character so far, comments excluded: a line that
+    // ends in `,` or `\` continues onto the next one.
+    let mut last = ' ';
+    for c in body.chars() {
+        if comment {
+            if c == '\n' {
+                comment = false;
+            } else {
+                continue;
+            }
+        }
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '#') => {
+                comment = true;
+                continue;
+            }
+            (None, '(' | '[' | '{') if parens => depth += 1,
+            (None, ')' | ']' | '}') if parens => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(out);
+                }
+            }
+            (None, ';') if !parens => return Some(out.trim().to_string()),
+            (None, '\n') if !parens && !matches!(last, ',' | '\\') => {
+                return Some(out.trim().to_string())
+            }
+            _ => {}
+        }
+        if quote.is_some() || !c.is_whitespace() {
+            last = c;
+        }
+        out.push(c);
+    }
+    (!parens).then(|| out.trim().to_string())
+}
+
 /// An expanded macro body, ready to be walked like a module body.
 pub struct MacroRun {
     /// The module or class whose `def` this is: the lexical scope its
@@ -1566,17 +1644,35 @@ impl Harvest {
         let mut out = Vec::new();
         for e in &ore.declarations {
             if ore.kind == OreKind::Class || matches!(e.origin, DeclOrigin::Included { .. }) {
-                out.extend(self.macro_runs_of_decl(&e.decl));
+                out.extend(self.macro_runs_of_decl(e, &ore.file));
             }
         }
         out
     }
 
+    /// The keyword options of the `acts_as_*` call `e` (written in `file`) when
+    /// the call's source passes literal `key: value` pairs and nothing else.
+    ///
+    /// `ActsAs::options` is built by ruff's `hash_pairs`, which drops a
+    /// `**splat` and takes the first hash argument only, so `acts_as_x **opts`,
+    /// `acts_as_x(some_hash)` and `acts_as_x a: 1, **more` all look like known
+    /// options. ruff exposes no argument text for `ActsAs`, so the call is
+    /// re-read from `file` at the event's anchor; any unreadable file, anchor
+    /// or argument form is `None` (undecided), never an empty key set.
+    fn acts_as_call_options(&self, e: &RailsEvent, file: &str) -> Option<Vec<(String, String)>> {
+        let text = std::fs::read_to_string(self.src.join(file)).ok()?;
+        literal_pairs(&call_arg_text(&text, e.anchor as usize)?)
+    }
+
     /// The expansion of one declaration, empty when it is not a call of a
     /// macro the intake knows.
-    pub fn macro_runs_of_decl(&mut self, decl: &Declaration) -> Vec<MacroRun> {
+    pub fn macro_runs_of_decl(&mut self, e: &RailsEvent, file: &str) -> Vec<MacroRun> {
+        let decl = &e.decl;
         let (dsl, options): (String, Option<Vec<(String, String)>>) = match decl {
-            Declaration::ActsAs(a) => (format!("acts_as_{}", a.variant), Some(a.options.clone())),
+            Declaration::ActsAs(a) => (
+                format!("acts_as_{}", a.variant),
+                self.acts_as_call_options(e, file),
+            ),
             Declaration::GemDsl(g) => (underscore(&format!("{:?}", g.gem)), None),
             Declaration::DslCall(c) => (c.name.clone(), None),
             _ => return Vec::new(),
@@ -1790,7 +1886,10 @@ impl Harvest {
                 }
             }
         }
-        flush(&mut chunk, &mut unread, out, first);
+        // Forced: after a hand-over or an inner call `first` is false, and the
+        // statements read after it (`Definer.call(self); if opts[:x] ... end`)
+        // would otherwise never reach a run's `unharvested`.
+        flush(&mut chunk, &mut unread, out, true);
         self.macro_log.push(format!(
             "{}#{} ({file}:{}): {decls} declarations, {delegates} hand-overs, {calls} inner calls, {} unread ({hides} may hide a registration)",
             m.owner,
@@ -1943,7 +2042,7 @@ impl Harvest {
             }
             // A class-level macro registers where it is called, after
             // whatever the call itself declared.
-            for run in self.macro_runs_of_decl(&e.decl) {
+            for run in self.macro_runs_of_decl(e, &ore.file) {
                 self.eff_body(&run.owner, &run.ore, false, st);
             }
         }
@@ -2276,19 +2375,23 @@ pub struct ModelCtx {
     /// `ClassOre::unharvested` is empty for a class by construction.
     pub modules: Vec<ModuleRead>,
     /// Names of modules whose include-time bodies leave a statement that may
-    /// hide a registration ([`hides_registration`]) and that cannot be named
-    /// (see `order_hidden`). A callback registered in one of them has no
-    /// definite position in the chain.
+    /// hide a registration ([`hides_registration`]). A callback registered in
+    /// one of them has no definite position in the chain, whether or not the
+    /// statement's branches can be partly named (see `order_hidden`): ruff does
+    /// not say its `hidden` list is exhaustive.
     pub order_unknown_scopes: BTreeSet<String>,
-    /// What the skipped branches of the other hiding statements could register:
-    /// a conditional whose branches hold only associations, callbacks and
-    /// validations ruff can read (`Unharvested::hidden`), derived like any
-    /// declaration (its generated callbacks included). Such a branch can change
-    /// the order of the compared entries only by registering, or re-registering
-    /// (ActiveSupport moves a re-registered callback to the end of its chain,
+    /// What the skipped branches of the hiding conditionals could register, as
+    /// far as ruff names it: a conditional whose branches hold only
+    /// associations, callbacks and validations ruff can read
+    /// (`Unharvested::hidden`), derived like any declaration (its generated
+    /// callbacks included). Such a branch can change the order of the compared
+    /// entries by registering, or re-registering (ActiveSupport moves a
+    /// re-registered callback to the end of its chain,
     /// activesupport-8.1.4.1/lib/active_support/callbacks.rb:645-663), a
-    /// callback the recording shows; a group none of whose entries one of these
-    /// names stays definite. The origin of each is its scope.
+    /// callback the recording shows; a group in a scope that is not in
+    /// `order_unknown_scopes` and none of whose entries one of these names
+    /// stays definite. The list is a lower bound (see `order_unknown_scopes`),
+    /// so it only ever demotes groups. The origin of each is its scope.
     pub order_hidden: Vec<Declared>,
 }
 
@@ -2702,23 +2805,36 @@ fn build_ctx(
             (false, false) => Completeness::Unread,
             (false, true) => Completeness::NoIncludeTimeBody,
         };
-        let mut hidden = Vec::new();
-        let mut unnamed = false;
+        // A scope with ANY statement that may hide a registration stays
+        // order-unknown, even when `hidden_registrations` can name what the
+        // statement's branches hold. `Unharvested::hidden` lists only the
+        // declarations ruff recognised; its own doc says "a branch may also
+        // hold statements ruff does not recognise" (ruff
+        // `crates/ruff_ruby_spo/src/events.rs`, `Unharvested::hidden`). So
+        // `included do; if c; after_save :a; send(:before_save, :b); end; end`
+        // lists only `after_save :a`, and treating the list as exhaustive
+        // would make a group holding `b` DEFINITE without evidence.
+        //
+        // MISSING RUFF SIGNAL: an exhaustiveness flag on `Unharvested` (every
+        // statement of the branches was recognised and is in `hidden`). With
+        // it, a scope whose hiding statements are all exhaustive and nameable
+        // can be relaxed back to definite here. Until then the named list only
+        // feeds `order_hidden`, which can make OTHER groups unknown, never a
+        // group in this scope definite.
+        let mut hides_any = false;
         for u in a
             .ore
             .unharvested
             .iter()
             .filter(|u| hides_registration(u.reason))
         {
-            match hidden_registrations(u, &a.name, &a.host) {
-                Some(named) => hidden.extend(named),
-                None => unnamed = true,
+            hides_any = true;
+            if let Some(named) = hidden_registrations(u, &a.name, &a.host) {
+                order_hidden.extend(named);
             }
         }
-        if unnamed {
+        if hides_any {
             order_unknown_scopes.insert(a.name.clone());
-        } else {
-            order_hidden.extend(hidden);
         }
         modules.push(ModuleRead {
             name: a.name.clone(),

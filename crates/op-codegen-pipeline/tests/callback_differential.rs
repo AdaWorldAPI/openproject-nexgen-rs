@@ -76,10 +76,20 @@ const SLAG_CEILINGS: &[(Slag, usize)] = &[
 ];
 
 /// Order groups that must be DEFINITE and agree with the recording, as
-/// `(with vendor/bundle, without it)`. A group is UNKNOWN only when a skipped
-/// branch could register one of its entries, or a scope hides registrations
-/// that cannot be named (`ModelCtx::order_unknown_scopes`, `order_hidden`).
-const ORDER_DEFINITE_FLOOR: (usize, usize) = (29, 19);
+/// `(with vendor/bundle, without it)`. A group is UNKNOWN when a callback in it
+/// is registered in a scope with any statement that may hide a registration
+/// (`ModelCtx::order_unknown_scopes`, even a conditional whose branches ruff
+/// names), or when a skipped branch could register one of its entries
+/// (`order_hidden`).
+///
+/// LOWERED from (29, 19) to (16, 6) by the review fix that stopped treating
+/// ruff's `Unharvested::hidden` as exhaustive: a nameable conditional used to
+/// clear its scope, which let a group hold an entry registered by a statement
+/// ruff does not recognise inside the same branch. 13 groups (the WorkPackage
+/// chains through `acts_as_customizable`) are now UNKNOWN; none of them would
+/// differ from the recording. The floor goes back up when ruff exposes an
+/// exhaustiveness flag on `Unharvested` and the scope check can use it.
+const ORDER_DEFINITE_FLOOR: (usize, usize) = (16, 6);
 
 /// Order groups that must stay DEFINITE and agree on the harvest WITHOUT
 /// class-level macros: the population the order gate was first measured on.
@@ -1394,6 +1404,283 @@ mod splats {
         assert_eq!(
             collection_validation(&[("validate", "flag?")]),
             (false, true)
+        );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Review fixes: unsound DEFINITE order, dropped trailing unread statements,
+// undecided option splats, cite parsing. Each test runs on a throwaway tree.
+// ─────────────────────────────────────────────────────────────────────────
+
+mod review_fixes {
+    use std::collections::BTreeSet;
+    use std::path::{Path, PathBuf};
+
+    use op_codegen_pipeline::callback_harvest::{
+        call_arg_text, contexts, Ancestor, Harvest, IntakeCfg, MacroRule, PatchIntake,
+    };
+    use ruff_ruby_spo::events::UnharvestedReason;
+    use ruff_ruby_spo::Declaration;
+
+    /// A throwaway checkout: `files` are `(relative path, text)`.
+    struct Tree(PathBuf);
+
+    impl Tree {
+        fn new(name: &str, files: &[(&str, &str)]) -> Tree {
+            // Unique per tree: the tests of this module run in parallel.
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let root =
+                std::env::temp_dir().join(format!("nx-p1-{name}-{}-{n}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            for (rel, text) in files {
+                let path = root.join(rel);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, text).unwrap();
+            }
+            Tree(root)
+        }
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Tree {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn harvest(tree: &Tree) -> Harvest {
+        let mut h = Harvest::new(tree.path(), vec!["app".to_string()]);
+        h.macros.push(MacroRule {
+            dsl: "acts_as_demo".into(),
+            file: "lib/mac.rb".into(),
+            def_name: "acts_as_demo".into(),
+            cite: "test".into(),
+            verify: Vec::new(),
+        });
+        h
+    }
+
+    // ── finding 1: a hiding scope is never definite ─────────────────────
+
+    const CONCERN: &str = "module Concern\n  extend ActiveSupport::Concern\n  included do\n    if cond\n      after_save :a\n      send(:before_save, :b)\n    end\n  end\nend\n";
+
+    #[test]
+    fn a_scope_with_a_nameable_conditional_stays_order_unknown() {
+        let tree = Tree::new(
+            "unknown",
+            &[
+                ("app/host.rb", "class Host\n  include Concern\nend\n"),
+                ("app/concern.rb", CONCERN),
+            ],
+        );
+        let mut h = harvest(&tree);
+        let models: BTreeSet<String> = ["Host".to_string()].into();
+        let (ctxs, _) = contexts(&mut h, &models, &PatchIntake::default());
+        let ctx = &ctxs["Host"];
+        // Anti-vacuity: ruff does name `after_save :a`, so the OLD rule (every
+        // hiding statement nameable => scope definite) would have cleared it.
+        let anc: Vec<Ancestor> = h.linearize("Host");
+        let concern = anc.iter().find(|a| a.name == "Concern").expect("Concern");
+        let u = concern
+            .ore
+            .unharvested
+            .iter()
+            .find(|u| u.reason == UnharvestedReason::ControlFlow)
+            .expect("the conditional is listed unharvested");
+        assert!(
+            !u.hidden.is_empty()
+                && u.hidden
+                    .iter()
+                    .all(|e| matches!(e.decl, Declaration::Callback(_))),
+            "fixture: ruff names the callback inside the branch"
+        );
+        assert!(
+            ctx.order_unknown_scopes.contains("Concern"),
+            "a scope that hides a registration must not be definite, though ruff named {:?}",
+            u.hidden.len()
+        );
+    }
+
+    #[test]
+    fn a_scope_without_hiding_statements_stays_definite() {
+        let tree = Tree::new(
+            "definite",
+            &[
+                ("app/host.rb", "class Host\n  include Concern\nend\n"),
+                (
+                    "app/concern.rb",
+                    "module Concern\n  extend ActiveSupport::Concern\n  included do\n    after_save :a\n  end\nend\n",
+                ),
+            ],
+        );
+        let mut h = harvest(&tree);
+        let models: BTreeSet<String> = ["Host".to_string()].into();
+        let (ctxs, _) = contexts(&mut h, &models, &PatchIntake::default());
+        assert!(
+            ctxs["Host"].order_unknown_scopes.is_empty(),
+            "{:?}",
+            ctxs["Host"].order_unknown_scopes
+        );
+    }
+
+    // ── finding 2: trailing unread statements survive the final flush ───
+
+    const MAC_TRAILING: &str = "module Mac\n  def acts_as_demo(opts = {})\n    Definer.call(self)\n    if opts[:x]\n      after_save :y\n    end\n  end\nend\n";
+
+    #[test]
+    fn unread_statements_after_a_hand_over_are_kept() {
+        let tree = Tree::new(
+            "trailing",
+            &[
+                ("app/host.rb", "class Host\n  acts_as_demo\nend\n"),
+                ("lib/mac.rb", MAC_TRAILING),
+                (
+                    "app/definer.rb",
+                    "module Definer\n  def self.call(base)\n    base.before_save :z\n  end\nend\n",
+                ),
+            ],
+        );
+        let mut h = harvest(&tree);
+        let anc = h.linearize("Host");
+        let kept: usize = anc
+            .iter()
+            .filter(|a| a.name.starts_with("Mac#"))
+            .flat_map(|a| a.ore.unharvested.iter())
+            .filter(|u| u.reason == UnharvestedReason::ControlFlow)
+            .count();
+        assert_eq!(
+            kept, 1,
+            "the `if opts[:x]` after the hand-over must reach a run's unharvested; log: {:?}",
+            h.macro_log
+        );
+    }
+
+    // ── finding 3: option splats of a macro call ────────────────────────
+
+    const MAC_SPLAT: &str = "module Mac\n  def acts_as_demo(options = {})\n    has_many :things, **options\n  end\nend\n";
+
+    /// Whether the macro's `**options` splat was resolved from the call.
+    fn splat_resolved(call: &str) -> bool {
+        let tree = Tree::new(
+            "splat",
+            &[
+                ("app/host.rb", &format!("class Host\n  {call}\nend\n")),
+                ("lib/mac.rb", MAC_SPLAT),
+            ],
+        );
+        let mut h = harvest(&tree);
+        let anc = h.linearize("Host");
+        let mut seen = 0;
+        let mut resolved = true;
+        for a in anc.iter().filter(|a| a.name.starts_with("Mac#")) {
+            for e in &a.ore.declarations {
+                if let Declaration::Association(assoc) = &e.decl {
+                    seen += 1;
+                    resolved &= assoc.option_splats.is_empty();
+                }
+            }
+        }
+        assert_eq!(seen, 1, "fixture: one expanded association for {call:?}");
+        resolved
+    }
+
+    #[test]
+    fn a_call_with_only_literal_pairs_decides_the_splat() {
+        assert!(splat_resolved("acts_as_demo"));
+        assert!(splat_resolved("acts_as_demo order: :position"));
+        assert!(splat_resolved("acts_as_demo(order: :position, a: 1)"));
+        assert!(splat_resolved("acts_as_demo a: 1,\n    b: 2"));
+    }
+
+    #[test]
+    fn a_call_ruff_cannot_read_in_full_leaves_the_splat_undecided() {
+        assert!(!splat_resolved("acts_as_demo **opts"), "splat argument");
+        assert!(
+            !splat_resolved("acts_as_demo(some_hash)"),
+            "non-hash argument"
+        );
+        assert!(
+            !splat_resolved("acts_as_demo a: 1, **more"),
+            "pair then splat"
+        );
+        assert!(!splat_resolved("acts_as_demo :a => 1"), "hash rocket");
+    }
+
+    #[test]
+    fn call_arguments_are_read_from_the_source() {
+        let args = |t: &str| call_arg_text(t, 0);
+        assert_eq!(args("foo").as_deref(), Some(""));
+        assert_eq!(args("foo a: 1\nbar").as_deref(), Some("a: 1"));
+        assert_eq!(
+            args("foo(a: (1), b: 2) # x").as_deref(),
+            Some("a: (1), b: 2")
+        );
+        assert_eq!(args("foo a: 1 # c\nbar").as_deref(), Some("a: 1"));
+        // A comment after a trailing comma does not end the call, and does not
+        // leak into the arguments.
+        let joined = args("foo a: 1, # c\n b: 2\nbar").unwrap();
+        assert_eq!(
+            joined.split_whitespace().collect::<Vec<_>>(),
+            ["a:", "1,", "b:", "2"]
+        );
+        assert_eq!(args("foo a: 1,\n b: 2\nbar").unwrap().lines().count(), 2);
+        assert_eq!(args("foo(a: 1"), None, "unclosed");
+        assert_eq!(call_arg_text("foo", 99), None, "anchor outside the text");
+    }
+
+    // ── finding 4: cites ────────────────────────────────────────────────
+
+    fn cfg_with(file: &str, def: &str, line: u32) -> IntakeCfg {
+        let json = format!(
+            r#"{{"roots":{{"list":[]}},"engines":{{"search":[],"file_name":"x","superclass":[]}},
+            "engine_order":{{"file":"x","line_marker":"a","line_marker_end":"b"}},
+            "patch_rules":[],"phase":{{"applies":"after_class_body"}},
+            "macros":{{"rules":[{{"dsl":"d","file":"{file}","def":"{def}","cite":"c",
+            "verify":[{{"file":"{file}","line":{line},"contains":"x"}}]}}]}}}}"#
+        );
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn a_cite_on_line_zero_is_reported_not_a_panic() {
+        let tree = Tree::new("cite0", &[("lib/m.rb", "def foo\nend\n")]);
+        let bad = op_codegen_pipeline::callback_harvest::verify_macro_cites(
+            tree.path(),
+            &cfg_with("lib/m.rb", "foo", 0),
+        );
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert!(bad[0].contains("does not contain"), "{bad:?}");
+    }
+
+    #[test]
+    fn a_def_cite_matches_the_whole_method_name() {
+        let only_longer = Tree::new("cite-long", &[("lib/m.rb", "def acts_as_list_item\nend\n")]);
+        let bad = op_codegen_pipeline::callback_harvest::verify_macro_cites(
+            only_longer.path(),
+            &cfg_with("lib/m.rb", "acts_as_list", 1),
+        );
+        assert!(
+            bad.iter().any(|b| b.contains("def acts_as_list")),
+            "`def acts_as_list_item` must not satisfy `def acts_as_list`: {bad:?}"
+        );
+        let exact = Tree::new(
+            "cite-exact",
+            &[(
+                "lib/m.rb",
+                "def acts_as_list(opts)\nend\ndef self.other\nend\n",
+            )],
+        );
+        let bad = op_codegen_pipeline::callback_harvest::verify_macro_cites(
+            exact.path(),
+            &cfg_with("lib/m.rb", "acts_as_list", 1),
+        );
+        assert!(
+            !bad.iter().any(|b| b.contains("def acts_as_list")),
+            "the exact name is found: {bad:?}"
         );
     }
 }
