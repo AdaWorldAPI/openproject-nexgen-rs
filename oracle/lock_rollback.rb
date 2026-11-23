@@ -22,6 +22,8 @@
 #   nested: ["parent destroy returned false", "child after_commit destroy"]
 #   rescued: kids=0 moms=0 ["rescued kid boom", "mom after_commit destroy", "kid after_commit destroy"]
 #   save then destroy: solos=0 ["after_commit any", "after_commit destroy"]
+#   twice: tots=0 ["first Tot", "second Tot", "tot after_commit destroy"]
+#   create then destroy: blips=0 destroyed=true ["blip after_commit any", "blip after_commit destroy"]
 B = File.join(ENV.fetch("OPENPROJECT_SRC"), "vendor/bundle/ruby/4.0.0/gems")
 %w[activerecord-8.1.4.1 activemodel-8.1.4.1 activesupport-8.1.4.1].each { |g| $LOAD_PATH.unshift("#{B}/#{g}/lib") }
 Dir["#{B}/{concurrent-ruby,i18n,tzinfo,minitest,base64,bigdecimal,connection_pool,drb,logger,securerandom,uri,benchmark,timeout,json}-*/lib"].each { |d| $LOAD_PATH.unshift(d) }
@@ -36,7 +38,7 @@ ActiveRecord::Schema.define do
   create_table(:children) { |t| t.string :name }
   create_table(:parents) { |t| t.string :name }
   create_table(:outers) { |t| t.string :name }
-  %i[kids moms solos].each { |t| create_table(t) { |c| c.string :name } }
+  %i[kids moms solos tots holders blips].each { |t| create_table(t) { |c| c.string :name } }
 end
 class Wp < ActiveRecord::Base
   attr_accessor :boom
@@ -112,3 +114,26 @@ solo = Solo.create!(name: "s")
 $log = []
 solo.destroy
 puts "save then destroy: solos=#{Solo.count} #{$log.inspect}"
+
+# One record destroyed twice inside an outer save.
+$log = []
+class Tot < ActiveRecord::Base
+  after_commit(on: :destroy) { $log << "tot after_commit destroy" }
+end
+class Holder < ActiveRecord::Base
+  after_save { t = Tot.first; $log << "first #{t.destroy.class}"; $log << "second #{t.destroy.class}" }
+end
+Tot.create!(name: "t")
+Holder.create!(name: "h")
+puts "twice: tots=#{Tot.count} #{$log.inspect}"
+
+# An after_create that destroys the new record.
+$log = []
+class Blip < ActiveRecord::Base
+  after_create { destroy }
+  after_commit(on: :create) { $log << "blip after_commit create" }
+  after_commit(on: :destroy) { $log << "blip after_commit destroy" }
+  after_commit { $log << "blip after_commit any" }
+end
+b = Blip.create!(name: "b")
+puts "create then destroy: blips=#{Blip.count} destroyed=#{b.destroyed?} #{$log.inspect}"

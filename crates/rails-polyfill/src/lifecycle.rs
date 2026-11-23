@@ -78,6 +78,10 @@ pub struct ModelSpec {
 pub(crate) struct PendingCommit {
     model: &'static ModelSpec,
     record: Record,
+    /// Address of the record object that joined. A callback that receives
+    /// the same object (an after_create that destroys `self`) is the same
+    /// participant even before it has an id.
+    addr: usize,
     /// `@_new_record_before_last_commit`: new when it joined.
     created: bool,
     /// What it did that triggers after_commit, if anything yet
@@ -87,6 +91,17 @@ pub(crate) struct PendingCommit {
 
 /// The record's slot in the transaction, joining it if it is not in yet.
 fn join_transaction(ctx: &mut Ctx, model: &'static ModelSpec, rec: &Record) -> usize {
+    let addr = std::ptr::from_ref(rec) as usize;
+    // The same object, unless the ids say otherwise: a loop that loads one
+    // record after another into the same local reuses its address.
+    let same_object = |p: &PendingCommit| {
+        p.addr == addr
+            && std::ptr::eq(p.record.table, rec.table)
+            && (p.record.id().is_none() || rec.id().is_none() || p.record.id() == rec.id())
+    };
+    if let Some(i) = ctx.pending_commit.iter().position(same_object) {
+        return i;
+    }
     if let Some(id) = rec.id() {
         let same = |p: &PendingCommit| std::ptr::eq(p.record.table, rec.table) && p.record.id() == Some(id);
         if let Some(i) = ctx.pending_commit.iter().position(same) {
@@ -96,6 +111,7 @@ fn join_transaction(ctx: &mut Ctx, model: &'static ModelSpec, rec: &Record) -> u
     ctx.pending_commit.push(PendingCommit {
         model,
         record: rec.clone(),
+        addr,
         created: rec.new_record(),
         action: None,
     });
@@ -439,10 +455,14 @@ pub fn destroy(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Re
     if deleted {
         settle(ctx, slot, rec, Some(Action::Destroy));
     } else {
-        // Destroyed without a deleted row: no destroy trigger, and a
+        // Destroyed without a deleted row. `@_trigger_destroy_callback ||=`
+        // keeps a trigger an earlier destroy of this record set; otherwise a
         // destroyed record takes no create or update callback either.
-        ctx.pending_commit[slot].record = rec.clone();
-        ctx.pending_commit[slot].action = None;
+        let p = &mut ctx.pending_commit[slot];
+        p.record = rec.clone();
+        if p.action != Some(Action::Destroy) {
+            p.action = None;
+        }
     }
     if outer {
         dispatch_commits(ctx)?;
@@ -958,6 +978,100 @@ mod tests {
         let mut got = commits(&ctx);
         got.sort_unstable();
         assert_eq!(got, ["commit_any", "commit_destroy"]);
+    }
+
+    fn destroy_tot_twice(ctx: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
+        let mut tot = find(ctx, &TOT, 1)?.expect("tot row");
+        destroy(ctx, &TOT, &mut tot)?;
+        destroy(ctx, &TOT, &mut tot)?;
+        Ok(Value::Nil)
+    }
+
+    static TOT: ModelSpec = ModelSpec {
+        name: "Tot",
+        table: &PLAIN,
+        callbacks: &[cb(Phase::AfterCommit, "tot_commit_destroy", On::DESTROY, noop)],
+    };
+
+    static HOLDER: ModelSpec = ModelSpec {
+        name: "Holder",
+        table: &OUTERS,
+        callbacks: &[cb(Phase::AfterSave, "destroy_tot_twice", On::ANY, destroy_tot_twice)],
+    };
+
+    /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, destroyed-twice
+    /// scenario): the second destroy deletes nothing, but the first one's
+    /// trigger stays (`@_trigger_destroy_callback ||=`), so the after_commit
+    /// destroy runs once.
+    #[test]
+    fn destroying_a_record_twice_keeps_its_destroy_commit() {
+        let mut ctx = ctx_with(&PLAIN);
+        ctx.store.register(&OUTERS);
+        ctx.store.seed(&PLAIN, &[("name", Value::str("t"))]).unwrap();
+        let mut holder = build(&mut ctx, &HOLDER, &[("name", Value::str("h"))]).unwrap();
+        assert_eq!(save(&mut ctx, &HOLDER, &mut holder).map(|s| s.ok), Ok(true));
+        assert_eq!(ctx.store.count(&PLAIN), 0);
+        assert_eq!(commits(&ctx), ["tot_commit_destroy"]);
+    }
+
+    fn destroy_self(ctx: &mut Ctx, rec: &mut Record) -> Result<Value, Halt> {
+        destroy(ctx, &BLIP, rec)?;
+        Ok(Value::Nil)
+    }
+
+    static BLIP: ModelSpec = ModelSpec {
+        name: "Blip",
+        table: &PLAIN,
+        callbacks: &[
+            cb(Phase::AfterCreate, "destroy_self", On::ANY, destroy_self),
+            cb(Phase::AfterCommit, "blip_commit_create", On::CREATE, noop),
+            cb(Phase::AfterCommit, "blip_commit_destroy", On::DESTROY, noop),
+            cb(Phase::AfterCommit, "blip_commit_any", On::ANY, noop),
+        ],
+    };
+
+    /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, create-then-destroy
+    /// scenario): an after_create that destroys the new record leaves no row,
+    /// and at commit the record is one participant, destroyed: the destroy
+    /// and unrestricted after_commit run once, the create one does not.
+    #[test]
+    fn a_record_destroyed_in_its_after_create_commits_once_as_a_destroy() {
+        let mut ctx = ctx_with(&PLAIN);
+        let mut blip = build(&mut ctx, &BLIP, &[("name", Value::str("b"))]).unwrap();
+        assert_eq!(save(&mut ctx, &BLIP, &mut blip).map(|s| s.ok), Ok(true));
+        assert_eq!(ctx.store.count(&PLAIN), 0);
+        assert!(blip.destroyed());
+        let mut got = commits(&ctx);
+        got.sort_unstable();
+        assert_eq!(got, ["blip_commit_any", "blip_commit_destroy"]);
+    }
+
+    fn destroy_two_tots_in_a_loop(ctx: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
+        for id in [1, 2] {
+            let mut tot = find(ctx, &TOT, id)?.expect("tot row");
+            destroy(ctx, &TOT, &mut tot)?;
+        }
+        Ok(Value::Nil)
+    }
+
+    static LOOPER: ModelSpec = ModelSpec {
+        name: "Looper",
+        table: &OUTERS,
+        callbacks: &[cb(Phase::AfterSave, "destroy_two_tots_in_a_loop", On::ANY, destroy_two_tots_in_a_loop)],
+    };
+
+    /// Two records loaded one after the other into the same local are two
+    /// participants, each with its own after_commit.
+    #[test]
+    fn records_loaded_into_the_same_local_stay_separate_participants() {
+        let mut ctx = ctx_with(&PLAIN);
+        ctx.store.register(&OUTERS);
+        ctx.store.seed(&PLAIN, &[("name", Value::str("t1"))]).unwrap();
+        ctx.store.seed(&PLAIN, &[("name", Value::str("t2"))]).unwrap();
+        let mut looper = build(&mut ctx, &LOOPER, &[("name", Value::str("l"))]).unwrap();
+        assert_eq!(save(&mut ctx, &LOOPER, &mut looper).map(|s| s.ok), Ok(true));
+        assert_eq!(ctx.store.count(&PLAIN), 0);
+        assert_eq!(commits(&ctx), ["tot_commit_destroy", "tot_commit_destroy"]);
     }
 
     /// A rolled-back create restores the pre-save id and `new_record?`
