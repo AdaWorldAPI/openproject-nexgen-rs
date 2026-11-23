@@ -15,15 +15,21 @@
 //! `NotHarvested`, the Charon-only assertions (b), (d) and the silence twin still run,
 //! and (a) and the report check print UNVERIFIED; `REQUIRE_SOURCES=1` makes a missing
 //! checkout a failure. `UPDATE_RECONCILE_REPORT=1` rewrites the checked-in report.
+//!
+//! The claims are data: `oracle/charon/ore-slag/openproject.toml`, loaded and checked by
+//! `op_codegen_pipeline::ore_slag_config`. What stays here is the app-side binding: the
+//! named evidence evaluators ([`Source`]), the `schedule_manually` witness, and the
+//! `effective_guards` generator over the harvest.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use op_codegen_pipeline::admission_gen::{contract_scan_facts, ContractScanFacts};
+use op_codegen_pipeline::ore_slag_config::{EvidenceSource, GeneratedClaim, OreSlagConfig};
 use op_codegen_pipeline::reconcile::{
-    crate_of, locate, render_markdown, CharonStore, ClaimSpec, Comparability, JoinKey, Level,
-    Reconciler, Reconciliation, Revisions, RubyEvidence, RuntimeEvidence, RustProbe, SlagReason,
-    SourceSpan, Verdict,
+    crate_of, locate, render_markdown, CharonStore, ClaimSpec, Reconciler, Reconciliation,
+    Revisions, RubyEvidence, RuntimeEvidence, RustProbe, SlagReason, SourceSpan, Verdict,
 };
 use op_codegen_pipeline::RUFF_REV;
 use op_contracts::base::UserContext;
@@ -40,14 +46,8 @@ const CREATE_CONTRACT: &str = "app/contracts/work_packages/create_contract.rb";
 const CREATE_SERVICE: &str = "app/services/work_packages/create_service.rb";
 const GENERATED: &str = "crates/op-contracts/src/work_packages/generated_create_admission.rs";
 const REPORT: &str = "oracle/charon/reconcile-create-admission.md";
-
-// Rust symbols, in the normalized form (`reconcile::normalize`).
-const SVC: &str = "op_services::work_packages::create::CreateWorkPackageService";
-const ADMIT_CREATE: &str = "op_contracts::work_packages::admission::admit_create";
-const USER_ALLOWED_TO_ADD: &str = "op_contracts::work_packages::admission::user_allowed_to_add";
-const IS_WRITABLE: &str = "op_contracts::work_packages::admission::is_writable";
-const MUTATION_CREATE: &str = "op_services::work_packages::mutation::create";
-const API_CREATE: &str = "op_api::handlers::work_packages::create_work_package_core";
+/// The reconciliation's data: claims, residual proposals, gates (see the module doc).
+const ORE_SLAG_CONFIG: &str = "oracle/charon/ore-slag/openproject.toml";
 
 // Join keys of the rows the assertions name.
 const KEY_ENTRY: &str = "openproject/WorkPackage/create/admission/CreateWorkPackageService.call/evaluates:WorkPackages::CreateContract";
@@ -82,24 +82,6 @@ fn source() -> Option<PathBuf> {
     }
 }
 
-fn key(phase: &str, method: &str, effect: &str) -> JoinKey {
-    JoinKey {
-        application: "openproject".into(),
-        model: "WorkPackage".into(),
-        operation: "create".into(),
-        phase: phase.into(),
-        method: method.into(),
-        effect: effect.into(),
-    }
-}
-
-fn edges(e: &[(&str, &str)]) -> RustProbe {
-    RustProbe::Edges {
-        edges: e.iter().map(|(a, b)| ((*a).into(), (*b).into())).collect(),
-        conflicts: Vec::new(),
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────────────
 // The Ruby witness
 // ─────────────────────────────────────────────────────────────────────────
@@ -125,40 +107,6 @@ impl Ruby {
         }
     }
 
-    /// A fact the extractor produced (`produced`), located at the first `needle` in
-    /// `file`. Not produced, or not locatable: not harvested.
-    fn fact(
-        &self,
-        produced: bool,
-        extractor: &str,
-        file: &str,
-        needle: &str,
-        fact: &str,
-    ) -> RubyEvidence {
-        let text = if file == CREATE_SERVICE {
-            &self.service
-        } else {
-            &self.contract
-        };
-        match (produced, locate(text, needle)) {
-            (true, Some(line)) => RubyEvidence::Fact {
-                extractor: extractor.into(),
-                span: SourceSpan {
-                    file: file.into(),
-                    line_start: line,
-                    line_end: line,
-                },
-                fact: fact.into(),
-            },
-            (false, _) => RubyEvidence::NotHarvested {
-                why: format!("{extractor} did not produce: {fact}"),
-            },
-            (true, None) => RubyEvidence::NotHarvested {
-                why: format!("{needle:?} not found in {file}"),
-            },
-        }
-    }
-
     /// The body of `def user_allowed_to_add` (to its `end` at the same indent).
     fn add_body(&self) -> Option<(usize, usize, String)> {
         let lines: Vec<&str> = self.contract.lines().collect();
@@ -177,10 +125,18 @@ fn not_harvested(why: &str) -> RubyEvidence {
     RubyEvidence::NotHarvested { why: why.into() }
 }
 
-const SCAN: &str = "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)";
-const LOCATED: &str = "literal located in the source (no parse)";
-const RUFF: &str = "ruff_ruby_spo::extract_contract_guards";
-const RUFF_BLOCKS: &str = "ruff_ruby_spo::extract_attribute_blocks";
+/// The config: loaded and checked once. A config that does not load fails every test.
+fn config() -> &'static OreSlagConfig {
+    static CONFIG: OnceLock<OreSlagConfig> = OnceLock::new();
+    CONFIG.get_or_init(|| {
+        OreSlagConfig::load(&root().join(ORE_SLAG_CONFIG)).unwrap_or_else(|e| panic!("{e}"))
+    })
+}
+
+/// An extractor label of the config's `[extractors]` table.
+fn extractor(name: &str) -> String {
+    config().extractor(name).unwrap_or_else(|e| panic!("{e}"))
+}
 
 const SCHEDULE_CLASS: &str = "WorkPackages::CreateContract";
 const SCHEDULE_ATTRIBUTE: &str = "schedule_manually";
@@ -217,7 +173,7 @@ fn schedule_block_evidence(blocks: &[AttributeBlock], validator: &str) -> RubyEv
         ));
     }
     RubyEvidence::Fact {
-        extractor: RUFF_BLOCKS.into(),
+        extractor: extractor("ruff_blocks"),
         span: SourceSpan {
             file: block.file.clone(),
             line_start: call.line as usize,
@@ -252,185 +208,108 @@ fn effective_guards<'a>(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// The claims (OpenProject-specific data)
+// The claims: data in the config, evaluated through this binding
 // ─────────────────────────────────────────────────────────────────────────
 
-fn claims(ruby: Option<&Ruby>) -> Vec<ClaimSpec> {
-    let none = || not_harvested("OPENPROJECT_SRC not set");
-    let has_validator = |r: &Ruby| r.scan.validators.iter().any(|v| v == "user_allowed_to_add");
-    let add_perm = |r: &Ruby| r.scan.add_permission.as_deref() == Some("add_work_packages");
-    let add_body = ruby.and_then(Ruby::add_body);
-    let in_body = |needle: &str| {
-        add_body
-            .as_ref()
-            .is_some_and(|(_, _, b)| b.contains(needle))
-    };
+/// The named evidence evaluators of the config's `ruby` specs, over the Ruby witness
+/// (`None`: no `OPENPROJECT_SRC`).
+struct Source<'a>(Option<&'a Ruby>);
 
-    let mut v = vec![
-        ClaimSpec {
-            key: key("registration", "CreateContract.validate(:user_allowed_to_add)", "declares-validator"),
-            level: Level::Registration,
-            ruby: ruby.map_or_else(none, |r| {
-                r.fact(has_validator(r), SCAN, CREATE_CONTRACT, "validate :user_allowed_to_add", "CreateContract registers user_allowed_to_add as a validator")
-            }),
-            rust: edges(&[(ADMIT_CREATE, USER_ALLOWED_TO_ADD)]),
-            comparability: Comparability::Different {
-                ruby: "DSL registration of a validator".into(),
-                rust: "no registration step; admit_create calls the function".into(),
-            },
-            repair: "none: different levels; the invocation is its own row".into(),
-        },
-        ClaimSpec {
-            key: key("callback", "CreateContract#validate", "invokes:user_allowed_to_add"),
-            level: Level::CallbackInvocation,
-            ruby: ruby.map_or_else(none, |r| {
-                r.fact(has_validator(r), SCAN, CREATE_CONTRACT, "validate :user_allowed_to_add", "validating the create contract runs user_allowed_to_add")
-            }),
-            rust: edges(&[(ADMIT_CREATE, USER_ALLOWED_TO_ADD)]),
-            comparability: Comparability::Same,
-            repair: "-".into(),
-        },
-        ClaimSpec {
-            key: key("admission", "CreateWorkPackageService.call", "evaluates:WorkPackages::CreateContract"),
-            level: Level::Admission,
-            ruby: ruby.map_or_else(none, |r| {
-                r.fact(has_validator(r), &format!("{LOCATED} + {SCAN}"), CREATE_SERVICE, "contract_class: WorkPackages::CreateContract", "CreateService admits a create through WorkPackages::CreateContract")
-            }),
-            rust: edges(&[(&format!("{SVC}::call"), &format!("{SVC}::admit")), (&format!("{SVC}::admit"), ADMIT_CREATE)]),
-            comparability: Comparability::Same,
-            repair: "-".into(),
-        },
-        ClaimSpec {
-            key: key("admission", "user_allowed_to_add", "requires:add_work_packages"),
-            level: Level::Admission,
-            ruby: ruby.map_or_else(none, |r| {
-                r.fact(add_perm(r), SCAN, CREATE_CONTRACT, "allowed_in_project?(:add_work_packages", "the create is authorized by add_work_packages")
-            }),
-            rust: RustProbe::Data {
-                krate: "op_contracts".into(),
-                file: GENERATED.into(),
-                item: "ADD_PERMISSION".into(),
-            },
-            comparability: Comparability::Same,
-            repair: "data witness: the generator drift check (create_transition_differential)".into(),
-        },
-        ClaimSpec {
-            key: key("guard", "user_allowed_to_add", "consults:allowed_in_project?"),
-            level: Level::GuardEvaluation,
-            ruby: ruby.map_or_else(none, |r| {
-                r.fact(add_perm(r) && in_body("allowed_in_project?("), SCAN, CREATE_CONTRACT, "allowed_in_project?(:add_work_packages", "user_allowed_to_add asks allowed_in_project?")
-            }),
-            rust: edges(&[(USER_ALLOWED_TO_ADD, "op_contracts::base::UserContext::allowed_in_project")]),
-            comparability: Comparability::Same,
-            repair: "-".into(),
-        },
-        ClaimSpec {
-            key: key("guard", "user_allowed_to_add", "consults:allowed_in_any_project?"),
-            level: Level::GuardEvaluation,
-            ruby: ruby.map_or_else(none, |r| {
-                r.fact(in_body("allowed_in_any_project?("), LOCATED, CREATE_CONTRACT, "allowed_in_any_project?(:add_work_packages", "user_allowed_to_add asks allowed_in_any_project?")
-            }),
-            rust: edges(&[(USER_ALLOWED_TO_ADD, "op_contracts::base::UserContext::allowed_in_any_project")]),
-            comparability: Comparability::Same,
-            repair: "-".into(),
-        },
-        ClaimSpec {
-            key: key("guard", "user_allowed_to_add", "consults:admin?"),
-            level: Level::GuardEvaluation,
-            ruby: match &add_body {
-                Some((a, b, body)) if !body.contains("admin") => RubyEvidence::Absent {
-                    extractor: LOCATED.into(),
-                    span: SourceSpan { file: CREATE_CONTRACT.into(), line_start: *a, line_end: *b },
-                    looked_for: "an admin check in the body (Ruby's admin bypass is inside User#allowed_in_project?, not harvested)".into(),
-                },
-                Some(_) => not_harvested("the body mentions admin"),
-                None => none(),
-            },
-            rust: edges(&[(USER_ALLOWED_TO_ADD, "op_contracts::base::UserContext::is_admin")]),
-            comparability: Comparability::Same,
-            repair: "harvest User#allowed_in_project? to see whether the admin bypass matches".into(),
-        },
-        ClaimSpec {
-            key: key("guard", "admit_create", "evaluates:writable?-per-submitted-attribute"),
-            level: Level::GuardEvaluation,
-            ruby: not_harvested("BaseContract#writable? (app/contracts/base_contract.rb) is not harvested by any extractor here"),
-            rust: edges(&[(ADMIT_CREATE, IS_WRITABLE)]),
-            comparability: Comparability::Same,
-            repair: "ruff: lower BaseContract#writable? (condition AND permission)".into(),
-        },
-        ClaimSpec {
-            key: key("guard", "CreateContract.attribute(:schedule_manually).block", "validates:validate_has_predecessors_or_children"),
-            level: Level::GuardEvaluation,
-            ruby: ruby.map_or_else(none, |r| schedule_block_evidence(&r.blocks, SCHEDULE_VALIDATOR)),
-            rust: edges(&[(ADMIT_CREATE, "op_contracts::work_packages::admission::validate_has_predecessors_or_children")]),
-            comparability: Comparability::Same,
-            repair: "the call is compared, not its condition: Rust calls the validator unconditionally and evaluates `model.schedule_automatically?` inside it (FACT_SCHEDULE_MANUALLY); the condition is witnessed by the schedule_manually runtime differential (ore_slag)".into(),
-        },
-        ClaimSpec {
-            key: key("admission", "mutation::create", "checks:add_work_packages-in-project"),
-            level: Level::Admission,
-            ruby: ruby.map_or_else(none, |r| {
-                r.fact(add_perm(r), SCAN, CREATE_CONTRACT, "allowed_in_project?(:add_work_packages", "a create needs add_work_packages in the model's project")
-            }),
-            rust: edges(&[(MUTATION_CREATE, "op_services::work_packages::mutation::may")]),
-            comparability: Comparability::Same,
-            repair: "Charon: structure async bodies (mutation::create)".into(),
-        },
-        ClaimSpec {
-            key: key("persistence", "mutation::create", "inserts:work_packages"),
-            level: Level::Persistence,
-            ruby: ruby.map_or_else(none, |r| {
-                r.fact(true, LOCATED, CREATE_SERVICE, "work_package.save(validate: false)", "an admitted create saves the work package")
-            }),
-            rust: edges(&[(MUTATION_CREATE, "op_services::work_packages::mutation::CreationStore::insert_wp")]),
-            comparability: Comparability::Same,
-            repair: "Charon: structure async bodies (mutation::create, PgMutationStore::insert_wp)".into(),
-        },
-        ClaimSpec {
-            key: key("admission", "POST /api/v3/work_packages", "enters:mutation::create"),
-            level: Level::Admission,
-            ruby: not_harvested("the API v3 create endpoint is not harvested"),
-            rust: edges(&[(API_CREATE, MUTATION_CREATE)]),
-            comparability: Comparability::Same,
-            repair: "Charon: structure async bodies (create_work_package_core); Ruby: harvest the API v3 create endpoint".into(),
-        },
-    ];
-    if let Some(r) = ruby {
-        for g in effective_guards(&r.guards, &r.scan.writable_shadowed) {
-            let (effect, fact) = match &g.outcome {
-                GuardOutcome::Lowered(e) => ("guard:lowered", format!("writable: {e:?}")),
-                GuardOutcome::Unlowered { reason } => {
-                    ("guard:unlowered", format!("writable: unlowered ({reason})"))
-                }
-            };
-            v.push(ClaimSpec {
-                key: key(
-                    "guard",
-                    &format!("{}.attribute(:{})", g.class, g.attribute),
-                    effect,
-                ),
-                level: Level::GuardEvaluation,
-                ruby: RubyEvidence::Fact {
-                    extractor: RUFF.into(),
-                    span: SourceSpan {
-                        file: format!("app/contracts/{}", g.file),
-                        line_start: g.line,
-                        line_end: g.line,
-                    },
-                    fact,
-                },
-                rust: RustProbe::Data {
-                    krate: "op_contracts".into(),
-                    file: GENERATED.into(),
-                    item: "ATTRIBUTES".into(),
-                },
-                comparability: Comparability::Same,
-                repair: "data witness: the generator drift check (create_transition_differential)"
-                    .into(),
-            });
+impl Source<'_> {
+    fn ruby(&self) -> Result<&Ruby, String> {
+        self.0.ok_or_else(|| "OPENPROJECT_SRC not set".to_string())
+    }
+}
+
+impl EvidenceSource for Source<'_> {
+    fn unavailable(&self) -> Option<String> {
+        self.0
+            .is_none()
+            .then(|| "OPENPROJECT_SRC not set".to_string())
+    }
+
+    /// `has_validator`, `add_perm`, `add_perm_and_in_body:<needle>`, `in_body:<needle>`,
+    /// `always`.
+    fn predicate(&self, name: &str, argument: Option<&str>) -> Result<bool, String> {
+        let r = self.ruby()?;
+        let in_body = |needle: &str| {
+            r.add_body()
+                .is_some_and(|(_, _, body)| body.contains(needle))
+        };
+        let add_perm = r.scan.add_permission.as_deref() == Some("add_work_packages");
+        let arg = || argument.ok_or_else(|| format!("predicate {name} needs an argument"));
+        match name {
+            "has_validator" => Ok(r.scan.validators.iter().any(|v| v == "user_allowed_to_add")),
+            "add_perm" => Ok(add_perm),
+            "add_perm_and_in_body" => Ok(add_perm && in_body(arg()?)),
+            "in_body" => Ok(in_body(arg()?)),
+            "always" => Ok(true),
+            other => Err(format!("unknown predicate {other}")),
         }
     }
-    v
+
+    fn text(&self, file: &str) -> Option<&str> {
+        let r = self.0?;
+        Some(if file == CREATE_SERVICE {
+            &r.service
+        } else {
+            &r.contract
+        })
+    }
+
+    fn body(&self, name: &str) -> Result<Option<(usize, usize, String)>, String> {
+        match name {
+            "add_body" => Ok(self.ruby()?.add_body()),
+            other => Err(format!("unknown body {other}")),
+        }
+    }
+
+    fn witness(&self, name: &str) -> Result<RubyEvidence, String> {
+        match name {
+            "schedule_block" => Ok(schedule_block_evidence(
+                &self.ruby()?.blocks,
+                SCHEDULE_VALIDATOR,
+            )),
+            other => Err(format!("unknown witness {other}")),
+        }
+    }
+}
+
+/// The instances of a generated claim family. `effective_guards`: one per effective
+/// ruff guard, so none without the Ruby checkout.
+fn generate(ruby: Option<&Ruby>, generator: &str) -> Option<Vec<GeneratedClaim>> {
+    match generator {
+        "effective_guards" => Some(ruby.map_or_else(Vec::new, |r| {
+            effective_guards(&r.guards, &r.scan.writable_shadowed)
+                .into_iter()
+                .map(|g| {
+                    let (effect, fact) = match &g.outcome {
+                        GuardOutcome::Lowered(e) => ("guard:lowered", format!("writable: {e:?}")),
+                        GuardOutcome::Unlowered { reason } => {
+                            ("guard:unlowered", format!("writable: unlowered ({reason})"))
+                        }
+                    };
+                    GeneratedClaim {
+                        method: format!("{}.attribute(:{})", g.class, g.attribute),
+                        effect: effect.into(),
+                        span: SourceSpan {
+                            file: format!("app/contracts/{}", g.file),
+                            line_start: g.line,
+                            line_end: g.line,
+                        },
+                        fact,
+                    }
+                })
+                .collect()
+        })),
+        _ => None,
+    }
+}
+
+fn claims(ruby: Option<&Ruby>) -> Vec<ClaimSpec> {
+    config()
+        .claim_specs(&Source(ruby), &|g| generate(ruby, g))
+        .unwrap_or_else(|e| panic!("{e}"))
 }
 
 fn revisions(store: &CharonStore) -> Revisions {
@@ -706,6 +585,10 @@ fn store_without(drop: &[&str]) -> CharonStore {
     std::fs::create_dir_all(&dir).expect("tmp dir");
     for entry in std::fs::read_dir(store_dir()).expect("store dir") {
         let entry = entry.expect("entry");
+        // The store is its files; `ore-slag/` holds the reconciliation config.
+        if !entry.file_type().expect("file type").is_file() {
+            continue;
+        }
         let name = entry.file_name().to_string_lossy().into_owned();
         if drop.iter().any(|d| name.starts_with(&format!("{d}."))) {
             continue;

@@ -17,6 +17,13 @@
 //!   `cannot_be_automatically_scheduled` error against production admission. It is a
 //!   separate case, never added to `create_transition_differential`'s 350 items.
 //!
+//! The proposals are data too: `[[residual]]` entries and `[residual_default.*]`
+//! templates of `oracle/charon/ore-slag/openproject.toml`, rendered by
+//! `op_codegen_pipeline::ore_slag_config`. The config also learns: its `[[learned]]`
+//! block records the status each residual last computed, `UPDATE_ORE_SLAG=1` rewrites
+//! it, and a slag row without a proposal is an error (with `UPDATE_ORE_SLAG=1`, a
+//! `"TODO"` stub is added to fill in).
+//!
 //! `UPDATE_RECONCILE_LEDGER=1` rewrites the checked-in ledger. Without
 //! `OPENPROJECT_SRC` the Ruby-dependent parts print UNVERIFIED (and `REQUIRE_SOURCES=1`
 //! fails, through the parent's `source()`).
@@ -26,10 +33,14 @@ use std::path::PathBuf;
 
 use op_codegen_pipeline::admission_gen;
 use op_codegen_pipeline::callback_harvest as cb;
+use op_codegen_pipeline::ore_slag_config::{
+    append_stub, learned_tail, reason_name, render_learned, rewrite_learned, write_atomic,
+    ConfigError, RenderCtx,
+};
 use op_codegen_pipeline::reconcile::ReconciledRow;
 use op_codegen_pipeline::resolution::{
     compare_truth_table, guard_fact_names, render_ledger, EvidenceKind, EvidenceRef, FileRoot,
-    Lifecycle, OwnerStage, Proposal, Residual, ResolutionLevel, Roots, RuntimeVerdict, Scorecard,
+    Lifecycle, Residual, ResolutionLevel, Roots, RuntimeVerdict, Scorecard,
 };
 use op_contracts::work_packages::guard_facts;
 use ruff_ruby_spo::GuardExpr;
@@ -47,9 +58,6 @@ const KEY_PERSIST: &str =
     "openproject/WorkPackage/create/persistence/mutation::create/inserts:work_packages";
 const KEY_API: &str =
     "openproject/WorkPackage/create/admission/POST /api/v3/work_packages/enters:mutation::create";
-const DRIFT_GATE: &str = "tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces";
-const WITNESS_GATE: &str =
-    "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle";
 const SCHEDULE_CODE: &str = "cannot_be_automatically_scheduled";
 
 fn roots(src: Option<&std::path::Path>) -> Roots {
@@ -98,10 +106,13 @@ fn guard_of<'a>(
     guards: &'a [ContractGuard],
     shadowed: &BTreeSet<String>,
 ) -> Option<&'a ContractGuard> {
-    let RubyEvidence::Fact { extractor, .. } = &row.spec.ruby else {
+    let RubyEvidence::Fact {
+        extractor: used, ..
+    } = &row.spec.ruby
+    else {
         return None;
     };
-    if extractor != RUFF {
+    if *used != extractor("ruff") {
         return None;
     }
     let m = &row.spec.key.method;
@@ -153,6 +164,7 @@ fn guard_witness(
             "facts read: ruby {ruby_names:?}, rust {rust_names:?}"
         ));
     }
+    let witness_gate = &config().gates.witness;
     let src_file = format!("app/contracts/{}", g.file);
     let rests_on = [
         roots.hash(FileRoot::Source, &src_file),
@@ -164,7 +176,7 @@ fn guard_witness(
     Some(EvidenceRef {
         kind: EvidenceKind::DataWitness,
         by: format!(
-            "{WITNESS_GATE} (ruff GuardExpr truth table vs op_contracts::is_writable({attr}))"
+            "{witness_gate} (ruff GuardExpr truth table vs op_contracts::is_writable({attr}))"
         ),
         revision: format!("ruff {}", op_codegen_pipeline::RUFF_REV),
         rests_on,
@@ -203,7 +215,7 @@ fn drift_evidence(src: &std::path::Path, roots: &Roots, parsed: bool) -> Option<
     .collect::<Option<Vec<_>>>()?;
     Some(EvidenceRef {
         kind: EvidenceKind::DriftCheck,
-        by: DRIFT_GATE.into(),
+        by: config().gates.drift.clone(),
         revision: format!("ruff {}; admission_gen", op_codegen_pipeline::RUFF_REV),
         rests_on,
         compared: 1,
@@ -263,7 +275,7 @@ fn add_permission_evidence(ruby: &Ruby, roots: &Roots) -> Option<EvidenceRef> {
     Some(EvidenceRef {
         kind: EvidenceKind::DataWitness,
         by: "ore_slag::add_permission_evidence (production admit with exactly the scanned permission)".into(),
-        revision: format!("{SCAN}; ruff {}", op_codegen_pipeline::RUFF_REV),
+        revision: format!("{}; ruff {}", extractor("scan"), op_codegen_pipeline::RUFF_REV),
         rests_on,
         compared: 2,
         mismatches: usize::from(!only) + usize::from(!rest),
@@ -374,149 +386,92 @@ fn nexgen_rev(store: &CharonStore) -> String {
     )
 }
 
-/// The proposal, sub-reason, owner and locator of one slag row.
+/// The proposal, sub-reason, owner and locator of one slag row, rendered from the
+/// config: the row's own `[[residual]]` entry, else the default of its reason. With a
+/// `fallback` reason, a row of a reason without a default uses that reason's default
+/// (the synthetic controls produce reasons no real run does).
 fn residual_for(
+    cfg: &OreSlagConfig,
     row: &ReconciledRow,
     reason: SlagReason,
     store: &CharonStore,
     src: Option<&std::path::Path>,
-) -> Residual {
+    fallback: Option<SlagReason>,
+) -> Result<Residual, ConfigError> {
     let key = row.spec.key.to_string();
-    let op = format!("openproject {}", op_rev());
-    let locate_in = |file: &str, needle: &str| -> String {
-        src.and_then(|s| std::fs::read_to_string(s.join(file)).ok())
-            .and_then(|t| locate(&t, needle))
-            .map_or(format!("{file} (OPENPROJECT_SRC not set)"), |l| {
-                format!("{file}:{l}")
-            })
+    // The two roots of this binding: the OpenProject checkout and nexgen itself.
+    let locate_in = |which: &str, file: &str, needle: &str| -> Result<String, String> {
+        match which {
+            "openproject" => Ok(src
+                .and_then(|s| std::fs::read_to_string(s.join(file)).ok())
+                .and_then(|t| locate(&t, needle))
+                .map_or(format!("{file} (OPENPROJECT_SRC not set)"), |l| {
+                    format!("{file}:{l}")
+                })),
+            "nexgen" => Ok(format!(
+                "{file}:{}",
+                locate(
+                    &std::fs::read_to_string(root().join(file)).unwrap_or_default(),
+                    needle
+                )
+                .unwrap_or(0)
+            )),
+            other => Err(format!("unknown root {other}")),
+        }
     };
-    let p = |missing: &str,
-             supplier: &str,
-             exists: bool,
-             loc: String,
-             rev: String,
-             change: &str,
-             validate: &str,
-             neg: &str| Proposal {
-        missing_fact: missing.into(),
-        supplier: supplier.into(),
-        supplier_exists: exists,
-        source_location: loc,
-        source_revision: rev,
-        claim_change: change.into(),
-        validating_evidence: validate.into(),
-        negative_control: neg.into(),
+    let revision = |which: &str| -> Result<String, String> {
+        match which {
+            "openproject" => Ok(format!("openproject {}", op_rev())),
+            "nexgen" => Ok(nexgen_rev(store)),
+            other => Err(format!("unknown revision {other}")),
+        }
     };
-    let (proposal, sub, owner) = if key == KEY_PERMISSION {
-        (
-            p(
-                "a parsed source fact for the create permission (the generator reads it with a line scan)",
-                "ruff lowering of the permission literal in CreateContract#user_allowed_to_add, fed to admission_gen",
-                false,
-                ruby_loc(row),
-                op.clone(),
-                "lifecycle EVIDENCED -> VERIFIED(DataWitness); structural verdict stays Slag(RepresentedAsData)",
-                "ADD_PERMISSION equals the parsed permission; the drift check; runtime authorization (6 records, 0 mismatches)",
-                "change the literal in a copy of create_contract.rb: the drift check and this witness must fail",
-            ),
-            "generated constant; its source side is ExtractionGap::ContractDeclScan, not parsed ORE".to_string(),
-            OwnerStage::DataWitness,
-        )
-    } else if key == KEY_WRITABLE {
-        (
-            p(
-                "BaseContract#writable? as a lowered fact (writable condition AND attribute permission)",
-                "ruff contract arm: lower BaseContract#writable?",
-                false,
-                locate_in(BASE_CONTRACT, "def writable?"),
-                op.clone(),
-                "Slag(RubySideNotHarvested) -> Agreement if the lowered body is 'condition AND permission' and admit_create -> is_writable stays CALLS_RESOLVED",
-                "the lowered fact against the CALLS_RESOLVED edge; runtime axis: create_transition_differential contract-wide writable? (332 pairs)",
-                "a lowering that yields 'condition OR permission' must not agree with is_writable's truth table",
-            ),
-            "framework-level method of the application's base contract; no extractor reads it".to_string(),
-            OwnerStage::ContractHarvest,
-        )
-    } else if key == KEY_API {
-        (
-            p(
-                "a structured body for op_api::handlers::work_packages::create_work_package_core",
-                "Charon structuring of async bodies (op-api is in the store; the function is defined, listed in residuals.tsv as BODY_NOT_STRUCTURED), or a synchronous seam the call graph can see",
-                false,
-                format!("crates/op-api/src/handlers/work_packages.rs:{}", locate(&std::fs::read_to_string(root().join("crates/op-api/src/handlers/work_packages.rs")).unwrap_or_default(), "pub async fn create_work_package_core").unwrap_or(0)),
-                nexgen_rev(store),
-                "Slag(RustBodyNotStructured) -> RubySideNotHarvested once the edge create_work_package_core -> mutation::create is structured: the API v3 create endpoint is not harvested either, so Rust structuring alone does not decide the row",
-                "the CALLS_RESOLVED edge create_work_package_core -> mutation::create, plus a harvested endpoint",
-                "remove the call from a structured body: the row must not stay agreeing; drop op-api again: the row returns to RustSideNotExtracted, never Disagreement",
-            ),
-            "Charon residual BODY_NOT_STRUCTURED (async fn); op-api extracted, no edge visible".to_string(),
-            OwnerStage::RustExtraction,
-        )
-    } else if reason == SlagReason::RustBodyNotStructured {
-        let charon = row
+    let charon_residual = |symbol: &str| -> Result<String, String> {
+        Ok(row
             .rust_span
             .as_ref()
-            .and_then(|_| store.residual(MUTATION_CREATE))
+            .and_then(|_| store.residual(symbol))
             .unwrap_or("?")
-            .to_string();
-        (
-            p(
-                "a structured body for op_services::work_packages::mutation::create",
-                "Charon structuring of async bodies, or a synchronous seam the call graph can see",
-                false,
-                rust_loc(row),
-                nexgen_rev(store),
-                "Slag(RustBodyNotStructured) -> Agreement or RubyOnly, decided by the structured edge",
-                "the CALLS_RESOLVED edge; the runtime axis stays the EXECUTED_DB journey (cited here; needs PostgreSQL)",
-                "remove the call from a structured body: the row must become RubyOnly, never stay Agreement",
-            ),
-            if key == KEY_PERSIST {
-                format!("Charon residual {charon}; the create is transactional and writes its creation journal (EXECUTED_DB steps 2, 7)")
-            } else {
-                format!("Charon residual {charon}")
-            },
-            OwnerStage::RustExtraction,
-        )
-    } else {
-        // A lowered `writable:` guard held as generated data.
-        (
-            p(
-                "none for the behaviour: table data is invisible to a call graph",
-                "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
-                true,
-                format!("{} ; {}", ruby_loc(row), rust_loc(row)),
-                format!("{op}; {}", nexgen_rev(store)),
-                "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
-                "this witness, bound to the generator drift check",
-                "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
-            ),
-            "generated table row (ATTRIBUTES)".to_string(),
-            OwnerStage::DataWitness,
-        )
+            .to_string())
     };
-    let mut r = Residual::new(key, reason, proposal);
-    r.sub_reason = sub;
-    r.owner_stage = owner;
-    r.locator = format!("ruby {}; rust {}", ruby_loc(row), rust_loc(row));
-    r
+    let ctx = RenderCtx {
+        ruby_loc: ruby_loc(row),
+        rust_loc: rust_loc(row),
+        locate: &locate_in,
+        revision: &revision,
+        charon_residual: &charon_residual,
+    };
+    cfg.render_residual(&key, reason, fallback, &ctx)
 }
 
 /// Residuals for every slag row, with the evidence this run can attach, evaluated.
-fn residuals(
+/// Every row without a proposal in the config is reported, not just the first.
+#[allow(clippy::too_many_arguments)]
+fn residuals_with(
+    cfg: &OreSlagConfig,
     rec: &Reconciliation,
     store: &CharonStore,
     ruby: Option<&Ruby>,
     src: Option<&std::path::Path>,
     bind: &WitnessBinding,
     roots: &Roots,
-) -> Vec<Residual> {
+    fallback: Option<SlagReason>,
+) -> Result<Vec<Residual>, Vec<ConfigError>> {
     let drift = src.and_then(|s| drift_evidence(s, roots, false));
+    let companions = cfg.gates.companions().map_err(|e| vec![e])?;
     let mut out = Vec::new();
+    let mut errors = Vec::new();
     for row in &rec.rows {
         let Verdict::Slag(reason) = row.verdict else {
             continue;
         };
-        let mut r = residual_for(row, reason, store, src);
+        let mut r = match residual_for(cfg, row, reason, store, src, fallback) {
+            Ok(r) => r,
+            Err(e) => {
+                errors.push(e);
+                continue;
+            }
+        };
         if reason == SlagReason::RepresentedAsData {
             if let Some(d) = &drift {
                 r.evidence.push(d.clone());
@@ -529,16 +484,96 @@ fn residuals(
                 guard_witness(row, &rb.guards, &rb.scan.writable_shadowed, bind, roots)
             }) {
                 r.evidence.push(e);
-                r.regression_gate = Some(format!("{WITNESS_GATE}; {DRIFT_GATE}"));
+                r.regression_gate = Some(format!("{}; {}", cfg.gates.witness, cfg.gates.drift));
                 // The witness resolves only together with a passing drift check: the
                 // table it compared must be the one the generator produces.
-                r.required_companions = vec![EvidenceKind::DriftCheck];
+                r.required_companions = companions.clone();
             }
         }
         r.evaluate(roots);
         out.push(r);
     }
-    out
+    if errors.is_empty() {
+        Ok(out)
+    } else {
+        Err(errors)
+    }
+}
+
+fn describe(errors: &[ConfigError]) -> String {
+    errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Residuals for every slag row of a real reconciliation: a row without a proposal in
+/// the config is an error.
+fn residuals(
+    rec: &Reconciliation,
+    store: &CharonStore,
+    ruby: Option<&Ruby>,
+    src: Option<&std::path::Path>,
+    bind: &WitnessBinding,
+    roots: &Roots,
+) -> Vec<Residual> {
+    residuals_with(config(), rec, store, ruby, src, bind, roots, None)
+        .unwrap_or_else(|e| panic!("{}", describe(&e)))
+}
+
+/// The same for a synthetic reconciliation (a store without a crate, no source): rows
+/// of reasons the config has no default for borrow the data default, so the control
+/// still evaluates every row.
+fn residuals_synthetic(
+    rec: &Reconciliation,
+    store: &CharonStore,
+    ruby: Option<&Ruby>,
+    src: Option<&std::path::Path>,
+    bind: &WitnessBinding,
+    roots: &Roots,
+) -> Vec<Residual> {
+    residuals_with(
+        config(),
+        rec,
+        store,
+        ruby,
+        src,
+        bind,
+        roots,
+        Some(SlagReason::RepresentedAsData),
+    )
+    .unwrap_or_else(|e| panic!("{}", describe(&e)))
+}
+
+/// The ledger test met slag rows the config has no proposal for. With
+/// `UPDATE_ORE_SLAG=1` a `"TODO"` stub is added for each (the learned block stays last);
+/// either way the test fails, naming the keys.
+fn missing_residuals(errors: &[ConfigError]) -> ! {
+    let missing: Vec<(&String, SlagReason)> = errors
+        .iter()
+        .filter_map(|e| match e {
+            ConfigError::MissingResidual { key, reason } => Some((key, *reason)),
+            _ => None,
+        })
+        .collect();
+    if std::env::var("UPDATE_ORE_SLAG").as_deref() == Ok("1") && !missing.is_empty() {
+        let path = root().join(ORE_SLAG_CONFIG);
+        let mut text = std::fs::read_to_string(&path).expect("config");
+        for (key, reason) in &missing {
+            text = append_stub(&text, key, *reason);
+        }
+        write_atomic(&path, &text).expect("write config");
+        panic!(
+            "{ORE_SLAG_CONFIG}: added {} TODO stub(s) for {:?}; fill in the proposal fields and rerun",
+            missing.len(),
+            missing.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>()
+        );
+    }
+    panic!(
+        "{}\nrerun with UPDATE_ORE_SLAG=1 to add a TODO stub for each missing key",
+        describe(errors)
+    );
 }
 
 fn status_of<'a>(rs: &'a [Residual], key: &str) -> &'a Residual {
@@ -578,14 +613,35 @@ fn ore_slag_ledger_and_lifecycle() {
     };
     let verdicts_before = verdicts(&rec);
 
-    let rs = residuals(
+    // The config is the proposals' only home: no stub left unfilled, and no entry for a
+    // claim that is not in the reconciliation.
+    let todo = config().todo_keys();
+    assert!(
+        todo.is_empty(),
+        "{ORE_SLAG_CONFIG}: TODO stubs remain: {todo:?}"
+    );
+    let claim_keys: BTreeSet<String> = rec.rows.iter().map(|r| r.spec.key.to_string()).collect();
+    for r in &config().residual {
+        let k = r.key.as_deref().expect("a [[residual]] key");
+        assert!(
+            claim_keys.contains(k),
+            "{ORE_SLAG_CONFIG}: [[residual]] {k} matches no claim"
+        );
+    }
+
+    // Without the checkout most rows are RubySideNotHarvested, which the config has no
+    // default for: that run borrows the data default and is not the learned run.
+    let rs = residuals_with(
+        config(),
         &rec,
         &store,
         ruby.as_ref(),
         src.as_deref(),
         &FAITHFUL,
         &roots,
-    );
+        src.is_none().then_some(SlagReason::RepresentedAsData),
+    )
+    .unwrap_or_else(|errors| missing_residuals(&errors));
 
     // Lifecycle and runtime never move a structural verdict: the verdicts of the
     // reconciliation that the residuals were built and evaluated from, and the
@@ -738,6 +794,24 @@ fn ore_slag_ledger_and_lifecycle() {
             std::fs::read_to_string(&path).unwrap_or_default() == ledger,
             "{LEDGER} is stale: rerun with UPDATE_RECONCILE_LEDGER=1"
         );
+
+        // Autolearn: the config records the status and reason each residual last
+        // computed; `UPDATE_ORE_SLAG=1` rewrites that block and nothing else.
+        let learned = render_learned(
+            &rs.iter()
+                .map(|r| (r.key.clone(), r.status.to_string(), reason_name(r.reason)))
+                .collect::<Vec<_>>(),
+        );
+        let config_path = root().join(ORE_SLAG_CONFIG);
+        let mut text = std::fs::read_to_string(&config_path).expect("config");
+        if std::env::var("UPDATE_ORE_SLAG").as_deref() == Ok("1") {
+            write_atomic(&config_path, &rewrite_learned(&text, &learned)).expect("write config");
+            text = std::fs::read_to_string(&config_path).expect("config");
+        }
+        assert!(
+            learned_tail(&text) == Some(learned.as_str()),
+            "{ORE_SLAG_CONFIG} [[learned]] is stale: rerun with UPDATE_ORE_SLAG=1"
+        );
     }
 }
 
@@ -749,6 +823,9 @@ fn store_with_corrupt_hash(path: &str) -> CharonStore {
     let mut hit = 0;
     for entry in std::fs::read_dir(store_dir()).expect("store dir") {
         let entry = entry.expect("entry");
+        if !entry.file_type().expect("file type").is_file() {
+            continue;
+        }
         let name = entry.file_name().to_string_lossy().into_owned();
         let mut text = std::fs::read_to_string(entry.path()).unwrap_or_default();
         if name.ends_with(".files.tsv") {
@@ -793,7 +870,7 @@ fn ore_slag_negative_controls() {
     // disagreement, and no data-witness resolution carries over to the new reason.
     let without = store_without(&["op_contracts"]);
     let rec1 = reconcile(&without, Some(&ruby));
-    let rs1 = residuals(&rec1, &without, Some(&ruby), Some(&src), &FAITHFUL, &roots);
+    let rs1 = residuals_synthetic(&rec1, &without, Some(&ruby), Some(&src), &FAITHFUL, &roots);
     assert_eq!(rec1.counts().get("Disagreement"), None);
     assert_eq!(
         resolved(&rs1),
@@ -809,7 +886,7 @@ fn ore_slag_negative_controls() {
     // resolves. (b) One guard row's ruff fact removed: the data witness has no input,
     // so that residual does not resolve (its structural verdict stays slag).
     let rec2 = reconcile(&store, None);
-    let rs2 = residuals(
+    let rs2 = residuals_synthetic(
         &rec2,
         &store,
         None,
@@ -917,7 +994,7 @@ fn ore_slag_negative_controls() {
         .find(|s| s.key.to_string() == KEY_ENTRY)
         .expect("entry");
     if let RustProbe::Edges { edges, .. } = &mut entry.rust {
-        edges[1].1 = format!("{ADMIT_CREATE}_renamed");
+        edges[1].1 = format!("{}_renamed", edges[1].1);
     }
     let broken = Reconciler::new(&store, Some(&root())).decide(entry);
     assert_eq!(broken.verdict, Verdict::RubyOnly);
@@ -1052,6 +1129,57 @@ fn ore_slag_negative_controls() {
         Verdict::RubyOnly
     );
     eprintln!("control 9: schedule_manually block claim: wrong call / no block / no condition / other condition -> Slag(RubySideNotHarvested); renamed Rust callee -> RubyOnly");
+
+    // (10) A slag row with neither its own [[residual]] entry nor a default for its
+    // reason is an explicit error naming the key, not a fall-through to another row's
+    // proposal. KEY_WRITABLE is RubySideNotHarvested and the config has no default for
+    // that reason, so removing its entry leaves it with nothing; the unmodified config
+    // renders every row.
+    let mut without_entry = config().clone();
+    without_entry
+        .residual
+        .retain(|r| r.key.as_deref() != Some(KEY_WRITABLE));
+    assert_eq!(
+        without_entry.residual.len() + 1,
+        config().residual.len(),
+        "the control removed exactly one entry"
+    );
+    let errors = residuals_with(
+        &without_entry,
+        &rec,
+        &store,
+        Some(&ruby),
+        Some(&src),
+        &FAITHFUL,
+        &roots,
+        None,
+    )
+    .expect_err("a row without a proposal must be an error");
+    assert!(
+        matches!(
+            errors.as_slice(),
+            [ConfigError::MissingResidual { key, reason }]
+                if key == KEY_WRITABLE && *reason == SlagReason::RubySideNotHarvested
+        ),
+        "{}",
+        describe(&errors)
+    );
+    assert!(describe(&errors).contains(KEY_WRITABLE));
+    assert!(
+        residuals_with(
+            config(),
+            &rec,
+            &store,
+            Some(&ruby),
+            Some(&src),
+            &FAITHFUL,
+            &roots,
+            None
+        )
+        .is_ok(),
+        "the unmodified config covers every slag row"
+    );
+    eprintln!("control 10: a slag row without a proposal -> MissingResidual naming {KEY_WRITABLE}");
 
     // (6) Disabling the Rust behaviour is a live run (edit admission.rs, observe,
     // git checkout): see docs/ore-slag-reconciliation.md. Not reproducible in-test

@@ -59,6 +59,10 @@ pub mod reconcile;
 /// evidence with file hashes, resolution levels, and the machine-readable ledger.
 pub mod resolution;
 
+/// Declarative ORE/SLAG config: claims, residual proposals and gates as TOML data, with
+/// generic loading, schema checking, rendering and the `[[learned]]` autolearn block.
+pub mod ore_slag_config;
+
 /// Callback harvest shared by the Rails-callback differentials (test support).
 pub mod callback_harvest;
 

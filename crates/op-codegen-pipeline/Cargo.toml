@@ -62,6 +62,7 @@ ogar-render-askama     = { git = "https://github.com/AdaWorldAPI/OGAR", branch =
 lance-graph-arm-discovery = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main", default-features = false }
 serde                  = { workspace = true }
 serde_json             = { workspace = true }
+toml                   = "0.8"
 
 [dev-dependencies]
 # Render-bake probe (tests/render_bake_probe.rs): harvests Rails views into
