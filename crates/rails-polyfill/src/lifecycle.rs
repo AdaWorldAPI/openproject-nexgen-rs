@@ -221,6 +221,7 @@ fn set_time(rec: &mut Record, col: &str, now: i64) {
 pub fn save(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Result<Saved, Halt> {
     let action = if rec.new_record() { Action::Create } else { Action::Update };
     let snapshot = ctx.store.begin();
+    let record_state = rec.transaction_state();
     let outer = ctx.txn_depth == 0;
     ctx.txn_depth += 1;
     let result = save_in_transaction(ctx, model, rec, action);
@@ -229,10 +230,16 @@ pub fn save(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Resul
     let committed = matches!(&result, Ok(s) if s.ok);
     if !committed {
         ctx.store.rollback(snapshot);
-        if outer {
+        // `rolledback!` runs after_rollback, then restores the record state
+        // in an `ensure` (transactions.rb:415-423).
+        let rolled_back = if outer {
             ctx.pending_commit.clear();
-            run_chain(ctx, model, &[Phase::AfterRollback], action, rec)?;
-        }
+            run_chain(ctx, model, &[Phase::AfterRollback], action, rec)
+        } else {
+            Ok(())
+        };
+        rec.restore_transaction_state(record_state);
+        rolled_back?;
         return result;
     }
     ctx.store.release(snapshot);
@@ -604,6 +611,12 @@ mod tests {
         callbacks: &[cb(Phase::AfterDestroy, "boom", On::ANY, boom)],
     };
 
+    static EXPLODING_SAVE: ModelSpec = ModelSpec {
+        name: "ExplodingSave",
+        table: &LOCKED,
+        callbacks: &[cb(Phase::AfterSave, "boom", On::ANY, boom)],
+    };
+
     static WATCHED_PLAIN: ModelSpec = ModelSpec {
         name: "WatchedPlain",
         table: &PLAIN,
@@ -681,6 +694,43 @@ mod tests {
         assert_eq!(destroy(&mut ctx, &EXPLODING, &mut rec), Err(Halt::Raise("boom".into())));
         assert_eq!(ctx.store.count(&LOCKED), 1, "the delete was rolled back");
         assert!(!rec.destroyed() && rec.persisted(), "@destroyed is restored");
+    }
+
+    /// ActiveRecord 8.1.4.1, run against SQLite (oracle/lock_rollback.rb): an
+    /// after_save that raises after the UPDATE leaves the record's
+    /// lock_version incremented while the stored row is rolled back, so a
+    /// retry of the same record raises StaleObjectError. Rails keeps the
+    /// value because `_update_row` succeeded (its rescue does not run) and
+    /// the rollback reapplies current values (transactions.rb:500-503).
+    #[test]
+    fn a_rolled_back_locked_save_leaves_the_record_stale_as_rails_does() {
+        let mut ctx = ctx_with(&LOCKED);
+        let mut rec = seeded(&mut ctx, &EXPLODING_SAVE);
+        rec.set(1, Value::str("b"));
+        assert_eq!(save(&mut ctx, &EXPLODING_SAVE, &mut rec), Err(Halt::Raise("boom".into())));
+        let stored = find(&mut ctx, &ORDERED, 1).unwrap().unwrap();
+        assert_eq!((rec.get(2), stored.get(2)), (&Value::Int(1), &Value::Int(0)));
+        assert_eq!(stored.get(1), &Value::str("a"), "the row is rolled back");
+        // Rails: changed == ["subject", "lock_version"] (baseline restored,
+        // current values kept).
+        assert_eq!(rec.changed_columns(), [1, 2]);
+        rec.set(1, Value::str("c"));
+        let err = save(&mut ctx, &ORDERED, &mut rec).unwrap_err();
+        assert_eq!(err, Halt::Store(StoreError::StaleObject { table: "locked", id: 1 }));
+    }
+
+    /// A rolled-back create restores the pre-save id and `new_record?`
+    /// (transactions.rb:497, 514-516), so the record can be saved again.
+    #[test]
+    fn a_rolled_back_create_is_new_again_without_an_id() {
+        let mut ctx = ctx_with(&LOCKED);
+        let mut rec = build(&mut ctx, &EXPLODING_SAVE, &[("name", Value::str("n"))]).unwrap();
+        assert_eq!(save(&mut ctx, &EXPLODING_SAVE, &mut rec), Err(Halt::Raise("boom".into())));
+        assert_eq!(ctx.store.count(&LOCKED), 0);
+        assert!(rec.new_record());
+        assert_eq!(rec.get(0), &Value::Nil, "the assigned id is restored to nil");
+        assert_eq!(save(&mut ctx, &ORDERED, &mut rec).map(|s| s.ok), Ok(true));
+        assert_eq!(ctx.store.count(&LOCKED), 1);
     }
 
     #[test]
