@@ -183,6 +183,13 @@ fn drift_evidence(src: &std::path::Path, roots: &Roots, parsed: bool) -> Option<
     let checked_in = std::fs::read_to_string(root().join(GENERATED)).ok()?;
     let same = admission_gen::generate(src) == checked_in;
     let rests_on = [
+        // The contract files the generator reads for these guards: the guard lowering
+        // starts from the work-package base contract, follows it into the
+        // application's `BaseContract` (`writable?`, `attribute`), and the permission
+        // line scan reads `create_contract.rb`. The generator scans the whole
+        // `app/contracts` tree; a change to another file there is caught by this
+        // check re-running, not by these hashes.
+        roots.hash(FileRoot::Source, BASE_CONTRACT),
         roots.hash(FileRoot::Source, WP_BASE_CONTRACT),
         roots.hash(FileRoot::Source, CREATE_CONTRACT),
         roots.hash(FileRoot::Target, GENERATED),
@@ -537,6 +544,9 @@ fn residuals(
             {
                 r.evidence.push(e);
                 r.regression_gate = Some(format!("{WITNESS_GATE}; {DRIFT_GATE}"));
+                // The witness resolves only together with a passing drift check: the
+                // table it compared must be the one the generator produces.
+                r.required_companions = vec![EvidenceKind::DriftCheck];
             }
         }
         r.evaluate(roots);
@@ -572,22 +582,15 @@ fn ore_slag_ledger_and_lifecycle() {
     let src = source();
     let ruby = src.as_deref().map(Ruby::load);
     let roots = roots(src.as_deref());
-    let structural_before = reconcile(&store, ruby.as_ref());
     let (rec, diff) = full_reconciliation(&store, ruby.as_ref());
     let diff = diff.expect("diff");
-
-    // Lifecycle and runtime never move a structural verdict.
-    assert_eq!(
+    let verdicts = |rec: &Reconciliation| -> Vec<(String, String)> {
         rec.rows
             .iter()
-            .map(|r| r.verdict.clone())
-            .collect::<Vec<_>>(),
-        structural_before
-            .rows
-            .iter()
-            .map(|r| r.verdict.clone())
-            .collect::<Vec<_>>()
-    );
+            .map(|r| (r.spec.key.to_string(), r.verdict.to_string()))
+            .collect()
+    };
+    let verdicts_before = verdicts(&rec);
 
     let rs = residuals(
         &rec,
@@ -596,6 +599,33 @@ fn ore_slag_ledger_and_lifecycle() {
         src.as_deref(),
         &FAITHFUL,
         &roots,
+    );
+
+    // Lifecycle and runtime never move a structural verdict: the verdicts of the
+    // reconciliation that the residuals were built and evaluated from, and the
+    // verdicts the ledger reports for them, equal the verdicts before any residual
+    // existed.
+    assert_eq!(verdicts(&rec), verdicts_before);
+    let ledger = render_ledger(&rec, &rs);
+    let doc: Value = serde_json::from_str(&ledger).expect("ledger is JSON");
+    let ledger_verdicts: Vec<(String, String)> = doc["claims"]
+        .as_array()
+        .expect("claims")
+        .iter()
+        .map(|c| {
+            (
+                c["key"].as_str().expect("key").to_string(),
+                c["structural_verdict"]
+                    .as_str()
+                    .expect("verdict")
+                    .to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(ledger_verdicts, verdicts_before);
+    assert!(
+        rs.iter().any(|r| r.status != Lifecycle::Open),
+        "vacuous: no residual moved off OPEN, so no lifecycle could have moved a verdict"
     );
     let slag = rec
         .rows
@@ -704,7 +734,6 @@ fn ore_slag_ledger_and_lifecycle() {
     }
 
     if ruby.is_some() {
-        let ledger = render_ledger(&rec, &rs);
         let path = root().join(LEDGER);
         if std::env::var("UPDATE_RECONCILE_LEDGER").as_deref() == Ok("1") {
             std::fs::write(&path, &ledger).expect("write ledger");
@@ -931,6 +960,39 @@ fn ore_slag_negative_controls() {
     assert!(with_connective >= 5);
     assert_eq!(resolved(&rs5), 9 - with_connective);
     eprintln!("control 5: And/Or swapped in the witness input -> {with_connective} guards fail, {} resolve", resolved(&rs5));
+
+    // (8) The drift check is a required companion of the guard rows. A failing or
+    // missing drift check keeps the witness from resolving them, even though the
+    // witness itself passes.
+    let guard_rows: Vec<&Residual> = real
+        .iter()
+        .filter(|r| matches!(r.status, Lifecycle::Resolved(_)))
+        .collect();
+    assert_eq!(guard_rows.len(), 9);
+    for r in &guard_rows {
+        assert_eq!(
+            r.required_companions,
+            [EvidenceKind::DriftCheck],
+            "{}",
+            r.key
+        );
+        let drift_failing = |mutate: fn(&mut Vec<EvidenceRef>)| {
+            let mut x = (*r).clone();
+            mutate(&mut x.evidence);
+            x.evaluate(&roots);
+            x
+        };
+        let failing = drift_failing(|ev| {
+            for e in ev.iter_mut().filter(|e| e.kind == EvidenceKind::DriftCheck) {
+                e.mismatches = 1;
+            }
+        });
+        assert_eq!(failing.status, Lifecycle::Evidenced, "{}", r.key);
+        assert_eq!(failing.attempts.len(), 1, "{}", r.key);
+        let missing = drift_failing(|ev| ev.retain(|e| e.kind != EvidenceKind::DriftCheck));
+        assert_eq!(missing.status, Lifecycle::Evidenced, "{}", r.key);
+    }
+    eprintln!("control 8: a failing or missing drift check keeps all 9 guard rows at EVIDENCED");
 
     // (6) Disabling the Rust behaviour is a live run (edit admission.rs, observe,
     // git checkout): see docs/ore-slag-reconciliation.md. Not reproducible in-test

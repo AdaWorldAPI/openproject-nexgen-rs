@@ -12,6 +12,8 @@
 //! 2. Evidence rests on files whose FNV-1a 64 hashes it records. A hash that no
 //!    longer matches (or a file that cannot be read) rejects the evidence: the
 //!    residual returns to [`Lifecycle::Open`] and the rejected attempt is retained.
+//!    Evidence that rests on no file at all cannot go stale and is therefore never
+//!    accepted: it is rejected the same way.
 //! 3. The runtime axis ([`RuntimeVerdict`]) is derived from
 //!    [`crate::reconcile::RuntimeEvidence`] and kept separate from the lifecycle. A
 //!    runtime agreement resolves nothing structurally; a cited gate that did not run
@@ -323,6 +325,10 @@ pub struct Residual {
     pub evidence: Vec<EvidenceRef>,
     /// The gate that fails when the resolving evidence regresses. `None`: none.
     pub regression_gate: Option<String>,
+    /// Companion evidence kinds that must each be attached, current and passing for a
+    /// level to be established. Without them the evidence that carries the level is
+    /// supporting only and the residual stays [`Lifecycle::Evidenced`].
+    pub required_companions: Vec<EvidenceKind>,
     pub status: Lifecycle,
     pub attempts: Vec<Attempt>,
 }
@@ -338,6 +344,7 @@ impl Residual {
             proposal,
             evidence: Vec::new(),
             regression_gate: None,
+            required_companions: Vec::new(),
             status: Lifecycle::Open,
             attempts: Vec::new(),
         }
@@ -356,6 +363,14 @@ impl Residual {
                 .iter()
                 .map(|f| (f.path.clone(), roots.check(f)))
                 .collect();
+            if e.rests_on.is_empty() {
+                self.attempts.push(Attempt {
+                    evidence: e,
+                    rejected_because:
+                        "rests on no file: it can never go stale, so it cannot be verified".into(),
+                });
+                continue;
+            }
             if let Some((p, _)) = checks.iter().find(|(_, c)| *c == FileCheck::Stale) {
                 self.attempts.push(Attempt {
                     evidence: e,
@@ -381,7 +396,12 @@ impl Residual {
             kept.push(e);
         }
         self.evidence = kept;
-        let level = (!unverifiable)
+        let companions_hold = self.required_companions.iter().all(|k| {
+            self.evidence
+                .iter()
+                .any(|e| e.kind == *k && e.mismatches == 0)
+        });
+        let level = (!unverifiable && companions_hold)
             .then(|| {
                 self.evidence
                     .iter()
@@ -812,6 +832,74 @@ mod tests {
         o.evidence.push(witness(&dir, 0, true));
         o.evaluate(&roots);
         assert_eq!(o.status, Lifecycle::Evidenced);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn evidence_resting_on_no_file_is_rejected() {
+        let dir = std::env::temp_dir().join(format!("resolution-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let roots = Roots {
+            source: None,
+            target: Some(dir.clone()),
+        };
+        // The same passing, parsed witness, once with a file and once without.
+        let mut with = Residual::new("k".into(), SlagReason::RepresentedAsData, proposal(true));
+        with.evidence.push(witness(&dir, 0, true));
+        with.evaluate(&roots);
+        assert_eq!(
+            with.status,
+            Lifecycle::Verified(ResolutionLevel::DataWitness)
+        );
+        let mut without = Residual::new("k".into(), SlagReason::RepresentedAsData, proposal(true));
+        let mut e = witness(&dir, 0, true);
+        e.rests_on.clear();
+        without.evidence.push(e);
+        without.regression_gate = Some("gate".into());
+        without.evaluate(&roots);
+        assert_eq!(without.status, Lifecycle::Candidate);
+        assert!(without.evidence.is_empty());
+        assert_eq!(without.attempts.len(), 1);
+        assert!(without.attempts[0]
+            .rejected_because
+            .starts_with("rests on no file"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_level_needs_its_required_companions() {
+        let dir = std::env::temp_dir().join(format!("resolution-comp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let roots = Roots {
+            source: None,
+            target: Some(dir.clone()),
+        };
+        let drift = |mismatches: usize| EvidenceRef {
+            kind: EvidenceKind::DriftCheck,
+            compared: 1,
+            mismatches,
+            ..witness(&dir, 0, true)
+        };
+        let build = |companion: Option<EvidenceRef>| {
+            let mut r = Residual::new("k".into(), SlagReason::RepresentedAsData, proposal(true));
+            r.required_companions = vec![EvidenceKind::DriftCheck];
+            r.regression_gate = Some("gate".into());
+            r.evidence.push(witness(&dir, 0, true));
+            r.evidence.extend(companion);
+            r.evaluate(&roots);
+            r
+        };
+        // Passing companion: resolved.
+        assert_eq!(
+            build(Some(drift(0))).status,
+            Lifecycle::Resolved(ResolutionLevel::DataWitness)
+        );
+        // Missing companion: the witness alone only evidences.
+        assert_eq!(build(None).status, Lifecycle::Evidenced);
+        // Failing companion: moved to attempts, the witness alone only evidences.
+        let failing = build(Some(drift(1)));
+        assert_eq!(failing.status, Lifecycle::Evidenced);
+        assert_eq!(failing.attempts.len(), 1);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

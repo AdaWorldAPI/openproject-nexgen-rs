@@ -168,12 +168,15 @@ OPEN -> CANDIDATE -> EVIDENCED -> VERIFIED(level) -> RESOLVED(level)
 - **RESOLVED(level)**: verified, and a named gate fails if the evidence regresses.
 
 Evidence is promoted only if it compared something, found zero mismatches, rests on
-files whose hashes still match, and, for a data witness, reads parsed ORE (not a line
-scan). It is invalidated, moved into `attempts` with the reason, and the residual
+at least one file whose hash still matches (evidence resting on no file cannot go
+stale, so it is rejected), and, for a data witness, reads parsed ORE (not a line
+scan). A residual may also name companion evidence kinds that must be present and
+passing before any level is established (the guard rows require the drift check). It is invalidated, moved into `attempts` with the reason, and the residual
 falls back to OPEN or CANDIDATE, when:
 
 - a file it rests on changed (`stale: <path> changed since the evidence was produced`);
 - the comparison has mismatches;
+- it rests on no file;
 - its checkout is not available (it cannot verify, so it cannot promote).
 
 A data witness resolves only `RepresentedAsData`. Evidence attached to any other
@@ -216,11 +219,18 @@ The resolver edits no code and no configuration.
    - The truth table: all 8 assignments of the three facts give the same answer in
      Ruby's expression and in production `is_writable("status_id")` for a member
      holding the oracle permissions, and the table reads exactly those three facts.
-     9 items compared, 0 mismatches. Both pieces rest on
+     9 items compared, 0 mismatches. The truth table rests on
      `app/contracts/work_packages/base_contract.rb`, the generated file and
-     `admission.rs`, by hash.
+     `admission.rs`, by hash. The drift check rests on the application's
+     `app/contracts/base_contract.rb`, `work_packages/base_contract.rb` and
+     `work_packages/create_contract.rb` plus the generated file. The generator scans
+     the whole `app/contracts` tree; a change to another file there is caught by the
+     drift check re-running, not by these hashes.
 
-   Status `RESOLVED(DataWitness)`. Regression gates: this test and the drift check.
+   Status `RESOLVED(DataWitness)`, and only together with the drift check: the drift
+   check is a required companion of these rows. If it is missing or fails, it is
+   moved to `attempts` (when failing) and the truth table alone leaves the row
+   `EVIDENCED`. Regression gates: this test and the drift check.
 7. **Structural verdict**: still `Slag(RepresentedAsData)`. It is not upgraded to
    `Agreement`, because a data witness is not a call-graph fact.
 8. **Runtime verdict**: `ExecutedAgreement`, with 6 records compared and 0 mismatches.
@@ -330,6 +340,7 @@ It counts only after it passes the unchanged ledger once #158 is rebased.
 | 5 | Disable a data-witness rule | same; live run | `And`/`Or` swapped in the witness input: 5 guards fail, 4 (no connective) resolve; live: `eval_guard` reading `Or` as `And` fails both tests (5 of 9 resolve) |
 | 6 | Disable the Rust behaviour | live run only | `WritableRule::Never => Ok(true)` in `admission.rs`: `create_transition_differential` 30 mismatches; the data witness drops to 6/9; the store reports `admission.rs` stale, so Charon rows on it become `RustEvidenceStale`, not disagreements |
 | 7 | Add an unsupported generated callback | `ore_slag_negative_controls` | injected into WorkPackage's effective chain (160 to 161), it matches no journal entry and is classified `Silent::Unexplained`. `create_transition_differential` asserts that class is empty, so it is reported, not hidden |
+| 8 | Fail or remove the drift check | `ore_slag_negative_controls` | the truth table still passes, but all 9 guard rows stay `EVIDENCED` (a failing drift check is moved to `attempts`); the drift check is a required companion |
 
 Live runs were made on a committed tree and restored with `git checkout`. The stale
 check of the lifecycle was disabled once as well: control 3 then fails.
