@@ -888,6 +888,23 @@ async fn journey(db_url: String) -> Tally {
     );
     t.row();
 
+    // The authorization is re-decided INSIDE the transaction (`update_in`), so a caller who got
+    // past the ticket check but lost the right in the meantime is refused with nothing written.
+    // B holds nothing in project 5; the store is called directly, without the ticket.
+    let caller_b = Caller::Actor {
+        login: LOGIN_B.into(),
+    };
+    let r = store_c
+        .update_unit_of_work(&caller_b, id, patch_subject(&current, "B, inside the unit"))
+        .await;
+    assert!(matches!(r, Err(MutationError::Forbidden)), "{r:?}");
+    assert_eq!(
+        journal_state(&verify, id).await,
+        v1_state,
+        "a refused update writes no journal"
+    );
+    t.row();
+
     // C (another member of project 5) edits: a different user cannot aggregate
     // (`same_user?`, create_service.rb:611-613), so version 2 is added and version 1 is closed.
     let r = mutation::update(
@@ -1140,6 +1157,28 @@ async fn journey(db_url: String) -> Tally {
         Some("legacy, edited")
     );
     t.rows += 3;
+
+    // The demo posture's anonymous editor has no `users` row to journal as (this schema has no
+    // `users.type`, so no AnonymousUser can be identified): the update is applied, as before the
+    // journal was ported, and writes no journal. Stated here so it cannot change silently.
+    let anon = Caller::Anonymous { allowed: true };
+    let current = page_store.find_wp(id).await.unwrap().unwrap();
+    let state_before = journal_state(&verify, id).await;
+    store
+        .update_unit_of_work(&anon, id, patch_subject(&current, "anonymous demo edit"))
+        .await
+        .expect("the demo anonymous editor may edit");
+    assert_eq!(
+        page_store.find_wp(id).await.unwrap().unwrap().subject,
+        "anonymous demo edit",
+        "the update itself is applied"
+    );
+    assert_eq!(
+        journal_state(&verify, id).await,
+        state_before,
+        "and, with nobody to attribute it to, writes no journal"
+    );
+    t.rows += 2;
     t.steps += 1;
 
     verify.close().await;

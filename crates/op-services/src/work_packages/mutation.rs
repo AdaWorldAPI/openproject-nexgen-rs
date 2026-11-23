@@ -950,8 +950,10 @@ impl PgCreateScope {
         authorize_record(self, caller, id, EDIT_WORK_PACKAGES).await?;
         let user_id = self.acting_user_id(caller).await?;
         let row = self.update_row(id, dto).await?;
-        self.write_update_journal(id, user_id, aggregation_minutes)
-            .await?;
+        if let Some(user_id) = user_id {
+            self.write_update_journal(id, user_id, aggregation_minutes)
+                .await?;
+        }
         Ok(row)
     }
 
@@ -966,24 +968,22 @@ impl PgCreateScope {
     }
 
     /// `users.id` of the person the update is journaled for: `User.current` in the Ruby service
-    /// (`User.execute_as user`, `service_context.rb:66-70`). A verified actor is their `users`
-    /// row; the demo posture's anonymous caller is OpenProject's `AnonymousUser` row.
-    async fn acting_user_id(&self, caller: &Caller) -> Result<Id, StoreFailure> {
+    /// (`User.execute_as user`, `service_context.rb:66-70`), `None` when there is no such row to
+    /// name. A verified actor is their `users` row. The demo posture's anonymous caller would be
+    /// OpenProject's `AnonymousUser` row (`users.type = 'AnonymousUser'`), but this schema has no
+    /// `users.type` column and so no way to identify one: that update is written as before this
+    /// port, without a journal. (Not ported: journaling the anonymous demo editor.)
+    async fn acting_user_id(&self, caller: &Caller) -> Result<Option<Id>, StoreFailure> {
+        let Caller::Actor { login } = caller else {
+            return Ok(None);
+        };
         let mut tx = self.tx.lock().await;
-        let found: Option<Id> = match caller {
-            Caller::Actor { login } => sqlx::query_scalar("SELECT id FROM users WHERE login = $1")
-                .bind(login)
-                .fetch_optional(&mut **tx)
-                .await
-                .map_err(db_failure)?,
-            Caller::Anonymous { .. } => sqlx::query_scalar(
-                "SELECT id FROM users WHERE type = 'AnonymousUser' ORDER BY id LIMIT 1",
-            )
+        let found: Option<Id> = sqlx::query_scalar("SELECT id FROM users WHERE login = $1")
+            .bind(login)
             .fetch_optional(&mut **tx)
             .await
-            .map_err(db_failure)?,
-        };
-        found.ok_or_else(|| {
+            .map_err(db_failure)?;
+        found.map(Some).ok_or_else(|| {
             StoreFailure::Other("no users row to attribute the journal of this update to".into())
         })
     }
