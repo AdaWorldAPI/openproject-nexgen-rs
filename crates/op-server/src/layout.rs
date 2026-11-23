@@ -153,7 +153,10 @@ pub fn left_menu_html() -> String {
 /// The footer region HTML.
 #[must_use]
 pub fn footer_html() -> String {
-    "<div class=\"footer-inner\">OpenProject RS · render-bake preview</div>".to_string()
+    format!(
+        "<div class=\"footer-inner\">{} · render-bake preview</div>",
+        esc(&crate::brand::current().name)
+    )
 }
 
 /// Turn a PascalCase concept (`ProjectStatus`) into a menu label

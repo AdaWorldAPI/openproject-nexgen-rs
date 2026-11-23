@@ -2040,8 +2040,9 @@ fn body_grid_css(regions: &WideFieldMask) -> String {
 fn page_shell_with(title: &str, body_html: &str, regions: &WideFieldMask) -> String {
     let header_region = if layout::region_on(regions, "header") {
         format!(
-            "<nav class=\"{} topnav\"><a href=\"/\" class=\"topnav-brand\">OpenProject RS</a>{}</nav>",
+            "<nav class=\"{} topnav\">{}{}</nav>",
             Region::TopBar.marker(),
+            crate::brand::current().topnav_brand_html(),
             topnav_menu_links(),
         )
     } else {
@@ -2083,30 +2084,31 @@ fn page_shell_with(title: &str, body_html: &str, regions: &WideFieldMask) -> Str
 <style>
 {zones_css}
 {body_grid}
-  :root {{ color-scheme: light dark; }}
+{brand_vars}  :root {{ color-scheme: light; }}
   * {{ box-sizing: border-box; }}
   body {{
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: #f4f5f7;
-    color: #172b4d;
+    font-family: var(--brand-font-family);
+    background: var(--brand-bg);
+    color: var(--brand-fg);
   }}
   nav.topnav {{
     display: flex;
     align-items: center;
     gap: 1rem;
     padding: 0.5rem 1.25rem;
-    background: #091e42;
-    color: #b3bac5;
+    background: var(--brand-side-bg);
+    color: var(--brand-side-fg);
     font-size: 0.85rem;
   }}
-  nav.topnav a {{ color: #b3bac5; }}
-  nav.topnav a.topnav-brand {{ color: #fff; font-weight: 700; }}
-  header {{ padding: 1rem 1.5rem; background: #0747a6; color: #fff; }}
+  nav.topnav a {{ color: var(--brand-side-fg); opacity: 0.85; }}
+  nav.topnav a.topnav-brand {{ display: inline-flex; align-items: center; gap: 0.5rem; opacity: 1; font-weight: 700; }}
+  nav.topnav .topnav-logo {{ height: 24px; width: auto; max-width: 120px; object-fit: contain; }}
+  header {{ padding: 1rem 1.5rem; background: var(--brand-card-bg); color: var(--brand-h1); border-bottom: 3px solid var(--brand-accent); }}
   header h1 {{ margin: 0 0 0.25rem; font-size: 1.35rem; }}
   header p {{ margin: 0; font-size: 0.85rem; opacity: 0.85; }}
   main {{ padding: 1.25rem; overflow-x: auto; }}
-  .empty {{ padding: 3rem 1rem; text-align: center; color: #6b778c; }}
+  .empty {{ padding: 3rem 1rem; text-align: center; color: var(--brand-muted); }}
   .breadcrumb {{ margin: 0; padding: 0.6rem 1.25rem 0; font-size: 0.85rem; }}
   .breadcrumb .edit-link {{ margin-left: 0.25rem; }}
   .ogar-form fieldset.form-fields {{ border: none; padding: 0; margin: 0 0 1rem; }}
@@ -2116,38 +2118,42 @@ fn page_shell_with(title: &str, body_html: &str, regions: &WideFieldMask) -> Str
   .ogar-form input, .ogar-form select, .ogar-form textarea {{
     font: inherit;
     padding: 0.4rem 0.5rem;
-    border: 1px solid #dfe1e6;
-    border-radius: 3px;
-    background: #fff;
+    border: 1px solid var(--brand-border);
+    border-radius: var(--brand-radius-sm);
+    background: var(--brand-card-bg);
     color: inherit;
   }}
-  .ogar-form .hint {{ color: #6b778c; font-size: 0.75rem; margin-top: 0.2rem; }}
+  .ogar-form .hint {{ color: var(--brand-muted); font-size: 0.75rem; margin-top: 0.2rem; }}
   .ogar-form .form-actions {{ display: flex; gap: 0.75rem; align-items: center; margin-top: 1rem; }}
   .ogar-form .btn-primary {{
-    background: #0052cc; color: #fff; border: none; border-radius: 3px;
+    background: var(--brand-accent); color: var(--brand-on-accent); border: none; border-radius: var(--brand-radius-sm);
     padding: 0.45rem 1rem; font-weight: 600; cursor: pointer;
   }}
   .ogar-list h2 {{ font-size: 1.05rem; margin: 0 0 0.75rem; }}
   table.list {{
     width: 100%;
     border-collapse: collapse;
-    background: #fff;
-    box-shadow: 0 1px 2px rgba(9, 30, 66, 0.15);
+    background: var(--brand-card-bg);
+    box-shadow: var(--brand-elevation);
+    border-radius: var(--brand-radius);
+    overflow: hidden;
     font-size: 0.88rem;
   }}
   table.list th {{
     text-align: left;
     padding: 0.5rem 0.75rem;
-    background: #ebecf0;
+    background: var(--brand-subtle-bg);
+    color: var(--brand-muted);
     font-size: 0.72rem;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.03em;
     white-space: nowrap;
   }}
-  table.list td {{ padding: 0.5rem 0.75rem; border-top: 1px solid #ebecf0; vertical-align: middle; }}
+  table.list td {{ padding: 0.5rem 0.75rem; border-top: 1px solid var(--brand-border); vertical-align: middle; }}
   table.list th.checkbox, table.list td.checkbox, table.list th.buttons, table.list td.buttons {{ width: 1%; }}
   tr.group td {{
-    background: #dfe1e6;
+    background: var(--brand-subtle-bg);
     font-weight: 600;
     padding-top: 0.6rem;
     padding-bottom: 0.6rem;
@@ -2157,41 +2163,28 @@ fn page_shell_with(title: &str, body_html: &str, regions: &WideFieldMask) -> Str
     margin-left: 0.4rem;
     padding: 0 0.4rem;
     border-radius: 10px;
-    background: #6b778c;
-    color: #fff;
+    background: var(--brand-side-bg);
+    color: var(--brand-side-fg);
     font-size: 0.72rem;
     font-weight: 700;
   }}
-  a {{ color: #0052cc; text-decoration: none; }}
+  a {{ color: var(--brand-accent); text-decoration: none; }}
+  :focus-visible {{ outline: 2px solid var(--brand-accent); outline-offset: 2px; }}
+  header h1 {{ color: var(--brand-h1); }}
   a:hover {{ text-decoration: underline; }}
-  .record-id {{ font-variant-numeric: tabular-nums; color: #6b778c; }}
+  .record-id {{ font-variant-numeric: tabular-nums; color: var(--brand-muted); }}
   .primary-link {{ font-weight: 600; }}
-  .progress {{ position: relative; width: 100px; height: 10px; border-radius: 5px; background: #ebecf0; overflow: hidden; }}
+  .progress {{ position: relative; width: 100px; height: 10px; border-radius: 5px; background: var(--brand-subtle-bg); overflow: hidden; }}
   .progress .progress-bar {{ height: 100%; background: #36b37e; }}
-  .progress .progress-label {{ position: absolute; left: 108px; top: -3px; font-size: 0.75rem; color: #6b778c; }}
-  td.nodata {{ text-align: center; color: #6b778c; padding: 2rem; }}
-  aside.sidemenu-region {{ flex: 0 0 13rem; background: #fff; border-right: 1px solid #dfe1e6; padding: 0.75rem 0; }}
+  .progress .progress-label {{ position: absolute; left: 108px; top: -3px; font-size: 0.75rem; color: var(--brand-muted); }}
+  td.nodata {{ text-align: center; color: var(--brand-muted); padding: 2rem; }}
+  aside.sidemenu-region {{ background: var(--brand-side-bg); color: var(--brand-side-fg); padding: 0.75rem 0; min-height: 100%; }}
   .sidemenu ul {{ list-style: none; margin: 0; padding: 0; }}
-  .sidemenu-primary a {{ display: block; padding: 0.5rem 1.25rem; color: #172b4d; font-weight: 600; }}
-  .sidemenu-primary a:hover {{ background: #ebecf0; text-decoration: none; }}
-  .sidemenu-soon-label {{ padding: 0.75rem 1.25rem 0.25rem; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: #6b778c; }}
-  .sidemenu-soon li span {{ display: block; padding: 0.35rem 1.25rem; color: #a5adba; font-size: 0.85rem; cursor: not-allowed; }}
-  footer.page-footer {{ padding: 0.75rem 1.5rem; background: #091e42; color: #7a869a; font-size: 0.75rem; }}
-  @media (prefers-color-scheme: dark) {{
-    aside.sidemenu-region {{ background: #22272b; border-right-color: #3a3f45; }}
-    .sidemenu-primary a {{ color: #b6c2cf; }}
-    .sidemenu-primary a:hover {{ background: #2c333a; }}
-  }}
-  @media (prefers-color-scheme: dark) {{
-    body {{ background: #1d2125; color: #b6c2cf; }}
-    table.list {{ background: #22272b; }}
-    table.list th {{ background: #2c333a; color: #9fadbc; }}
-    table.list td {{ border-top-color: #3a3f45; }}
-    tr.group td {{ background: #2c333a; }}
-    a {{ color: #579dff; }}
-    .record-id, .progress .progress-label {{ color: #9fadbc; }}
-    .progress {{ background: #3a3f45; }}
-  }}
+  .sidemenu-primary a {{ display: block; padding: 0.5rem 1.25rem; color: var(--brand-side-fg); font-weight: 600; }}
+  .sidemenu-primary a:hover {{ background: var(--brand-side-hover); text-decoration: none; }}
+  .sidemenu-soon-label {{ padding: 0.75rem 1.25rem 0.25rem; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--brand-side-fg); opacity: 0.6; }}
+  .sidemenu-soon li span {{ display: block; padding: 0.35rem 1.25rem; color: var(--brand-side-fg); opacity: 0.45; font-size: 0.85rem; cursor: not-allowed; }}
+  footer.page-footer {{ padding: 0.75rem 1.5rem; background: var(--brand-side-bg); color: var(--brand-side-fg); opacity: 0.9; font-size: 0.75rem; }}
 </style>
 </head>
 <body>
@@ -2200,6 +2193,7 @@ fn page_shell_with(title: &str, body_html: &str, regions: &WideFieldMask) -> Str
 </html>"#,
         zones_css = ZONES_CSS,
         body_grid = body_grid_css(regions),
+        brand_vars = crate::brand::current().css_vars(),
         mode = LayoutMode::MainWide.class(),
         center = Region::Center.marker(),
         header = header_region,
@@ -2254,6 +2248,86 @@ mod tests {
                 ".a2-body.mode-main-wide { grid-template-columns: minmax(0, 1fr) 70px; }"
             ),
             "{no_left}"
+        );
+    }
+
+    /// Colour literals in a stylesheet fragment: hex (3, 4, 6 or 8 digits),
+    /// colour functions, and common named colours used as a value.
+    fn fixed_colours(css: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let b = css.as_bytes();
+        let mut i = 0;
+        while i < b.len() {
+            if b[i] == b'#' {
+                let n = b[i + 1..]
+                    .iter()
+                    .take_while(|c| c.is_ascii_hexdigit())
+                    .count();
+                let end = i + 1 + n;
+                let boundary = b.get(end).is_none_or(|c| !c.is_ascii_alphanumeric());
+                if matches!(n, 3 | 4 | 6 | 8) && boundary {
+                    out.push(css[i..end].to_string());
+                }
+                i = end.max(i + 1);
+                continue;
+            }
+            i += 1;
+        }
+        for f in [
+            "rgba(", "rgb(", "hsla(", "hsl(", "hwb(", "lab(", "lch(", "oklab(", "oklch(", "color(",
+        ] {
+            let mut rest = css;
+            while let Some(p) = rest.find(f) {
+                let before = rest[..p].chars().last();
+                if !before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '-') {
+                    out.push(f.to_string());
+                }
+                rest = &rest[p + f.len()..];
+            }
+        }
+        for name in [
+            "white", "black", "red", "blue", "green", "gray", "grey", "silver", "navy",
+        ] {
+            for sep in [":", ": "] {
+                for end in [";", " ", "}"] {
+                    if css.contains(&format!("{sep}{name}{end}"))
+                        && !out.contains(&name.to_string())
+                    {
+                        out.push(name.to_string());
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The page renders with the brand: its tokens are declared, and the
+    /// stylesheet uses them instead of fixed colours (the progress bar's status
+    /// green is the one colour that is not part of the identity).
+    #[test]
+    fn the_page_uses_the_brand_tokens_and_no_fixed_colours() {
+        let html = page_shell("t", "<p>x</p>");
+        assert!(html.contains("--brand-accent: #c8102e;"), "{html}");
+        assert!(html.contains("nav.topnav {") || html.contains("nav.topnav{"));
+        assert!(html.contains("background: var(--brand-side-bg);"));
+        assert!(html.contains("class=\"topnav-brand\">OpenProject RS</a>"));
+        let style = &html[html.find("<style>").unwrap()..html.find("</style>").unwrap()];
+        // Scan only op-server's own rules: after the shared zones and the brand
+        // declarations, which are the only places colour values may appear.
+        let vars = crate::brand::current().css_vars();
+        let ours = &style[style.find(&vars).expect("brand vars emitted") + vars.len()..];
+        let fixed: Vec<String> = fixed_colours(ours)
+            .into_iter()
+            .filter(|c| c != "#36b37e")
+            .collect();
+        assert!(
+            fixed.is_empty(),
+            "fixed colours outside the brand: {fixed:?}"
+        );
+        // The scanner itself sees every form it claims to.
+        assert_eq!(
+            fixed_colours("a{color:#fff} b{color:#ffff} c{background:rgba(0,0,0,.1)} d{color:hsl(1,2%,3%)} e{color: white;} f{color:#36b37e}"),
+            ["#fff", "#ffff", "#36b37e", "rgba(", "hsl(", "white"]
         );
     }
 

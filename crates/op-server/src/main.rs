@@ -28,6 +28,7 @@ use op_core::config::AppConfig;
 use op_db::{Database, DatabaseConfig};
 
 mod board;
+mod brand;
 mod health;
 mod layout;
 mod metrics;
@@ -62,6 +63,13 @@ async fn main() -> anyhow::Result<()> {
         port = config.server.port,
         "Starting OpenProject RS"
     );
+
+    // Company identity: a [brand] TOML table from OP_BRAND_FILE or OP_BRAND_TOML;
+    // neither keeps the default identity. A brand that cannot be used stops the start.
+    let brand =
+        brand::Brand::from_env(|k| std::env::var(k).ok()).map_err(|e| anyhow::anyhow!("{e}"))?;
+    info!(brand = %brand.name, custom = brand != brand::Brand::default(), "Brand");
+    brand::install(brand);
 
     // Klickweg connectivity affirmation — the runtime counterpart to the
     // `scripts/nav-crawl.sh` BFS, proven at boot via the sanctioned Core brick

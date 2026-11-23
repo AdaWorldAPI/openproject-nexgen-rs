@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 op-core = { path = "../op-core" }
+toml = "0.8"
 op-api = { path = "../op-api" }
 op-db = { path = "../op-db" }
 op-auth = { path = "../op-auth" }
