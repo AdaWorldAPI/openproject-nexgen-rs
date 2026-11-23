@@ -2,16 +2,26 @@
 //! per-attribute admission table of `WorkPackages::CreateContract`.
 //!
 //! Writable guards come from ruff's lowering (`extract_contract_guards`). Which
-//! permission an attribute needs is NOT lowered by ruff yet; it is read with the
-//! line scan below. That scan is the one typed extraction gap
-//! ([`ExtractionGap::PermissionDeclScan`]): it feeds only this generator, and it is
-//! to be deleted when ruff lowers `permission:` / `default_attribute_permission`.
+//! permission an attribute needs, the default permission and the attribute aliases
+//! come from ruff's `extract_contract_permissions`, resolved the way
+//! `BaseContract#reduce_by_writable_permissions` does (`app/contracts/base_contract.rb`
+//! lines 251-266). A requirement ruff cannot determine stays typed
+//! ([`PermissionFact::Unresolved`]) and becomes a refusal-to-guess at runtime, never
+//! "no permission needed".
+//!
+//! What ruff does not extract is still read with the line scan below, the typed
+//! extraction gap [`ExtractionGap::ContractDeclScan`]: the declared attribute names and
+//! `writable: false`, `allow_writable_timestamps`, the `validate :x` list and the
+//! permission literal inside `user_allowed_to_add`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
-use ruff_ruby_spo::{extract_contract_guards, ContractGuard, GuardExpr, GuardOutcome};
+use ruff_ruby_spo::{
+    extract_contract_guards, extract_contract_permissions, ContractGuard, ContractPermissions,
+    GuardExpr, GuardOutcome, PermissionState, PermissionValue,
+};
 
 const CREATE: &str = "WorkPackages::CreateContract";
 const BASE: &str = "WorkPackages::BaseContract";
@@ -19,19 +29,73 @@ const BASE: &str = "WorkPackages::BaseContract";
 /// Facts ruff does not extract and this crate reads by line scan instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtractionGap {
-    /// `attribute :x, permission: ...`, `default_attribute_permission ...`,
-    /// `attribute_alias`, `allow_writable_timestamps`, the `validate :x` list, and the
-    /// permission literal inside `user_allowed_to_add`.
-    PermissionDeclScan,
+    /// The `attribute :x` names and `writable: false`, `allow_writable_timestamps`,
+    /// the `validate :x` list, and the permission literal inside
+    /// `user_allowed_to_add`. (`permission:`, `default_attribute_permission` and
+    /// `attribute_alias` come from ruff's `extract_contract_permissions`.)
+    ContractDeclScan,
 }
 
 impl ExtractionGap {
     pub fn describe(self) -> &'static str {
         match self {
-            ExtractionGap::PermissionDeclScan => {
-                "ExtractionGap::PermissionDeclScan: permission:/default_attribute_permission/attribute_alias/allow_writable_timestamps/validate/user_allowed_to_add line scan of base_contract.rb and create_contract.rb (feeds the generator only)"
+            ExtractionGap::ContractDeclScan => {
+                "ExtractionGap::ContractDeclScan: attribute/writable: false/allow_writable_timestamps/validate/user_allowed_to_add line scan of base_contract.rb and create_contract.rb; permissions, default permission and aliases come from ruff_ruby_spo::extract_contract_permissions"
             }
         }
+    }
+}
+
+/// The permission requirement of one attribute, from
+/// [`ContractPermissions::lookup`]. Closed: ruff's four outcomes map onto three,
+/// and none of them collapses into another.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PermissionFact {
+    /// `Explicit`, `Inherited` or `Default`: the user must hold one of these
+    /// (`permissions.any?`, base_contract.rb:259).
+    AnyOf(Vec<String>),
+    /// `ProvenAbsent`: nothing in the chain declares a permission, so none is
+    /// required (`next unless permissions`, base_contract.rb:257).
+    NoneRequired,
+    /// `Unresolved`: ruff could not determine the requirement (reason from ruff).
+    Unresolved(String),
+}
+
+/// What `attribute` requires under `contract`.
+pub fn permission_fact(contract: &ContractPermissions, attribute: &str) -> PermissionFact {
+    let any_of = |value: &PermissionValue| match value {
+        PermissionValue::AnyOf(v) => PermissionFact::AnyOf(v.clone()),
+        // `lookup` reports an unlowered value as `Unresolved`; this arm keeps the
+        // mapping total without trusting that.
+        PermissionValue::Unlowered {
+            reason,
+            source_text,
+        } => PermissionFact::Unresolved(format!("{reason}: {source_text}")),
+    };
+    match contract.lookup(attribute) {
+        PermissionState::Explicit(d) | PermissionState::Inherited(d) => any_of(&d.value),
+        PermissionState::Default(d) => any_of(&d.value),
+        PermissionState::ProvenAbsent => PermissionFact::NoneRequired,
+        PermissionState::Unresolved { reason } => PermissionFact::Unresolved(reason),
+    }
+}
+
+/// `WorkPackages::CreateContract`'s permission surface. The scan root is `app`, not
+/// `app/contracts`: contracts include modules from `app/services`, and a module ruff
+/// does not scan is a gap.
+fn create_permissions(src: &Path) -> ContractPermissions {
+    extract_contract_permissions(&src.join("app"))
+        .into_iter()
+        .find(|c| c.class == CREATE)
+        .unwrap_or_else(|| panic!("ruff found no {CREATE}"))
+}
+
+/// The Rust expression for `fact` in the generated table.
+fn permission_rule(fact: &PermissionFact) -> String {
+    match fact {
+        PermissionFact::AnyOf(v) => format!("PermissionRule::AnyOf(&[{}])", str_list(v)),
+        PermissionFact::NoneRequired => "PermissionRule::NoneRequired".into(),
+        PermissionFact::Unresolved(reason) => format!("PermissionRule::Unresolved({reason:?})"),
     }
 }
 
@@ -45,9 +109,6 @@ struct AttrInfo {
 struct ContractModel {
     declared: BTreeMap<String, AttrInfo>,
     raw: BTreeSet<String>,
-    perms: BTreeMap<String, Vec<String>>,
-    default_perm: Option<Vec<String>>,
-    alias: BTreeMap<String, String>,
     validators: Vec<String>,
     add_permission: Option<String>,
 }
@@ -102,25 +163,9 @@ fn scan_contract_file(text: &str, m: &mut ContractModel) {
                 if let Some(at) = stmt.find("writable:") {
                     info.literal_false = stmt[at + 9..].trim_start().starts_with("false");
                 }
-                if let Some(at) = stmt.find("permission:") {
-                    let list = symbol_list(&stmt[at + 11..]);
-                    if !list.is_empty() {
-                        m.perms.insert(name.clone(), list);
-                    }
-                }
                 m.raw.insert(name.clone());
                 m.declared.insert(canon(&name), info);
             }
-        } else if let Some(rest) = t.strip_prefix("attribute_alias ") {
-            let ids: Vec<String> = rest
-                .split(',')
-                .filter_map(|p| ident_after(p, ":"))
-                .collect();
-            if let [db, outside] = ids.as_slice() {
-                m.alias.insert(canon(outside), canon(db));
-            }
-        } else if let Some(rest) = t.strip_prefix("default_attribute_permission ") {
-            m.default_perm = Some(symbol_list(rest));
         } else if let Some(rest) = t.strip_prefix("allow_writable_timestamps ") {
             for name in symbol_list(rest) {
                 m.declared.insert(
@@ -156,7 +201,7 @@ fn contract_model(src: &Path) -> ContractModel {
     m
 }
 
-/// What the [`ExtractionGap::PermissionDeclScan`] line scan found in
+/// What the [`ExtractionGap::ContractDeclScan`] line scan found in
 /// `base_contract.rb` and `create_contract.rb`, for consumers other than the
 /// generator (the three-witness reconciliation, [`crate::reconcile`]). It is the same
 /// scan the generator runs, not a second reading of the Ruby.
@@ -217,6 +262,7 @@ fn str_list(v: &[String]) -> String {
 /// The generated Rust source for the checkout at `src`.
 pub fn generate(src: &Path) -> String {
     let guards = extract_contract_guards(&src.join("app/contracts"));
+    let permissions = create_permissions(src);
     let m = contract_model(src);
     let add = m
         .add_permission
@@ -226,10 +272,10 @@ pub fn generate(src: &Path) -> String {
     let mut o = String::new();
     let _ = writeln!(
         o,
-        "//! @generated by `cargo run -p op-codegen-pipeline --example emit_create_admission`\n//! from OpenProject `app/contracts` (ruff's lowered `writable:` guards). DO NOT EDIT.\n//!\n//! {}\n",
-        ExtractionGap::PermissionDeclScan.describe()
+        "//! @generated by `cargo run -p op-codegen-pipeline --example emit_create_admission`\n//! from OpenProject `app` (ruff's lowered `writable:` guards and contract permissions). DO NOT EDIT.\n//!\n//! {}\n",
+        ExtractionGap::ContractDeclScan.describe()
     );
-    o.push_str("use super::admission::{AttrRule, Op, WritableRule};\n\n");
+    o.push_str("use super::admission::{AttrRule, Op, PermissionRule, WritableRule};\n\n");
     let _ = writeln!(o, "pub const ADD_PERMISSION: &str = {add:?};\n");
     let raw: Vec<String> = m.raw.iter().cloned().collect();
     let _ = writeln!(
@@ -237,8 +283,14 @@ pub fn generate(src: &Path) -> String {
         "pub static RAW_ATTRIBUTES: &[&str] = &[{}];\n",
         str_list(&raw)
     );
-    let alias: Vec<String> = m
-        .alias
+    // `attribute_alias db, outside` (base_contract.rb:65-69), keyed outside -> db by
+    // canonical name for the runtime's `rule_for`.
+    let alias: BTreeMap<String, String> = permissions
+        .aliases
+        .values()
+        .map(|a| (canon(&a.outside), canon(&a.db)))
+        .collect();
+    let alias: Vec<String> = alias
         .iter()
         .map(|(a, b)| format!("({a:?}, {b:?})"))
         .collect();
@@ -260,12 +312,7 @@ pub fn generate(src: &Path) -> String {
     );
     o.push_str("pub static ATTRIBUTES: &[AttrRule] = &[\n");
     for (name, info) in &m.declared {
-        let perms = m
-            .perms
-            .get(name)
-            .or_else(|| m.perms.get(&format!("{name}_id")))
-            .or(m.default_perm.as_ref());
-        let perms = perms.map_or("None".to_string(), |p| format!("Some(&[{}])", str_list(p)));
+        let perms = permission_rule(&permission_fact(&permissions, name));
         let writable = if info.literal_false {
             "WritableRule::Never".to_string()
         } else if let Some(mac) = &info.opaque_writable {
@@ -290,4 +337,63 @@ pub fn generate(src: &Path) -> String {
     }
     o.push_str("];\n");
     o
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A synthetic contract chain: `C` declares one readable and one unreadable
+    /// permission, `D < C` adds a default.
+    fn synthetic() -> Vec<ContractPermissions> {
+        let root =
+            std::env::temp_dir().join(format!("op_admission_gen_perms_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("temp dir");
+        std::fs::write(
+            root.join("c.rb"),
+            "class C < BaseContract\n  attribute :a, permission: SOME_PERMISSIONS\n  attribute :b, permission: %i[p r]\nend\n\nclass D < C\n  default_attribute_permission :q\nend\n",
+        )
+        .expect("write");
+        let all = extract_contract_permissions(&root);
+        let _ = std::fs::remove_dir_all(&root);
+        all
+    }
+
+    fn class<'a>(all: &'a [ContractPermissions], name: &str) -> &'a ContractPermissions {
+        all.iter().find(|c| c.class == name).expect(name)
+    }
+
+    #[test]
+    fn each_lookup_outcome_maps_to_its_own_fact() {
+        let all = synthetic();
+        let (c, d) = (class(&all, "C"), class(&all, "D"));
+        let pr = vec!["p".to_string(), "r".to_string()];
+        // Explicit.
+        assert!(matches!(c.lookup("b"), PermissionState::Explicit(_)));
+        assert_eq!(permission_fact(c, "b"), PermissionFact::AnyOf(pr.clone()));
+        // Inherited, and an `_id` spelling finds the same entry.
+        assert!(matches!(d.lookup("b"), PermissionState::Inherited(_)));
+        assert_eq!(permission_fact(d, "b_id"), PermissionFact::AnyOf(pr));
+        // Default.
+        assert_eq!(
+            permission_fact(d, "z"),
+            PermissionFact::AnyOf(vec!["q".into()])
+        );
+        // Proven absent.
+        assert_eq!(permission_fact(c, "z"), PermissionFact::NoneRequired);
+    }
+
+    #[test]
+    fn an_unreadable_permission_is_unresolved_never_no_restriction() {
+        let all = synthetic();
+        let fact = permission_fact(class(&all, "C"), "a");
+        let PermissionFact::Unresolved(reason) = &fact else {
+            panic!("expected Unresolved, got {fact:?}");
+        };
+        assert!(reason.contains("SOME_PERMISSIONS"), "{reason}");
+        let rule = permission_rule(&fact);
+        assert!(rule.starts_with("PermissionRule::Unresolved("), "{rule}");
+        assert_ne!(rule, "PermissionRule::NoneRequired");
+    }
 }

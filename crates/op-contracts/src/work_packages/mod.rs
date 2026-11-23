@@ -16,7 +16,7 @@ mod delete;
 
 pub use admission::{
     admit_create, changed_column, guard_facts, is_writable, not_evaluated_validators, AdmissionFacts,
-    AttrRule, CreateAdmission, Op, Unresolved, Verdict, Writable, WritableRule,
+    AttrRule, CreateAdmission, Op, PermissionRule, Unresolved, Verdict, Writable, WritableRule,
 };
 pub use base::{WorkPackageBaseContract, WorkPackageData};
 pub use create::CreateWorkPackageContract;

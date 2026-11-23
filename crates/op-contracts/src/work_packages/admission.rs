@@ -46,12 +46,26 @@ pub enum WritableRule {
     Opaque(&'static str),
 }
 
+/// Which permission an attribute needs, as ruff's `extract_contract_permissions`
+/// resolved it (`BaseContract#reduce_by_writable_permissions`,
+/// `app/contracts/base_contract.rb` lines 251-266).
+#[derive(Debug, Clone, Copy)]
+pub enum PermissionRule {
+    /// Nothing in the contract chain declares a permission: none is required
+    /// (`next unless permissions`).
+    NoneRequired,
+    /// The user must hold one of these (`permissions.any?`).
+    AnyOf(&'static [&'static str]),
+    /// The requirement could not be determined (reason from the extractor). Never
+    /// read as "none required": the verdict is unresolved.
+    Unresolved(&'static str),
+}
+
 /// One attribute the create contract declares (canonical name, no `_id`).
 #[derive(Debug, Clone, Copy)]
 pub struct AttrRule {
     pub name: &'static str,
-    /// Permissions of which the user must hold one; `None` means none required.
-    pub permissions: Option<&'static [&'static str]>,
+    pub permissions: PermissionRule,
     pub writable: WritableRule,
 }
 
@@ -67,6 +81,8 @@ pub enum Unresolved {
     GuardUnlowered(&'static str),
     FactUnavailable(Vec<&'static str>),
     OpaqueWritable(&'static str),
+    /// The permission the attribute needs could not be extracted.
+    PermissionUnresolved(&'static str),
     /// The create contract declares no such attribute.
     UndeclaredAttribute,
 }
@@ -179,6 +195,17 @@ pub fn is_writable<U: UserContext + ?Sized>(
     let Some(rule) = rule_for(attribute) else {
         return Writable::Unresolved(Unresolved::UndeclaredAttribute);
     };
+    writable_by_rule(rule, user, project, facts)
+}
+
+/// `writable?` for one rule: its condition AND its permission. A known `false` on
+/// either side wins over an unknown other side.
+fn writable_by_rule<U: UserContext + ?Sized>(
+    rule: &AttrRule,
+    user: &U,
+    project: Option<Id>,
+    facts: &dyn AdmissionFacts,
+) -> Writable {
     let condition: Result<bool, Unresolved> = match rule.writable {
         WritableRule::Always => Ok(true),
         WritableRule::Never => Ok(false),
@@ -188,17 +215,19 @@ pub fn is_writable<U: UserContext + ?Sized>(
             run_program(ops, user, facts).map_err(Unresolved::FactUnavailable)
         }
     };
-    let permitted = rule.permissions.is_none_or(|needed| {
-        user.is_admin()
+    let permitted: Result<bool, Unresolved> = match rule.permissions {
+        PermissionRule::NoneRequired => Ok(true),
+        PermissionRule::AnyOf(needed) => Ok(user.is_admin()
             || needed.iter().any(|p| match project {
                 Some(id) => user.allowed_in_project(p, id),
                 None => user.allowed_in_any_project(p),
-            })
-    });
+            })),
+        PermissionRule::Unresolved(r) => Err(Unresolved::PermissionUnresolved(r)),
+    };
     match (condition, permitted) {
-        (Ok(false), _) | (_, false) => Writable::No,
-        (Ok(true), true) => Writable::Yes,
-        (Err(u), true) => Writable::Unresolved(u),
+        (Ok(false), _) | (_, Ok(false)) => Writable::No,
+        (Ok(true), Ok(true)) => Writable::Yes,
+        (Err(u), _) | (_, Err(u)) => Writable::Unresolved(u),
     }
 }
 
@@ -404,6 +433,49 @@ mod tests {
         assert_eq!(
             is_writable(&nobody, Some(5), "status_id", &None_),
             Writable::No
+        );
+    }
+
+    #[test]
+    fn an_unresolved_permission_is_unresolved_not_allowed() {
+        let rule = AttrRule {
+            name: "synthetic",
+            permissions: PermissionRule::Unresolved("const reference: SOME_PERMISSIONS"),
+            writable: WritableRule::Always,
+        };
+        let facts = Facts(true, false, false);
+        // Neither a member nor an admin passes a requirement nobody could read.
+        for user in [
+            MEMBER,
+            User {
+                admin: true,
+                held: &[],
+            },
+        ] {
+            assert_eq!(
+                writable_by_rule(&rule, &user, Some(5), &facts),
+                Writable::Unresolved(Unresolved::PermissionUnresolved(
+                    "const reference: SOME_PERMISSIONS"
+                ))
+            );
+        }
+        // A known-false condition still wins.
+        let never = AttrRule {
+            writable: WritableRule::Never,
+            ..rule
+        };
+        assert_eq!(
+            writable_by_rule(&never, &MEMBER, Some(5), &facts),
+            Writable::No
+        );
+        // The same rule with no requirement is writable: the two are distinct.
+        let free = AttrRule {
+            permissions: PermissionRule::NoneRequired,
+            ..rule
+        };
+        assert_eq!(
+            writable_by_rule(&free, &MEMBER, Some(5), &facts),
+            Writable::Yes
         );
     }
 

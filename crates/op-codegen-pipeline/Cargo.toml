@@ -38,8 +38,8 @@ ruff_openproject       = { path = "../ruff_openproject" }
 # `main` — flipped 2026-07-06 (ruff #44 landed the schema stratum +
 # ruff_sqlalchemy_spo on main; convergence branch retired). Cargo.lock
 # still locks a concrete rev for reproducibility.
-ruff_spo_triplet       = { git = "https://github.com/AdaWorldAPI/ruff", rev = "79ed2baa007d24000d651e23efc4a207122bd08d" }
-ruff_ruby_spo          = { git = "https://github.com/AdaWorldAPI/ruff", rev = "79ed2baa007d24000d651e23efc4a207122bd08d" }
+ruff_spo_triplet       = { git = "https://github.com/AdaWorldAPI/ruff", rev = "954ed21450cc0766124905643a3d8c54f44191e4" }
+ruff_ruby_spo          = { git = "https://github.com/AdaWorldAPI/ruff", rev = "954ed21450cc0766124905643a3d8c54f44191e4" }
 op-codegen-projection  = { path = "../op-codegen-projection" }
 op-surreal-ast         = { path = "../op-surreal-ast" }
 lance-graph-contract   = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
