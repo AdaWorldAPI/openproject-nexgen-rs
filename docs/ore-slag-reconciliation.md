@@ -318,7 +318,7 @@ Separate denominators. Before means #138 as it was; after means this change.
 | Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | AssociationNotInCheckout 2, GeneratedUndecided 1 |
 | Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 29 definite, 0 UNKNOWN, 0 differ (ruff ce96aae `hidden_complete`; 16 / 13 between the #140 review fix and this change) |
 | Callback bodies executed | 0 | 0 |
-| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 11/11, 188 rows asserted; create transactional, creation journal, default priority, creator as watcher, ancestor totals on create and on update (derived hours and done ratio, excluded status, caused journals, former and new chains after a move, rollback, concurrent create caught by lock_version); update transactional with its journal (no-op, aggregated, new version, rollback); cited by the reconciliation, run separately |
+| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 12/12, 236 rows asserted; create transactional, creation journal, default priority, creator as watcher, ancestor totals on create and on update (derived hours and done ratio, excluded status, caused journals, former and new chains after a move, rollback, concurrent create caught by lock_version), switch to automatic mode and `ignore_non_working_days` of the ancestors; update transactional with its journal (no-op, aggregated, new version, rollback); cited by the reconciliation, run separately |
 
 The P3b gaps are reported, not hidden:
 
@@ -391,10 +391,10 @@ The P3b gaps are reported, not hidden:
   aggregated for the same user and not aggregated across a different cause, a new version
   for another user, the journal data rows carrying the derived values, and a failure after
   the ancestor update leaving ancestors, their journals and the child untouched (with a
-  committing control). Not ported: `switch_to_automatic_mode` (needs scheduling
-  relations), `derive_ignore_non_working_days`, `simple_average` and status-based modes,
-  former ancestors (a create has none), notifications. Like Ruby's create it takes no lock
-  on the ancestors. The update path is the next item.
+  committing control. Not ported: `simple_average` and status-based modes, former
+  ancestors (a create has none), notifications. (`switch_to_automatic_mode` and
+  `derive_ignore_non_working_days` are the next-but-one item below.) Like Ruby's create it
+  takes no lock on the ancestors.
 - Closed: ancestor totals on update (`WorkPackages::UpdateService#update_related_work_packages`,
   update_service.rb:54-81, `update_ancestors`, shared/update_ancestors.rb:42-48). On the
   update's transaction, after the UPDATE and its journal, inside the advisory lock. The
@@ -423,10 +423,50 @@ The P3b gaps are reported, not hidden:
   new journal each, a subject-only edit writing no ancestor row and journal (with a
   hand-corrupted derived value that a recompute would repair), the done-ratio-only edit, and
   a failure after the ancestor writes leaving everything unchanged (with a committing
-  control). Not ported: `switch_to_automatic_mode`, `derive_ignore_non_working_days`,
-  `simple_average` and status-based modes, `update_related` (`reschedule_related`,
-  `update_descendants` on a project change), notifications.
-- Open: the rest of Ruby's `after_create` (`apply_patterns`, reschedule) is not ported.
+  control). Not ported: `simple_average` and status-based modes, `update_related`
+  (`reschedule_related`, `update_descendants` on a project change), notifications.
+- Closed: the two remaining `UpdateAncestorsService` derivations, on create and on update
+  (update_ancestors_service.rb:96-121), both selected by a `parent` / `parent_id` change and run
+  per candidate in Ruby's order, on the totals' save, journal and `lock_version` path (an
+  ancestor whose only change is a scheduling flag is saved and journaled with the child-values
+  cause; the journal snapshot copies and compares `ignore_non_working_days`; migration 0004
+  adds `work_packages.ignore_non_working_days`, structure.sql:9034).
+  - `switch_to_automatic_mode` (:157-181): only the initiator's current direct parent, only if it
+    is `schedule_manually`, has exactly one child, and `Relation.used_for_scheduling_of(parent)` is
+    empty. The scope (relations/scopes/used_for_scheduling_of.rb:44-52) is ported over `parent_id`
+    with a recursive CTE, because this schema has no `work_package_hierarchies`: the parent itself
+    (closure_tree's generation-0 row; `WorkPackage::Ancestors::Aggregator` filters
+    `generations > 0` to drop it) and its automatically scheduled ancestors, that is the
+    ancestors that are not manual and not above a manual one (:55-59). `follows` is
+    `relation_type = 'follows'` and `from_id` is the successor (relation.rb:41-44, a `precedes`
+    is stored reversed, :210-220). `state.bulk_duplicate_in_progress` is false for a plain
+    create or update, and the child is never destroyed here, so neither exits early.
+  - `derive_ignore_non_working_days` (:183-199, :250-256): never the initiator, never a manually
+    scheduled candidate (read after the switch of the same pass, so a parent just switched takes
+    its child's value in that save); otherwise true if any child has it. With no child left the
+    candidate keeps its own value: Ruby's comment (:179-182) says the former parent "is reset to
+    `false`", but the code (:190-192) assigns the ancestor's own value when
+    `ignore_non_working_days_of_descendants` is nil, and the port follows the code. A former
+    parent that keeps another child is recomputed from it (reset to false when that child is
+    false).
+  EXECUTED_DB step 12 asserts, by hand: a first child switches a manual parent (saved once,
+  lock 0 to 1, aggregated journal with the child's cause and a switched snapshot, the initiator
+  untouched); a second child leaves it manual and writes nothing; a `follows` predecessor of the
+  parent keeps it manual, while a parent that is itself the predecessor switches; an automatic
+  ancestor's predecessor keeps a manual grandchild-parent manual, while a manual ancestor cuts the
+  chain off and the parent switches; a move switches only the new parent (the former parent, manual
+  with one child left, is untouched), with a new journal version by the other user; a child with
+  the flag moved under a manual lone-child parent makes it automatic and true in one save, under
+  an automatic parent with another child makes it true, and under a manual parent with two
+  children changes nothing; moving the true child away resets the former parent that keeps a
+  false child, and leaves one with no child true. Not ported: `simple_average` and status-based
+  modes, `reschedule_related`, notifications.
+- Not ported, schema-absent: `apply_patterns` (create_service.rb:74,
+  `app/services/types/apply_patterns.rb`) is a no-op over this schema. It resolves
+  `model.type_variant&.enabled_patterns` (`WorkPackage#type_variant`, work_package.rb:289-292),
+  and the `patterns text` column lives in `type_variants` (structure.sql:8072), a table this schema
+  does not have (there is no `types.patterns` either): no type variant means no pattern to apply.
+- Open: the rest of Ruby's `after_create` (reschedule) is not ported.
 
 A committed row in that journey is evidence about the Rust paths, not Rails
 persistence parity.

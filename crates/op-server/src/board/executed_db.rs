@@ -147,7 +147,7 @@ async fn executed_db_work_package_journey() {
 
     match outcome {
         Ok(tally) => eprintln!(
-            "EXECUTED_DB: journey steps {}/11, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7), update journal: YES (steps 4, 8, 9: no-op, aggregated, new version, closed predecessor, rollback), ancestor totals: YES (step 10: derived hours and done ratio up a 3-level chain, excluded status, caused journals, aggregation, rollback), ancestor totals on update: YES (step 11: estimate and status edits, the edited parent's own totals aggregated into its journal, a move recomputing the former and the new chains, no write for a subject edit, rollback)",
+            "EXECUTED_DB: journey steps {}/12, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7), update journal: YES (steps 4, 8, 9: no-op, aggregated, new version, closed predecessor, rollback), ancestor totals: YES (step 10: derived hours and done ratio up a 3-level chain, excluded status, caused journals, aggregation, rollback), ancestor totals on update: YES (step 11: estimate and status edits, the edited parent's own totals aggregated into its journal, a move recomputing the former and the new chains, no write for a subject edit, rollback), switch to automatic mode and ignore_non_working_days: YES (step 12: only a direct manual parent with one child and no scheduling relation switches, the scheduling relations of automatic ancestors count and a manual ancestor cuts them off, the former parent is not switched, ignore_non_working_days follows the children except for manual ancestors, the former chain is recomputed)",
             tally.steps, tally.rows
         ),
         Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
@@ -2288,6 +2288,389 @@ async fn journey(db_url: String) -> Tally {
     t.rows += 5;
     t.steps += 1;
 
+    // ── 12. switch_to_automatic_mode and derive_ignore_non_working_days ──
+    // The two remaining derivations of `UpdateAncestorsService#derive_attributes`
+    // (update_ancestors_service.rb:96-121), both selected by a parent change (create with a
+    // parent, or an update that moves a work package): `switch_to_automatic_mode` (:157-181) and
+    // `derive_ignore_non_working_days` (:183-199). The work packages here carry no hours, so every
+    // derived total stays nil and an ancestor that is saved at all is saved for its scheduling
+    // flags alone. New work packages are manually scheduled (`schedule_manually` defaults true).
+    let create_plain_by_a = |subject: &'static str, parent: Option<i64>| {
+        let (store, caller) = (pg_store(&pool), caller_a.clone());
+        async move {
+            create_plain(&store, &caller, subject, parent)
+                .await
+                .expect(subject)
+        }
+    };
+    let freeze = |id: i64| {
+        let verify = verify.clone();
+        async move {
+            (
+                row_json(&verify, id).await.unwrap(),
+                journal_state(&verify, id).await,
+            )
+        }
+    };
+    let set_manual = |id: i64, manual: bool| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query("UPDATE work_packages SET schedule_manually = $2 WHERE id = $1")
+                .bind(id)
+                .bind(manual)
+                .execute(&pool)
+                .await
+                .expect("set schedule_manually");
+        }
+    };
+    let set_ignore = |id: i64| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query("UPDATE work_packages SET ignore_non_working_days = true WHERE id = $1")
+                .bind(id)
+                .execute(&pool)
+                .await
+                .expect("set ignore_non_working_days");
+        }
+    };
+    let follows = |from: i64, to: i64| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query(
+                "INSERT INTO relations (from_id, to_id, relation_type) VALUES ($1, $2, 'follows')",
+            )
+            .bind(from)
+            .bind(to)
+            .execute(&pool)
+            .await
+            .expect("a follows relation: `from` follows `to`");
+        }
+    };
+
+    // A. A create under a manually scheduled parent with no other child and no scheduling relation
+    // switches the parent to automatic: the parent's only change is `schedule_manually`, and it is
+    // saved once (lock 0 -> 1) and journaled with the child-values cause. The journal is A's own
+    // creation journal with an empty cause: aggregated, still one journal, now with C1's cause and
+    // a snapshot of the switched parent. The initiator C1 is not touched.
+    let p1 = create_plain_by_a("switch P1", None).await;
+    assert_eq!(
+        sched(&verify, p1).await,
+        (true, false, 0),
+        "a new work package is manual"
+    );
+    let c1 = create_plain_by_a("switch C1", Some(p1)).await;
+    assert_eq!(
+        sched(&verify, p1).await,
+        (false, false, 1),
+        "P1: manual, one child, no relation: automatic; saved once"
+    );
+    let j = journals(&verify, p1).await;
+    assert_eq!(
+        (j.len(), j[0].user_id, &j[0].cause),
+        (1, USER_A, &cause_of(c1))
+    );
+    assert_eq!(
+        data_sched(&verify, j[0].data_id).await,
+        (Some(false), false)
+    );
+    assert_eq!(
+        sched(&verify, c1).await,
+        (true, false, 0),
+        "the initiator is not touched"
+    );
+    assert_eq!(journals(&verify, c1).await.len(), 1);
+    t.rows += 7;
+
+    // B. A second child: the parent has another child, so it stays manual and is not saved at
+    // all. P2 is made manual again by hand after its first child switched it.
+    let p2 = create_plain_by_a("switch P2", None).await;
+    let c2a = create_plain_by_a("switch C2a", Some(p2)).await;
+    assert_eq!(
+        sched(&verify, p2).await,
+        (false, false, 1),
+        "the first child switches P2"
+    );
+    set_manual(p2, true).await;
+    let frozen = freeze(p2).await;
+    let c2b = create_plain_by_a("switch C2b", Some(p2)).await;
+    assert_eq!(
+        sched(&verify, p2).await,
+        (true, false, 1),
+        "P2 has two children: it stays manual"
+    );
+    assert_eq!(
+        freeze(p2).await,
+        frozen,
+        "and no row and no journal of P2 changed"
+    );
+    assert_ne!(c2a, c2b);
+    t.rows += 4;
+
+    // C. A scheduling predecessor of the parent: P3 follows Q (`relations.from_id` = the
+    // successor, `relation_type = 'follows'`, Relation::TYPE_FOLLOWS, relation.rb:41-44 and the
+    // `follows` scope). `Relation.used_for_scheduling_of(P3)` is not empty: P3 stays manual.
+    let q = create_plain_by_a("switch Q", None).await;
+    let p3 = create_plain_by_a("switch P3", None).await;
+    follows(p3, q).await;
+    let frozen = freeze(p3).await;
+    create_plain_by_a("switch C3", Some(p3)).await;
+    assert_eq!(
+        sched(&verify, p3).await,
+        (true, false, 0),
+        "P3 has a predecessor: manual"
+    );
+    assert_eq!(freeze(p3).await, frozen);
+    // The direction matters: when Q follows P3b, P3b is the predecessor, not the successor, and
+    // nothing is scheduled by it. P3b switches.
+    let p3b = create_plain_by_a("switch P3b", None).await;
+    follows(q, p3b).await;
+    create_plain_by_a("switch C3b", Some(p3b)).await;
+    assert_eq!(
+        sched(&verify, p3b).await,
+        (false, false, 1),
+        "Q follows P3b: P3b has no predecessor and switches"
+    );
+    t.rows += 3;
+
+    // D. An automatically scheduled ancestor's predecessor counts: G4 (automatic, switched by P4)
+    // follows Q, P4 is manual and has no relation of its own. `used_for_scheduling_of(P4)` takes
+    // the relations of P4 and of its automatically scheduled ancestors (used_for_scheduling_of.rb:
+    // 44-52): G4's counts, so P4 stays manual, and neither P4 nor G4 is saved.
+    let g4 = create_plain_by_a("switch G4", None).await;
+    let p4 = create_plain_by_a("switch P4", Some(g4)).await;
+    assert_eq!(
+        sched(&verify, g4).await,
+        (false, false, 1),
+        "P4 switched G4"
+    );
+    follows(g4, q).await;
+    let (frozen_g4, frozen_p4) = (freeze(g4).await, freeze(p4).await);
+    create_plain_by_a("switch C4", Some(p4)).await;
+    assert_eq!(
+        sched(&verify, p4).await,
+        (true, false, 0),
+        "G4's predecessor holds P4 manual"
+    );
+    assert_eq!((freeze(g4).await, freeze(p4).await), (frozen_g4, frozen_p4));
+    // ... but a manually scheduled ancestor cuts the chain (:55-59): G4b is manual and follows Q,
+    // yet its predecessor is not involved in scheduling P4b, which therefore switches. G4b itself
+    // is not the direct parent and stays manual (not saved).
+    let g4b = create_plain_by_a("switch G4b", None).await;
+    let p4b = create_plain_by_a("switch P4b", Some(g4b)).await;
+    set_manual(g4b, true).await;
+    follows(g4b, q).await;
+    let frozen_g4b = freeze(g4b).await;
+    create_plain_by_a("switch C4b", Some(p4b)).await;
+    assert_eq!(
+        sched(&verify, p4b).await,
+        (false, false, 1),
+        "a manual ancestor's predecessor is not used: P4b switches"
+    );
+    assert_eq!(
+        freeze(g4b).await,
+        frozen_g4b,
+        "G4b stays manual and untouched"
+    );
+    t.rows += 6;
+
+    // E. An update moving MV from OLD to NEW. Only the new parent is the initiator's direct
+    // parent: NEW (manual, MV its only child) switches, and C's edit is another user's, so NEW
+    // gets a new version 2 with MV's cause. OLD keeps one child (STAY) and is manual, which would
+    // qualify but for not being the direct parent: it is untouched.
+    let old = create_plain_by_a("move OLD", None).await;
+    let mv = create_plain_by_a("move MV", Some(old)).await;
+    let stay = create_plain_by_a("move STAY", Some(old)).await;
+    let new = create_plain_by_a("move NEW", None).await;
+    set_manual(old, true).await;
+    let frozen_old = freeze(old).await;
+    let mv_row = edit(
+        mv,
+        caller_c.clone(),
+        Box::new(move |d| d.parent_id = Some(new)),
+    )
+    .await
+    .expect("C moves MV under NEW");
+    assert_eq!(mv_row.lock_version, 1, "MV is saved by its own update only");
+    assert_eq!(sched(&verify, new).await, (false, false, 1), "NEW switches");
+    let j = journals(&verify, new).await;
+    assert_eq!((j.len(), j[1].version, j[1].user_id), (2, 2, USER_C));
+    assert_eq!(j[1].cause, cause_of(mv));
+    assert_eq!(
+        data_sched(&verify, j[1].data_id).await,
+        (Some(false), false)
+    );
+    assert_eq!(
+        data_sched(&verify, j[0].data_id).await,
+        (Some(true), false),
+        "v1 keeps manual"
+    );
+    assert_eq!(
+        sched(&verify, old).await,
+        (true, false, 1),
+        "OLD keeps its one child STAY and is not the direct parent: manual"
+    );
+    assert_eq!(
+        freeze(old).await,
+        frozen_old,
+        "OLD's row and journals did not change"
+    );
+    assert_ne!(stay, mv);
+    t.rows += 8;
+
+    // F. ignore_non_working_days. CH has it set (by hand: no edit writes it) and is moved under
+    // PA, which is manual with CH as its only child: PA switches first and, being automatic by
+    // then (:96-121 runs the two in this order), takes CH's true. One save: lock 0 -> 1; C's edit
+    // is a new version 2 with CH's cause.
+    let pa = create_plain_by_a("ignore PA", None).await;
+    let ch = create_plain_by_a("ignore CH", None).await;
+    set_ignore(ch).await;
+    edit(
+        ch,
+        caller_c.clone(),
+        Box::new(move |d| d.parent_id = Some(pa)),
+    )
+    .await
+    .expect("C moves CH under PA");
+    assert_eq!(
+        sched(&verify, pa).await,
+        (false, true, 1),
+        "PA: switched, then ignores like CH"
+    );
+    let j = journals(&verify, pa).await;
+    assert_eq!(
+        (j.len(), j[1].user_id, &j[1].cause),
+        (2, USER_C, &cause_of(ch))
+    );
+    assert_eq!(data_sched(&verify, j[1].data_id).await, (Some(false), true));
+    assert_eq!(data_sched(&verify, j[0].data_id).await, (Some(true), false));
+    // An automatically scheduled parent with another child: no switch (it is automatic), the
+    // flag follows any child. PB: PBX (false) and CH2 (true): true; lock 1 (PBX) + 1.
+    let pb = create_plain_by_a("ignore PB", None).await;
+    create_plain_by_a("ignore PBX", Some(pb)).await;
+    assert_eq!(sched(&verify, pb).await, (false, false, 1));
+    let ch2 = create_plain_by_a("ignore CH2", None).await;
+    set_ignore(ch2).await;
+    edit(
+        ch2,
+        caller_c.clone(),
+        Box::new(move |d| d.parent_id = Some(pb)),
+    )
+    .await
+    .expect("C moves CH2 under PB");
+    assert_eq!(
+        sched(&verify, pb).await,
+        (false, true, 2),
+        "any child true: PB true"
+    );
+    t.rows += 8;
+
+    // G. A manually scheduled parent is skipped (:185). PM has two children (so it does not
+    // switch) and is manual again; CH3 (true) moves under it: PM is neither switched nor changed.
+    let pm = create_plain_by_a("ignore PM", None).await;
+    create_plain_by_a("ignore PMX", Some(pm)).await;
+    set_manual(pm, true).await;
+    let ch3 = create_plain_by_a("ignore CH3", None).await;
+    set_ignore(ch3).await;
+    create_plain_by_a("ignore PMY", Some(pm)).await;
+    let frozen_pm = freeze(pm).await;
+    edit(
+        ch3,
+        caller_c.clone(),
+        Box::new(move |d| d.parent_id = Some(pm)),
+    )
+    .await
+    .expect("C moves CH3 under PM");
+    assert_eq!(
+        sched(&verify, pm).await,
+        (true, false, 1),
+        "manual: ignore_non_working_days skipped"
+    );
+    assert_eq!(freeze(pm).await, frozen_pm, "PM is not saved");
+    t.rows += 2;
+
+    // H. The former parent is recomputed: F (automatic) holds A_ (true) and B_ (false), so true.
+    // A_ moves away to N: F's remaining child B_ is false, so F is reset to false (the former
+    // chain is in the loader, :139-146). N switches and takes true. F's last journal is C's with
+    // A_'s cause (the move into F) and the move out has the same cause: aggregated, so version 2
+    // is rewritten to the reset snapshot.
+    let f = create_plain_by_a("former F", None).await;
+    let a_ = create_plain_by_a("former A_", None).await;
+    set_ignore(a_).await;
+    edit(
+        a_,
+        caller_c.clone(),
+        Box::new(move |d| d.parent_id = Some(f)),
+    )
+    .await
+    .expect("C moves A_ under F");
+    create_plain_by_a("former B_", Some(f)).await;
+    assert_eq!(
+        sched(&verify, f).await,
+        (false, true, 1),
+        "F: true from A_; B_'s create changes nothing (not saved)"
+    );
+    let n = create_plain_by_a("former N", None).await;
+    edit(
+        a_,
+        caller_c.clone(),
+        Box::new(move |d| d.parent_id = Some(n)),
+    )
+    .await
+    .expect("C moves A_ under N");
+    assert_eq!(
+        sched(&verify, f).await,
+        (false, false, 2),
+        "F lost its true child: reset to false (B_ is false)"
+    );
+    let j = journals(&verify, f).await;
+    assert_eq!(
+        (j.len(), j[1].user_id, &j[1].cause),
+        (2, USER_C, &cause_of(a_))
+    );
+    assert_eq!(
+        data_sched(&verify, j[1].data_id).await,
+        (Some(false), false)
+    );
+    assert_eq!(
+        sched(&verify, n).await,
+        (false, true, 1),
+        "N switched and takes A_'s true"
+    );
+    t.rows += 6;
+
+    // I. ...but with NO child left Ruby keeps the value, contrary to its own comment
+    // (:179-182 says "reset to false"; the code at :190-192 assigns the ancestor's own value when
+    // `ignore_non_working_days_of_descendants` is nil): F2 stays true and is not saved.
+    let f2 = create_plain_by_a("former F2", None).await;
+    let a2 = create_plain_by_a("former A2", None).await;
+    set_ignore(a2).await;
+    edit(
+        a2,
+        caller_c.clone(),
+        Box::new(move |d| d.parent_id = Some(f2)),
+    )
+    .await
+    .expect("C moves A2 under F2");
+    assert_eq!(sched(&verify, f2).await, (false, true, 1));
+    let frozen_f2 = freeze(f2).await;
+    let n2 = create_plain_by_a("former N2", None).await;
+    edit(
+        a2,
+        caller_c.clone(),
+        Box::new(move |d| d.parent_id = Some(n2)),
+    )
+    .await
+    .expect("C moves A2 under N2");
+    assert_eq!(
+        sched(&verify, f2).await,
+        (false, true, 1),
+        "no child left: the value is kept, as the code (not the comment) says"
+    );
+    assert_eq!(freeze(f2).await, frozen_f2);
+    assert_eq!(sched(&verify, n2).await, (false, true, 1));
+    t.rows += 4;
+    t.steps += 1;
+
     verify.close().await;
     db.close().await;
     t
@@ -2312,6 +2695,43 @@ async fn create_hours<S: CreationStore>(
     p.parent_id = parent;
     p.status_id = status;
     mutation::create(store, caller, p).await.map(|row| row.id)
+}
+
+/// Create a work package of project 5 under `parent` with no hours and the default status, so
+/// the derived totals of its ancestors stay `nil` and only a scheduling change makes one save.
+async fn create_plain<S: CreationStore>(
+    store: &S,
+    caller: &Caller,
+    subject: &str,
+    parent: Option<i64>,
+) -> Result<i64, MutationError> {
+    let mut p = WorkPackageParams::new().with_subject(subject);
+    p.project_id = Some(TARGET_PROJECT);
+    p.parent_id = parent;
+    mutation::create(store, caller, p).await.map(|row| row.id)
+}
+
+/// `(schedule_manually, ignore_non_working_days, lock_version)` of a work package, as committed.
+async fn sched(verify: &PgPool, id: i64) -> (bool, bool, i32) {
+    sqlx::query_as(
+        "SELECT schedule_manually, ignore_non_working_days, lock_version \
+         FROM work_packages WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(verify)
+    .await
+    .expect("scheduling flags")
+}
+
+/// The two scheduling flags a journal data row snapshots.
+async fn data_sched(verify: &PgPool, data_id: i64) -> (Option<bool>, bool) {
+    sqlx::query_as(
+        "SELECT schedule_manually, ignore_non_working_days FROM work_package_journals WHERE id = $1",
+    )
+    .bind(data_id)
+    .fetch_one(verify)
+    .await
+    .expect("journal data scheduling flags")
 }
 
 /// The derived columns of a work package and its `lock_version`, as committed.

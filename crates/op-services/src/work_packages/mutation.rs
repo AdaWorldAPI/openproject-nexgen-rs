@@ -759,8 +759,10 @@ pub fn derive_ancestor_totals(own: &TotalsInput, descendants: &[TotalsInput]) ->
 /// attributes (`update_ancestors_service.rb:96-121`): the derived hours for a change of
 /// `estimated_hours`, `remaining_hours`, `status`, `status_id`, the derived done ratio for those
 /// and `done_ratio`, and both for `parent` / `parent_id` (each branch also fires on a parent
-/// change). A done-ratio-only change therefore recomputes the done ratio from the derived hours
-/// *as loaded*, and leaves the derived hours alone.
+/// change), `switch_to_automatic_mode` for a `parent` / `parent_id` change only (its attribute list
+/// is empty, :90-91), and `derive_ignore_non_working_days` for `ignore_non_working_days` and for a
+/// parent change. A done-ratio-only change therefore recomputes the done ratio from the derived
+/// hours *as loaded*, and leaves the derived hours alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DerivationPlan {
     /// `derive_total_estimated_and_remaining_hours`.
@@ -769,6 +771,11 @@ pub struct DerivationPlan {
     pub done_ratio: bool,
     /// `include_former_ancestors`: the parent changed (:65-68).
     pub former_ancestors: bool,
+    /// `switch_to_automatic_mode` (:157-181): the parent changed.
+    pub switch_to_automatic: bool,
+    /// `derive_ignore_non_working_days` (:183-199): `ignore_non_working_days` or the parent
+    /// changed.
+    pub ignore_non_working_days: bool,
 }
 
 impl DerivationPlan {
@@ -778,11 +785,12 @@ impl DerivationPlan {
         totals: true,
         done_ratio: true,
         former_ancestors: false,
+        switch_to_automatic: true,
+        ignore_non_working_days: true,
     };
 
     /// The plan for `changes` (attribute names), or `None` when
     /// `modified_attributes_justify_derivation?` (:239-248) is false.
-    /// `ignore_non_working_days` justifies a derivation but selects none of the ported ones.
     pub fn for_changes(changes: &[&str]) -> Option<DerivationPlan> {
         let any = |names: &[&str]| changes.iter().any(|c| names.contains(c));
         if !any(&[
@@ -810,6 +818,8 @@ impl DerivationPlan {
                     "status_id",
                 ]),
             former_ancestors: parent,
+            switch_to_automatic: parent,
+            ignore_non_working_days: parent || any(&["ignore_non_working_days"]),
         })
     }
 }
@@ -862,6 +872,43 @@ pub fn derive_for_plan(
         };
     }
     out
+}
+
+/// The conditions of `switch_to_automatic_mode` (`update_ancestors_service.rb:157-181`) that are
+/// decided from the loaded rows: the candidate is the initiator's direct parent (:159-161; the
+/// initiator is neither destroyed, :164, nor part of a bulk duplicate, :167, here), it is manually
+/// scheduled (:170) and has exactly one child (:173, the initiator, as the loader's `children_of`
+/// counts the children left in the database). The last condition, no scheduling relations
+/// (:176), is a query and is checked by the caller when this holds
+/// ([`PgCreateScope::has_scheduling_predecessors`]).
+pub fn switch_candidate(
+    is_initiators_direct_parent: bool,
+    schedule_manually: bool,
+    children: usize,
+) -> bool {
+    is_initiators_direct_parent && schedule_manually && children == 1
+}
+
+/// `derive_ignore_non_working_days` (`update_ancestors_service.rb:183-199`) for one candidate:
+/// never the initiator (:184), never a manually scheduled one (:185, after
+/// `switch_to_automatic_mode` may have just switched it); otherwise `true` if any child has it
+/// (`ignore_non_working_days_of_descendants`, :250-256), and with no children the candidate's own
+/// value stays (:190-192: `nil` is the former parent that lost its last child, whose property is
+/// kept as it is).
+pub fn derive_ignore_non_working_days(
+    is_initiator: bool,
+    schedule_manually: bool,
+    children: &[bool],
+    own: bool,
+) -> bool {
+    if is_initiator || schedule_manually {
+        return own;
+    }
+    if children.is_empty() {
+        own
+    } else {
+        children.iter().any(|c| *c)
+    }
 }
 
 // ── Postgres store ───────────────────────────────────────────────────
@@ -1125,6 +1172,24 @@ fn db_failure(e: sqlx::Error) -> StoreFailure {
     StoreFailure::from(RepositoryError::from(e))
 }
 
+/// One work package as `UpdateAncestors::Loader` loads it (`loader.rb:33-43`,
+/// `DESCENDANT_ATTRIBUTES`) together with the stored derived values and `lock_version` of the
+/// candidate itself.
+#[derive(Debug, sqlx::FromRow)]
+struct LoadedRow {
+    id: Id,
+    estimated_hours: Option<f64>,
+    remaining_hours: Option<f64>,
+    excluded_from_totals: bool,
+    derived_estimated_hours: Option<f64>,
+    derived_remaining_hours: Option<f64>,
+    derived_done_ratio: Option<i32>,
+    lock_version: i32,
+    parent_id: Option<Id>,
+    schedule_manually: bool,
+    ignore_non_working_days: bool,
+}
+
 /// A create's or update's database scope: every read and the write run on ONE open transaction,
 /// so the authorization facts and the write are isolated together and a failure after the write
 /// leaves nothing behind. It is only ever built by [`PgMutationStore`]'s `create_then` and
@@ -1182,14 +1247,17 @@ impl PgCreateScope {
     /// as before and it is not saved: nothing is done for it here. Returns the ids of the ancestors
     /// that were saved, nearest first.
     ///
-    /// Not ported: `switch_to_automatic_mode` (:157-181; it needs scheduling relations, which this
-    /// schema does not have), `derive_ignore_non_working_days` (:183-199; no column),
-    /// `simple_average` mode and the status-based done-ratio mode ([`TOTAL_PERCENT_COMPLETE_MODE`]),
-    /// former ancestors (a create has none), and the `JOURNAL_CREATED` notification (the ancestors
-    /// are saved with notifications off, :80-84). Like Ruby's create (`in_user_context`, not
-    /// `in_mutex_context`) it takes no advisory lock on the ancestors; a concurrent save of an
-    /// ancestor is caught by its `lock_version`, as ActiveRecord's optimistic locking catches it,
-    /// and fails this create with a conflict.
+    /// The new work package's direct parent also takes `switch_to_automatic_mode` (:157-181) and
+    /// every ancestor `derive_ignore_non_working_days` (:183-199), both selected by the parent
+    /// (`DerivationPlan::ALL`).
+    ///
+    /// Not ported: `simple_average` mode and the status-based done-ratio mode
+    /// ([`TOTAL_PERCENT_COMPLETE_MODE`]), former ancestors (a create has none), `apply_patterns`
+    /// (`create_service.rb:74`; `types.patterns` does not exist in this schema), and the
+    /// `JOURNAL_CREATED` notification (the ancestors are saved with notifications off, :80-84).
+    /// Like Ruby's create (`in_user_context`, not `in_mutex_context`) it takes no advisory lock on
+    /// the ancestors; a concurrent save of an ancestor is caught by its `lock_version`, as
+    /// ActiveRecord's optimistic locking catches it, and fails this create with a conflict.
     pub async fn update_ancestors_of_created(
         &self,
         work_package_id: Id,
@@ -1222,9 +1290,13 @@ impl PgCreateScope {
     /// ancestors that are not former ones, then the former chain. Each saved ancestor is journaled
     /// with the child-values-change cause of the edited work package.
     ///
-    /// Not ported: `switch_to_automatic_mode`, `derive_ignore_non_working_days`, `simple_average`
-    /// and status-based modes, `update_related` (`reschedule_related`, `update_descendants` on a
-    /// project change, :62-81), the apply-patterns subject generation and notifications.
+    /// `switch_to_automatic_mode` (only for the edited work package's current parent) and
+    /// `derive_ignore_non_working_days` run when the parent changed, the latter for the former
+    /// chain as well.
+    ///
+    /// Not ported: `simple_average` and status-based modes, `update_related`
+    /// (`reschedule_related`, `update_descendants` on a project change, :62-81), the
+    /// apply-patterns subject generation and notifications.
     async fn update_totals_after_edit(
         &self,
         work_package_id: Id,
@@ -1290,14 +1362,22 @@ impl PgCreateScope {
     }
 
     /// `UpdateAncestorsService#perform` for `targets` (`update_ancestors_service.rb:40-52`, :62-69,
-    /// :83-94), in the given order: each target derives the values `plan` selects
-    /// ([`derive_for_plan`]) from itself and all its descendants, and is saved and journaled only
-    /// if they changed. The `initiator` (when it is a target) is journaled with no cause, every
-    /// other target with `cause`. The save is `UPDATE ... WHERE id = ? AND lock_version = <as
-    /// loaded>` (ActiveRecord optimistic locking): a row that changed since it was loaded is a
-    /// [`StoreFailure::Conflict`]. The initiator's own row was written by this transaction just
-    /// before, so loading it here gives its current `lock_version` and cannot conflict with itself.
-    /// Returns the saved ids in order.
+    /// :83-94), in the given order: each target derives what `plan` selects from itself and all
+    /// its descendants, in `derive_attributes`' order (:96-121): the derived hours and done ratio
+    /// ([`derive_for_plan`]), `switch_to_automatic_mode` ([`switch_candidate`] and
+    /// [`PgCreateScope::has_scheduling_predecessors`]: only the initiator's current parent, read
+    /// here from the database, which holds the initiator's row already), then
+    /// `derive_ignore_non_working_days` ([`derive_ignore_non_working_days`], which sees the
+    /// `schedule_manually` the switch just produced). A target is saved and journaled only if one
+    /// of those values changed (`ancestor.changed?`). The `initiator` (when it is a target) is
+    /// journaled with no cause, every other target with `cause`. The save is `UPDATE ... WHERE id
+    /// = ? AND lock_version = <as loaded>` (ActiveRecord optimistic locking): a row that changed
+    /// since it was loaded is a [`StoreFailure::Conflict`]. The initiator's own row was written by
+    /// this transaction just before, so loading it here gives its current `lock_version` and
+    /// cannot conflict with itself. Targets are saved in order, so a later target's children are
+    /// read with the values an earlier one just took, as Ruby's loader hands the in-memory
+    /// ancestors in place of the stored descendants (`replaced_related_descendants`,
+    /// `loader.rb:107-117`). Returns the saved ids in order.
     async fn update_totals_of(
         &self,
         initiator: Id,
@@ -1306,14 +1386,26 @@ impl PgCreateScope {
         plan: DerivationPlan,
         cause: &serde_json::Value,
     ) -> Result<Vec<Id>, StoreFailure> {
+        // `initiator_work_package.parent_id` (:159-161): the initiator's current parent.
+        let initiator_parent: Option<Id> = if plan.switch_to_automatic {
+            let mut tx = self.tx.lock().await;
+            sqlx::query_scalar::<_, Option<Id>>("SELECT parent_id FROM work_packages WHERE id = $1")
+                .bind(initiator)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(db_failure)?
+                .flatten()
+        } else {
+            None
+        };
         let mut saved = Vec::new();
         for &target in targets {
             // The target first, then its descendants (`[work_package] + descendants_of`), which
             // exclude the target itself even in a cycle (`where.not(id:)`). The target's own row as
-            // loaded (its derived values and `lock_version`, which the save checks), then its totals
-            // inputs and those of its descendants, from one statement so they come from one snapshot.
-            type Loaded = (Id, Option<f64>, Option<f64>, bool, Option<f64>, Option<f64>, Option<i32>, i32);
-            let rows: Vec<Loaded> = {
+            // loaded (its derived values, scheduling flags and `lock_version`, which the save
+            // checks), then its totals inputs and those of its descendants, from one statement so
+            // they come from one snapshot.
+            let rows: Vec<LoadedRow> = {
                 let mut tx = self.tx.lock().await;
                 sqlx::query_as(
                     "WITH RECURSIVE down(id) AS ( \
@@ -1321,9 +1413,10 @@ impl PgCreateScope {
                          UNION \
                          SELECT w.id FROM work_packages w JOIN down d ON w.parent_id = d.id) \
                      SELECT w.id, w.estimated_hours, w.remaining_hours, \
-                            COALESCE(s.excluded_from_totals, false), \
+                            COALESCE(s.excluded_from_totals, false) AS excluded_from_totals, \
                             w.derived_estimated_hours, w.derived_remaining_hours, \
-                            w.derived_done_ratio, w.lock_version \
+                            w.derived_done_ratio, w.lock_version, w.parent_id, \
+                            w.schedule_manually, w.ignore_non_working_days \
                      FROM work_packages w LEFT JOIN statuses s ON s.id = w.status_id \
                      WHERE w.id = $1 OR w.id IN (SELECT id FROM down WHERE id <> $1) \
                      ORDER BY (w.id = $1) DESC, w.id",
@@ -1333,25 +1426,55 @@ impl PgCreateScope {
                 .await
                 .map_err(db_failure)?
             };
-            let input = |r: &Loaded| TotalsInput {
-                estimated_hours: r.1,
-                remaining_hours: r.2,
-                excluded_from_totals: r.3,
+            let input = |r: &LoadedRow| TotalsInput {
+                estimated_hours: r.estimated_hours,
+                remaining_hours: r.remaining_hours,
+                excluded_from_totals: r.excluded_from_totals,
             };
-            let Some(own_row) = rows.iter().find(|r| r.0 == target) else {
+            let Some(own_row) = rows.iter().find(|r| r.id == target) else {
                 continue;
             };
             let own = input(own_row);
             let descendants: Vec<TotalsInput> =
-                rows.iter().filter(|r| r.0 != target).map(input).collect();
+                rows.iter().filter(|r| r.id != target).map(input).collect();
             let loaded = DerivedTotals {
-                estimated_hours: own_row.4,
-                remaining_hours: own_row.5,
-                done_ratio: own_row.6,
+                estimated_hours: own_row.derived_estimated_hours,
+                remaining_hours: own_row.derived_remaining_hours,
+                done_ratio: own_row.derived_done_ratio,
             };
             let derived = derive_for_plan(plan, &own, &descendants, &loaded);
+            // `loader.children_of` (loader.rb:70-76): the descendants whose parent is the target.
+            let children: Vec<&LoadedRow> = rows
+                .iter()
+                .filter(|r| r.id != target && r.parent_id == Some(target))
+                .collect();
+            let mut schedule_manually = own_row.schedule_manually;
+            if plan.switch_to_automatic
+                && switch_candidate(
+                    initiator_parent == Some(target),
+                    schedule_manually,
+                    children.len(),
+                )
+                && !self.has_scheduling_predecessors(target).await?
+            {
+                schedule_manually = false;
+            }
+            let ignore_non_working_days = if plan.ignore_non_working_days {
+                let flags: Vec<bool> = children.iter().map(|c| c.ignore_non_working_days).collect();
+                derive_ignore_non_working_days(
+                    target == initiator,
+                    schedule_manually,
+                    &flags,
+                    own_row.ignore_non_working_days,
+                )
+            } else {
+                own_row.ignore_non_working_days
+            };
             // `select { ancestor.changed? }` (update_ancestors_service.rb:62-69).
-            if derived == loaded {
+            if derived == loaded
+                && schedule_manually == own_row.schedule_manually
+                && ignore_non_working_days == own_row.ignore_non_working_days
+            {
                 continue;
             }
             // `wp.save(validate: false)` (:78-87) under ActiveRecord optimistic locking: no row
@@ -1364,14 +1487,17 @@ impl PgCreateScope {
                 let updated = sqlx::query(
                     "UPDATE work_packages SET derived_estimated_hours = $2, \
                          derived_remaining_hours = $3, derived_done_ratio = $4, \
+                         schedule_manually = $5, ignore_non_working_days = $6, \
                          lock_version = lock_version + 1, updated_at = statement_timestamp() \
-                     WHERE id = $1 AND lock_version = $5",
+                     WHERE id = $1 AND lock_version = $7",
                 )
                 .bind(target)
                 .bind(derived.estimated_hours)
                 .bind(derived.remaining_hours)
                 .bind(derived.done_ratio)
-                .bind(own_row.7)
+                .bind(schedule_manually)
+                .bind(ignore_non_working_days)
+                .bind(own_row.lock_version)
                 .execute(&mut **tx)
                 .await
                 .map_err(db_failure)?
@@ -1390,6 +1516,48 @@ impl PgCreateScope {
             saved.push(target);
         }
         Ok(saved)
+    }
+
+    /// `Relation.used_for_scheduling_of(work_package).any?`
+    /// (`app/models/relations/scopes/used_for_scheduling_of.rb:44-52`): the `follows` relations
+    /// whose successor (`from_id`; `precedes` is stored reversed as `follows`,
+    /// `Relation#reverse_if_needed`, `relation.rb:210-220`, and `Relations::Scopes::Types` defines
+    /// `follows` as `relation_type = 'follows'`) is the work package or one of its automatically
+    /// scheduled ancestors: the ancestors reached through automatically scheduled parents only.
+    /// Ruby reads `work_package_hierarchies` (closure_tree: one row per ancestor-descendant pair,
+    /// the work package itself at generation 0, which `WorkPackage::Ancestors::Aggregator`'s
+    /// `generations > 0` confirms); this schema has no such table, so the pairs come from
+    /// `parent_id`. The excluded ancestors are the manually scheduled ones (the work package's
+    /// ancestors, not itself, :55-59) and everything above them (every `WorkPackageHierarchy` row
+    /// whose descendant is one of them, :56-58).
+    pub async fn has_scheduling_predecessors(
+        &self,
+        work_package_id: Id,
+    ) -> Result<bool, StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        sqlx::query_scalar(
+            "WITH RECURSIVE up(id) AS ( \
+                 SELECT $1::bigint \
+                 UNION \
+                 SELECT p.parent_id FROM up JOIN work_packages p ON p.id = up.id \
+                 WHERE p.parent_id IS NOT NULL), \
+             manual(id) AS ( \
+                 SELECT w.id FROM work_packages w \
+                 WHERE w.id IN (SELECT id FROM up) AND w.id <> $1 AND w.schedule_manually), \
+             excluded(id) AS ( \
+                 SELECT id FROM manual \
+                 UNION \
+                 SELECT p.parent_id FROM excluded e JOIN work_packages p ON p.id = e.id \
+                 WHERE p.parent_id IS NOT NULL) \
+             SELECT EXISTS ( \
+                 SELECT 1 FROM relations r \
+                 WHERE r.relation_type = 'follows' \
+                   AND r.from_id IN (SELECT id FROM up WHERE id NOT IN (SELECT id FROM excluded)))",
+        )
+        .bind(work_package_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(db_failure)
     }
 
     /// The creator becomes a watcher of the new work package: `WorkPackages::CreateService#
@@ -1475,7 +1643,8 @@ impl PgCreateScope {
                 assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
                 start_date, parent_id, responsible_id, schedule_manually, duration,
                 remaining_hours, story_points,
-                derived_estimated_hours, derived_remaining_hours, derived_done_ratio
+                derived_estimated_hours, derived_remaining_hours, derived_done_ratio,
+                ignore_non_working_days
             )
             SELECT
                 type_id, project_id, subject,
@@ -1484,7 +1653,8 @@ impl PgCreateScope {
                 assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
                 start_date, parent_id, responsible_id, schedule_manually, duration,
                 remaining_hours, story_points,
-                derived_estimated_hours, derived_remaining_hours, derived_done_ratio
+                derived_estimated_hours, derived_remaining_hours, derived_done_ratio,
+                ignore_non_working_days
             FROM work_packages WHERE id = $1
             RETURNING id
             "#,
@@ -1777,6 +1947,7 @@ impl PgCreateScope {
                     OR w.derived_estimated_hours IS DISTINCT FROM d.derived_estimated_hours
                     OR w.derived_remaining_hours IS DISTINCT FROM d.derived_remaining_hours
                     OR w.derived_done_ratio IS DISTINCT FROM d.derived_done_ratio
+                    OR w.ignore_non_working_days IS DISTINCT FROM d.ignore_non_working_days
                     OR REGEXP_REPLACE(COALESCE(w.description, ''), '\r\n', E'\n', 'g')
                        != REGEXP_REPLACE(COALESCE(d.description, ''), '\r\n', E'\n', 'g')
                 )
@@ -1846,7 +2017,8 @@ impl PgCreateScope {
                 assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
                 start_date, parent_id, responsible_id, schedule_manually, duration,
                 remaining_hours, story_points,
-                derived_estimated_hours, derived_remaining_hours, derived_done_ratio
+                derived_estimated_hours, derived_remaining_hours, derived_done_ratio,
+                ignore_non_working_days
             )
             SELECT
                 type_id, project_id, subject,
@@ -1855,7 +2027,8 @@ impl PgCreateScope {
                 assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
                 start_date, parent_id, responsible_id, schedule_manually, duration,
                 remaining_hours, story_points,
-                derived_estimated_hours, derived_remaining_hours, derived_done_ratio
+                derived_estimated_hours, derived_remaining_hours, derived_done_ratio,
+                ignore_non_working_days
             FROM work_packages WHERE id = $1
             RETURNING id
             "#,
@@ -2812,24 +2985,49 @@ mod tests {
         for a in ["estimated_hours", "remaining_hours", "status_id", "status"] {
             assert_eq!(
                 DerivationPlan::for_changes(&[a]),
-                Some(DerivationPlan { totals: true, done_ratio: true, former_ancestors: false }),
+                Some(DerivationPlan {
+                    totals: true,
+                    done_ratio: true,
+                    former_ancestors: false,
+                    switch_to_automatic: false,
+                    ignore_non_working_days: false
+                }),
                 "{a}"
             );
         }
         // Done ratio alone: only the done ratio, from the derived hours as loaded.
         assert_eq!(
             DerivationPlan::for_changes(&["done_ratio"]),
-            Some(DerivationPlan { totals: false, done_ratio: true, former_ancestors: false })
+            Some(DerivationPlan {
+                totals: false,
+                done_ratio: true,
+                former_ancestors: false,
+                switch_to_automatic: false,
+                ignore_non_working_days: false
+            })
         );
         // Parent: both, and the former ancestors.
         assert_eq!(
             DerivationPlan::for_changes(&["parent_id"]),
-            Some(DerivationPlan { totals: true, done_ratio: true, former_ancestors: true })
+            Some(DerivationPlan {
+                totals: true,
+                done_ratio: true,
+                former_ancestors: true,
+                switch_to_automatic: true,
+                ignore_non_working_days: true
+            })
         );
-        // ignore_non_working_days justifies a derivation, none of the ported ones.
+        // ignore_non_working_days alone: only its own derivation (the switch's list is empty, so
+        // it needs the parent).
         assert_eq!(
             DerivationPlan::for_changes(&["ignore_non_working_days"]),
-            Some(DerivationPlan { totals: false, done_ratio: false, former_ancestors: false })
+            Some(DerivationPlan {
+                totals: false,
+                done_ratio: false,
+                former_ancestors: false,
+                switch_to_automatic: false,
+                ignore_non_working_days: true
+            })
         );
     }
 
@@ -2845,12 +3043,43 @@ mod tests {
             derive_ancestor_totals(&own, &[child])
         );
         // Done ratio only: from the loaded hours, round((1 - 1) / 1 * 100) = 0.
-        let only_ratio = DerivationPlan { totals: false, done_ratio: true, former_ancestors: false };
+        let only_ratio = DerivationPlan {
+            totals: false,
+            done_ratio: true,
+            ..DerivationPlan::ALL
+        };
         let d = derive_for_plan(only_ratio, &own, &[child], &loaded);
         assert_eq!((d.estimated_hours, d.remaining_hours, d.done_ratio), (Some(1.0), Some(1.0), Some(0)));
         // Neither: untouched.
-        let none = DerivationPlan { totals: false, done_ratio: false, former_ancestors: false };
+        let none = DerivationPlan {
+            totals: false,
+            done_ratio: false,
+            ..DerivationPlan::ALL
+        };
         assert_eq!(derive_for_plan(none, &own, &[child], &loaded), loaded);
+    }
+
+    #[test]
+    fn switch_to_automatic_mode_needs_the_direct_manual_parent_with_exactly_one_child() {
+        // update_ancestors_service.rb:159-176: direct parent, manual, one child.
+        assert!(switch_candidate(true, true, 1));
+        assert!(!switch_candidate(false, true, 1), "an ancestor above the direct parent");
+        assert!(!switch_candidate(true, false, 1), "already automatic");
+        assert!(!switch_candidate(true, true, 2), "another child");
+        assert!(!switch_candidate(true, true, 0), "no child left (the initiator moved away)");
+    }
+
+    #[test]
+    fn ignore_non_working_days_follows_the_children_except_for_the_initiator_and_manual_ones() {
+        // update_ancestors_service.rb:183-199, 250-256.
+        assert!(derive_ignore_non_working_days(false, false, &[false, true], false));
+        assert!(!derive_ignore_non_working_days(false, false, &[false, false], true));
+        assert!(!derive_ignore_non_working_days(false, false, &[false], true), "reset");
+        assert!(derive_ignore_non_working_days(false, false, &[], true), "no child: kept");
+        assert!(!derive_ignore_non_working_days(false, false, &[], false));
+        assert!(!derive_ignore_non_working_days(false, true, &[true], false), "manual: skipped");
+        assert!(derive_ignore_non_working_days(false, true, &[false], true), "manual: kept");
+        assert!(!derive_ignore_non_working_days(true, false, &[true], false), "initiator: skipped");
     }
 
     #[test]
