@@ -15,6 +15,8 @@ op-api = { path = "../op-api" }
 op-db = { path = "../op-db" }
 op-auth = { path = "../op-auth" }
 op-services = { path = "../op-services" }
+# The polyfill + Quack desk the read-only pages read from (S3).
+op-desk = { path = "../op-desk" }
 
 # OGAR render-bake pipeline: ClassView x FieldMask -> HtmlListView.
 ogar-render-askama = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
