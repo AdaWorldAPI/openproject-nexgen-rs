@@ -28,6 +28,7 @@ use op_core::config::AppConfig;
 use op_db::{Database, DatabaseConfig};
 
 mod board;
+mod brand;
 mod health;
 mod layout;
 mod metrics;
@@ -201,6 +202,13 @@ async fn main() -> anyhow::Result<()> {
         config: config.clone(),
         db: db.map(|d| d.pool().clone()),
     });
+
+    // Company identity: OP_BRAND_FILE names a [brand] TOML file; unset keeps the
+    // default identity. A file that cannot be used stops the start.
+    let brand =
+        brand::Brand::from_env(|k| std::env::var(k).ok()).map_err(|e| anyhow::anyhow!("{e}"))?;
+    info!(brand = %brand.name, custom = std::env::var("OP_BRAND_FILE").is_ok(), "Brand");
+    brand::install(brand);
 
     // Sign-in is on only when OP_SIGNIN_OIDC_ISSUER is set; a half-configured sign-in
     // stops the start instead of serving open pages.
