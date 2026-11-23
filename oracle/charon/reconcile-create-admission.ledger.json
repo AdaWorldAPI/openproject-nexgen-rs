@@ -1,0 +1,1484 @@
+{
+  "charon_crates": [
+    "op_contracts",
+    "op_services"
+  ],
+  "claims": [
+    {
+      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)); rust: 1/1 edges (CALLS_RESOLVED COMPILER)",
+      "identity": {
+        "application": "openproject",
+        "effect": "declares-validator",
+        "method": "CreateContract.validate(:user_allowed_to_add)",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "registration"
+      },
+      "key": "openproject/WorkPackage/create/registration/CreateContract.validate(:user_allowed_to_add)/declares-validator",
+      "level": "Registration",
+      "representation": "Declaration",
+      "residual": null,
+      "ruby": {
+        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)",
+        "fact": "CreateContract registers user_allowed_to_add as a validator",
+        "span": "app/contracts/work_packages/create_contract.rb:52",
+        "state": "fact"
+      },
+      "runtime_evidence": "none (no runtime gate attached)",
+      "runtime_verdict": "NotExecuted",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 9294..9328 (line 263): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::user_allowed_to_add"
+      },
+      "structural_verdict": "NotComparable (ruby: DSL registration of a validator; rust: no registration step; admit_create calls the function)"
+    },
+    {
+      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)); rust: 1/1 edges (CALLS_RESOLVED COMPILER)",
+      "identity": {
+        "application": "openproject",
+        "effect": "invokes:user_allowed_to_add",
+        "method": "CreateContract#validate",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "callback"
+      },
+      "key": "openproject/WorkPackage/create/callback/CreateContract#validate/invokes:user_allowed_to_add",
+      "level": "CallbackInvocation",
+      "representation": "Callback",
+      "residual": null,
+      "ruby": {
+        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)",
+        "fact": "validating the create contract runs user_allowed_to_add",
+        "span": "app/contracts/work_packages/create_contract.rb:52",
+        "state": "fact"
+      },
+      "runtime_evidence": "none (no runtime gate attached)",
+      "runtime_verdict": "NotExecuted",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 9294..9328 (line 263): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::user_allowed_to_add"
+      },
+      "structural_verdict": "Agreement"
+    },
+    {
+      "coverage": "ruby: fact (literal located in the source (no parse) + admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)); rust: 2/2 edges (CALLS_RESOLVED COMPILER, CALLS_RESOLVED COMPILER)",
+      "identity": {
+        "application": "openproject",
+        "effect": "evaluates:WorkPackages::CreateContract",
+        "method": "CreateWorkPackageService.call",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "admission"
+      },
+      "key": "openproject/WorkPackage/create/admission/CreateWorkPackageService.call/evaluates:WorkPackages::CreateContract",
+      "level": "Admission",
+      "representation": "Call",
+      "residual": null,
+      "ruby": {
+        "extractor": "literal located in the source (no parse) + admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)",
+        "fact": "CreateService admits a create through WorkPackages::CreateContract",
+        "span": "app/services/work_packages/create_service.rb:38",
+        "state": "fact"
+      },
+      "runtime_evidence": "CITED, not run here: tests/create_transition_differential.rs asserts CreateWorkPackageService::call verdicts, error codes and writable? against the frozen traces with zero mismatches",
+      "runtime_verdict": "Unverified",
+      "rust": {
+        "span": "crates/op-services/src/work_packages/create.rs bytes 3195..3239 (line 90): CALLS_RESOLVED op_services::work_packages::create::CreateWorkPackageService::call -> op_services::work_packages::create::CreateWorkPackageService::admit"
+      },
+      "structural_verdict": "Agreement"
+    },
+    {
+      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)); rust: data item ADD_PERMISSION, file extracted, no call-graph fact",
+      "identity": {
+        "application": "openproject",
+        "effect": "requires:add_work_packages",
+        "method": "user_allowed_to_add",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "admission"
+      },
+      "key": "openproject/WorkPackage/create/admission/user_allowed_to_add/requires:add_work_packages",
+      "level": "Admission",
+      "representation": "GeneratedData",
+      "residual": {
+        "attempts": [],
+        "evidence": [
+          {
+            "by": "tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+            "compared": 1,
+            "detail": "the checked-in table is byte-identical to the generator's output for this checkout",
+            "kind": "DriftCheck",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "6b656e0c595c18ae",
+                "path": "app/contracts/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "8fa00da1eaac0824",
+                "path": "app/contracts/work_packages/create_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "source_side_parsed": false
+          },
+          {
+            "by": "ore_slag::add_permission_evidence (production admit with exactly the scanned permission)",
+            "compared": 2,
+            "detail": "holding only \"add_work_packages\" authorizes: true; holding every other oracle permission refuses: true",
+            "kind": "DataWitness",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "8fa00da1eaac0824",
+                "path": "app/contracts/work_packages/create_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              },
+              {
+                "fnv64": "bc4d0d8a6a10e947",
+                "path": "crates/op-contracts/src/work_packages/admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan); ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "source_side_parsed": false
+          }
+        ],
+        "locator": "ruby app/contracts/work_packages/create_contract.rb:57; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 541..584 (line 8)",
+        "owner_stage": "DataWitness",
+        "proposed_remedy": {
+          "claim_change": "lifecycle EVIDENCED -> VERIFIED(DataWitness); structural verdict stays Slag(RepresentedAsData)",
+          "missing_fact": "a parsed source fact for the create permission (the generator reads it with a line scan)",
+          "negative_control": "change the literal in a copy of create_contract.rb: the drift check and this witness must fail",
+          "source_location": "app/contracts/work_packages/create_contract.rb:57",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068",
+          "supplier": "ruff lowering of the permission literal in CreateContract#user_allowed_to_add, fed to admission_gen",
+          "supplier_exists": false,
+          "validating_evidence": "ADD_PERMISSION equals the parsed permission; the drift check; runtime authorization (6 records, 0 mismatches)"
+        },
+        "reason": "RepresentedAsData",
+        "regression_gate": null,
+        "status": "EVIDENCED",
+        "sub_reason": "generated constant; its source side is ExtractionGap::ContractDeclScan, not parsed ORE"
+      },
+      "ruby": {
+        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)",
+        "fact": "the create is authorized by add_work_packages",
+        "span": "app/contracts/work_packages/create_contract.rb:57",
+        "state": "fact"
+      },
+      "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_services CreateWorkPackageService::admit vs trace errors[base], per CreateContract case)",
+      "runtime_verdict": "ExecutedAgreement",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 541..584 (line 8): source item ADD_PERMISSION (no store row)"
+      },
+      "structural_verdict": "Slag(RepresentedAsData)"
+    },
+    {
+      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)); rust: 1/1 edges (MAY_DISPATCH COMPILER)",
+      "identity": {
+        "application": "openproject",
+        "effect": "consults:allowed_in_project?",
+        "method": "user_allowed_to_add",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/user_allowed_to_add/consults:allowed_in_project?",
+      "level": "GuardEvaluation",
+      "representation": "Guard",
+      "residual": null,
+      "ruby": {
+        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)",
+        "fact": "user_allowed_to_add asks allowed_in_project?",
+        "span": "app/contracts/work_packages/create_contract.rb:57",
+        "state": "fact"
+      },
+      "runtime_evidence": "none (no runtime gate attached)",
+      "runtime_verdict": "NotExecuted",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 8634..8667 (line 246): MAY_DISPATCH op_contracts::work_packages::admission::user_allowed_to_add -> op_contracts::base::UserContext::allowed_in_project"
+      },
+      "structural_verdict": "Agreement"
+    },
+    {
+      "coverage": "ruby: fact (literal located in the source (no parse)); rust: 1/1 edges (MAY_DISPATCH COMPILER)",
+      "identity": {
+        "application": "openproject",
+        "effect": "consults:allowed_in_any_project?",
+        "method": "user_allowed_to_add",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/user_allowed_to_add/consults:allowed_in_any_project?",
+      "level": "GuardEvaluation",
+      "representation": "Guard",
+      "residual": null,
+      "ruby": {
+        "extractor": "literal located in the source (no parse)",
+        "fact": "user_allowed_to_add asks allowed_in_any_project?",
+        "span": "app/contracts/work_packages/create_contract.rb:58",
+        "state": "fact"
+      },
+      "runtime_evidence": "none (no runtime gate attached)",
+      "runtime_verdict": "NotExecuted",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 8685..8718 (line 247): MAY_DISPATCH op_contracts::work_packages::admission::user_allowed_to_add -> op_contracts::base::UserContext::allowed_in_any_project"
+      },
+      "structural_verdict": "Agreement"
+    },
+    {
+      "coverage": "ruby: inspected, absent (literal located in the source (no parse)); rust: 1/1 edges (MAY_DISPATCH COMPILER)",
+      "identity": {
+        "application": "openproject",
+        "effect": "consults:admin?",
+        "method": "user_allowed_to_add",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/user_allowed_to_add/consults:admin?",
+      "level": "GuardEvaluation",
+      "representation": "Guard",
+      "residual": null,
+      "ruby": {
+        "extractor": "literal located in the source (no parse)",
+        "looked_for": "an admin check in the body (Ruby's admin bypass is inside User#allowed_in_project?, not harvested)",
+        "span": "app/contracts/work_packages/create_contract.rb:56-61",
+        "state": "absent"
+      },
+      "runtime_evidence": "none (no runtime gate attached)",
+      "runtime_verdict": "NotExecuted",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 8549..8564 (line 242): MAY_DISPATCH op_contracts::work_packages::admission::user_allowed_to_add -> op_contracts::base::UserContext::is_admin"
+      },
+      "structural_verdict": "CharonOnly"
+    },
+    {
+      "coverage": "ruby: not harvested; rust: 1/1 edges (CALLS_RESOLVED COMPILER)",
+      "identity": {
+        "application": "openproject",
+        "effect": "evaluates:writable?-per-submitted-attribute",
+        "method": "admit_create",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/admit_create/evaluates:writable?-per-submitted-attribute",
+      "level": "GuardEvaluation",
+      "representation": "Guard",
+      "residual": {
+        "attempts": [],
+        "evidence": [],
+        "locator": "ruby -; rust crates/op-contracts/src/work_packages/admission.rs bytes 9537..9576 (line 271)",
+        "owner_stage": "ContractHarvest",
+        "proposed_remedy": {
+          "claim_change": "Slag(RubySideNotHarvested) -> Agreement if the lowered body is 'condition AND permission' and admit_create -> is_writable stays CALLS_RESOLVED",
+          "missing_fact": "BaseContract#writable? as a lowered fact (writable condition AND attribute permission)",
+          "negative_control": "a lowering that yields 'condition OR permission' must not agree with is_writable's truth table",
+          "source_location": "app/contracts/base_contract.rb:130",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068",
+          "supplier": "ruff contract arm: lower BaseContract#writable?",
+          "supplier_exists": false,
+          "validating_evidence": "the lowered fact against the CALLS_RESOLVED edge; runtime axis: create_transition_differential contract-wide writable? (332 pairs)"
+        },
+        "reason": "RubySideNotHarvested",
+        "regression_gate": null,
+        "status": "OPEN",
+        "sub_reason": "framework-level method of the application's base contract; no extractor reads it"
+      },
+      "ruby": {
+        "state": "not_harvested",
+        "why": "BaseContract#writable? (app/contracts/base_contract.rb) is not harvested by any extractor here"
+      },
+      "runtime_evidence": "none (no runtime gate attached)",
+      "runtime_verdict": "NotExecuted",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 9537..9576 (line 271): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::is_writable"
+      },
+      "structural_verdict": "Slag(RubySideNotHarvested)"
+    },
+    {
+      "coverage": "ruby: not harvested; rust: 0/1 edges ()",
+      "identity": {
+        "application": "openproject",
+        "effect": "validates:validate_has_predecessors_or_children",
+        "method": "CreateContract.attribute(:schedule_manually).block",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/CreateContract.attribute(:schedule_manually).block/validates:validate_has_predecessors_or_children",
+      "level": "GuardEvaluation",
+      "representation": "Guard",
+      "residual": {
+        "attempts": [],
+        "evidence": [],
+        "locator": "ruby -; rust crates/op-contracts/src/work_packages/admission.rs bytes 8956..10167 (lines 254-292)",
+        "owner_stage": "ContractHarvest",
+        "proposed_remedy": {
+          "claim_change": "Slag(RubySideNotHarvested) -> RubyOnly: Charon inspected admit_create (defined, structured, current) and it has no edge to such a validator; NOT_EVALUATED_VALIDATORS does not name it either",
+          "missing_fact": "the validator call inside `attribute :schedule_manually do ... end`, with its `if model.schedule_automatically?` condition",
+          "negative_control": "a harvest that drops the `if model.schedule_automatically?` condition predicts the error on leaf_manual, where the oracle records none",
+          "source_location": "app/contracts/work_packages/create_contract.rb:46-48 (block), app/contracts/work_packages/create_contract.rb:68 (def)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068",
+          "supplier": "ruff contract arm: harvest validator calls inside attribute blocks (base_contract.rb:89 registers the block with validate(attribute, &block))",
+          "supplier_exists": false,
+          "validating_evidence": "the harvested validator with its condition; the runtime axis already records ExecutedDisagreement on leaf_automatic"
+        },
+        "reason": "RubySideNotHarvested",
+        "regression_gate": null,
+        "status": "OPEN",
+        "sub_reason": "validator inside an attribute block; absent from the generated admission path and from NOT_EVALUATED_VALIDATORS"
+      },
+      "ruby": {
+        "state": "not_harvested",
+        "why": "the scan reads `attribute :schedule_manually do` as a declaration and skips its block; ruff lowers `writable:` only"
+      },
+      "runtime_evidence": "EXECUTED 1 compared, 1 mismatches (ore_slag schedule_manually differential: op_services CreateWorkPackageService::admit vs contract trace errors[schedule_manually] = cannot_be_automatically_scheduled; 6 CreateContract records, Ruby fires on [\"leaf_automatic\"], Rust on []; separate from the 350)",
+      "runtime_verdict": "ExecutedDisagreement",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 8956..10167 (lines 254-292): DEFINES op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::admit_create"
+      },
+      "structural_verdict": "Slag(RubySideNotHarvested)"
+    },
+    {
+      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)); rust: op_services::work_packages::mutation::create (RustBodyNotStructured)",
+      "identity": {
+        "application": "openproject",
+        "effect": "checks:add_work_packages-in-project",
+        "method": "mutation::create",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "admission"
+      },
+      "key": "openproject/WorkPackage/create/admission/mutation::create/checks:add_work_packages-in-project",
+      "level": "Admission",
+      "representation": "Call",
+      "residual": {
+        "attempts": [],
+        "evidence": [],
+        "locator": "ruby app/contracts/work_packages/create_contract.rb:57; rust crates/op-services/src/work_packages/mutation.rs bytes 16189..20209 (lines 402-515)",
+        "owner_stage": "RustExtraction",
+        "proposed_remedy": {
+          "claim_change": "Slag(RustBodyNotStructured) -> Agreement or RubyOnly, decided by the structured edge",
+          "missing_fact": "a structured body for op_services::work_packages::mutation::create",
+          "negative_control": "remove the call from a structured body: the row must become RubyOnly, never stay Agreement",
+          "source_location": "crates/op-services/src/work_packages/mutation.rs bytes 16189..20209 (lines 402-515)",
+          "source_revision": "nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "supplier": "Charon structuring of async bodies, or a synchronous seam the call graph can see",
+          "supplier_exists": false,
+          "validating_evidence": "the CALLS_RESOLVED edge; the runtime axis stays the EXECUTED_DB journey (cited here; needs PostgreSQL)"
+        },
+        "reason": "RustBodyNotStructured",
+        "regression_gate": null,
+        "status": "OPEN",
+        "sub_reason": "Charon residual BODY_NOT_STRUCTURED"
+      },
+      "ruby": {
+        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)",
+        "fact": "a create needs add_work_packages in the model's project",
+        "span": "app/contracts/work_packages/create_contract.rb:57",
+        "state": "fact"
+      },
+      "runtime_evidence": "CITED, not run here: op-server board::executed_db (needs OP_TEST_DATABASE_URL) asserts mutation::create in a project without rights returns Forbidden and inserts no row (step 6)",
+      "runtime_verdict": "Unverified",
+      "rust": {
+        "span": "crates/op-services/src/work_packages/mutation.rs bytes 16189..20209 (lines 402-515): DEFINES op_services::work_packages::mutation::create -> op_services::work_packages::mutation::create"
+      },
+      "structural_verdict": "Slag(RustBodyNotStructured)"
+    },
+    {
+      "coverage": "ruby: fact (literal located in the source (no parse)); rust: op_services::work_packages::mutation::create (RustBodyNotStructured)",
+      "identity": {
+        "application": "openproject",
+        "effect": "inserts:work_packages",
+        "method": "mutation::create",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "persistence"
+      },
+      "key": "openproject/WorkPackage/create/persistence/mutation::create/inserts:work_packages",
+      "level": "Persistence",
+      "representation": "Effect",
+      "residual": {
+        "attempts": [],
+        "evidence": [],
+        "locator": "ruby app/services/work_packages/create_service.rb:64; rust crates/op-services/src/work_packages/mutation.rs bytes 16189..20209 (lines 402-515)",
+        "owner_stage": "RustExtraction",
+        "proposed_remedy": {
+          "claim_change": "Slag(RustBodyNotStructured) -> Agreement or RubyOnly, decided by the structured edge",
+          "missing_fact": "a structured body for op_services::work_packages::mutation::create",
+          "negative_control": "remove the call from a structured body: the row must become RubyOnly, never stay Agreement",
+          "source_location": "crates/op-services/src/work_packages/mutation.rs bytes 16189..20209 (lines 402-515)",
+          "source_revision": "nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "supplier": "Charon structuring of async bodies, or a synchronous seam the call graph can see",
+          "supplier_exists": false,
+          "validating_evidence": "the CALLS_RESOLVED edge; the runtime axis stays the EXECUTED_DB journey (cited here; needs PostgreSQL)"
+        },
+        "reason": "RustBodyNotStructured",
+        "regression_gate": null,
+        "status": "OPEN",
+        "sub_reason": "Charon residual BODY_NOT_STRUCTURED; the create is not transactional and writes no journal (P3b gap)"
+      },
+      "ruby": {
+        "extractor": "literal located in the source (no parse)",
+        "fact": "an admitted create saves the work package",
+        "span": "app/services/work_packages/create_service.rb:64",
+        "state": "fact"
+      },
+      "runtime_evidence": "CITED, not run here: op-server board::executed_db (needs OP_TEST_DATABASE_URL) asserts mutation::create over PgMutationStore commits the row (step 2); not transactional (step 7)",
+      "runtime_verdict": "Unverified",
+      "rust": {
+        "span": "crates/op-services/src/work_packages/mutation.rs bytes 16189..20209 (lines 402-515): DEFINES op_services::work_packages::mutation::create -> op_services::work_packages::mutation::create"
+      },
+      "structural_verdict": "Slag(RustBodyNotStructured)"
+    },
+    {
+      "coverage": "ruby: not harvested; rust: op_api::handlers::work_packages::create_work_package_core (RustSideNotExtracted)",
+      "identity": {
+        "application": "openproject",
+        "effect": "enters:mutation::create",
+        "method": "POST /api/v3/work_packages",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "admission"
+      },
+      "key": "openproject/WorkPackage/create/admission/POST /api/v3/work_packages/enters:mutation::create",
+      "level": "Admission",
+      "representation": "Call",
+      "residual": {
+        "attempts": [],
+        "evidence": [],
+        "locator": "ruby -; rust -",
+        "owner_stage": "RustExtraction",
+        "proposed_remedy": {
+          "claim_change": "Slag(RustSideNotExtracted) -> Slag(RubySideNotHarvested): the API v3 create endpoint is not harvested either, so extraction alone does not decide the row",
+          "missing_fact": "op-api in the Charon store",
+          "negative_control": "drop op-api again: the row returns to RustSideNotExtracted, never Disagreement",
+          "source_location": "crates/op-api/src/handlers/work_packages.rs:175",
+          "source_revision": "nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "supplier": "run Charon on op-api and add its four artifacts (not run here: no changed source requires it)",
+          "supplier_exists": true,
+          "validating_evidence": "the CALLS_RESOLVED edge create_work_package_core -> mutation::create, plus a harvested endpoint"
+        },
+        "reason": "RustSideNotExtracted",
+        "regression_gate": null,
+        "status": "CANDIDATE",
+        "sub_reason": "missing crate extraction, not missing behaviour"
+      },
+      "ruby": {
+        "state": "not_harvested",
+        "why": "the API v3 create endpoint is not harvested"
+      },
+      "runtime_evidence": "none (no runtime gate attached)",
+      "runtime_verdict": "NotExecuted",
+      "rust": {
+        "span": null
+      },
+      "structural_verdict": "Slag(RustSideNotExtracted)"
+    },
+    {
+      "coverage": "ruby: fact (ruff_ruby_spo::extract_contract_guards); rust: data item ATTRIBUTES, file extracted, no call-graph fact",
+      "identity": {
+        "application": "openproject",
+        "effect": "guard:lowered",
+        "method": "WorkPackages::CreateContract.attribute(:author_id)",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/WorkPackages::CreateContract.attribute(:author_id)/guard:lowered",
+      "level": "GuardEvaluation",
+      "representation": "GeneratedData",
+      "residual": {
+        "attempts": [],
+        "evidence": [
+          {
+            "by": "tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+            "compared": 1,
+            "detail": "the checked-in table is byte-identical to the generator's output for this checkout",
+            "kind": "DriftCheck",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "6b656e0c595c18ae",
+                "path": "app/contracts/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "8fa00da1eaac0824",
+                "path": "app/contracts/work_packages/create_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "source_side_parsed": false
+          },
+          {
+            "by": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle (ruff GuardExpr truth table vs op_contracts::is_writable(author_id))",
+            "compared": 5,
+            "detail": "4 assignments of [\"Setting.apiv3_write_readonly_attributes?\", \"user.admin?\"] agree; the table reads the same facts",
+            "kind": "DataWitness",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "8fa00da1eaac0824",
+                "path": "app/contracts/work_packages/create_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              },
+              {
+                "fnv64": "bc4d0d8a6a10e947",
+                "path": "crates/op-contracts/src/work_packages/admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "source_side_parsed": true
+          }
+        ],
+        "locator": "ruby app/contracts/work_packages/create_contract.rb:37; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+        "owner_stage": "DataWitness",
+        "proposed_remedy": {
+          "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
+          "missing_fact": "none for the behaviour: table data is invisible to a call graph",
+          "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
+          "source_location": "app/contracts/work_packages/create_contract.rb:37 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
+          "supplier_exists": true,
+          "validating_evidence": "this witness, bound to the generator drift check"
+        },
+        "reason": "RepresentedAsData",
+        "regression_gate": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle; tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+        "status": "RESOLVED(DataWitness)",
+        "sub_reason": "generated table row (ATTRIBUTES)"
+      },
+      "ruby": {
+        "extractor": "ruff_ruby_spo::extract_contract_guards",
+        "fact": "writable: And(Fact(\"user.admin?\"), Fact(\"Setting.apiv3_write_readonly_attributes?\"))",
+        "span": "app/contracts/work_packages/create_contract.rb:37",
+        "state": "fact"
+      },
+      "runtime_evidence": "EXECUTED 5 compared, 0 mismatches (op_contracts is_writable vs trace writable[author_id] (1 unresolved, not compared))",
+      "runtime_verdict": "ExecutedAgreement",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+      },
+      "structural_verdict": "Slag(RepresentedAsData)"
+    },
+    {
+      "coverage": "ruby: fact (ruff_ruby_spo::extract_contract_guards); rust: data item ATTRIBUTES, file extracted, no call-graph fact",
+      "identity": {
+        "application": "openproject",
+        "effect": "guard:lowered",
+        "method": "WorkPackages::BaseContract.attribute(:derived_done_ratio)",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:derived_done_ratio)/guard:lowered",
+      "level": "GuardEvaluation",
+      "representation": "GeneratedData",
+      "residual": {
+        "attempts": [],
+        "evidence": [
+          {
+            "by": "tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+            "compared": 1,
+            "detail": "the checked-in table is byte-identical to the generator's output for this checkout",
+            "kind": "DriftCheck",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "6b656e0c595c18ae",
+                "path": "app/contracts/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "8fa00da1eaac0824",
+                "path": "app/contracts/work_packages/create_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "source_side_parsed": false
+          },
+          {
+            "by": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle (ruff GuardExpr truth table vs op_contracts::is_writable(derived_done_ratio))",
+            "compared": 2,
+            "detail": "1 assignments of [] agree; the table reads the same facts",
+            "kind": "DataWitness",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              },
+              {
+                "fnv64": "bc4d0d8a6a10e947",
+                "path": "crates/op-contracts/src/work_packages/admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "source_side_parsed": true
+          }
+        ],
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:77; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+        "owner_stage": "DataWitness",
+        "proposed_remedy": {
+          "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
+          "missing_fact": "none for the behaviour: table data is invisible to a call graph",
+          "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
+          "source_location": "app/contracts/work_packages/base_contract.rb:77 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
+          "supplier_exists": true,
+          "validating_evidence": "this witness, bound to the generator drift check"
+        },
+        "reason": "RepresentedAsData",
+        "regression_gate": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle; tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+        "status": "RESOLVED(DataWitness)",
+        "sub_reason": "generated table row (ATTRIBUTES)"
+      },
+      "ruby": {
+        "extractor": "ruff_ruby_spo::extract_contract_guards",
+        "fact": "writable: Const(false)",
+        "span": "app/contracts/work_packages/base_contract.rb:77",
+        "state": "fact"
+      },
+      "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[derived_done_ratio] (0 unresolved, not compared))",
+      "runtime_verdict": "ExecutedAgreement",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+      },
+      "structural_verdict": "Slag(RepresentedAsData)"
+    },
+    {
+      "coverage": "ruby: fact (ruff_ruby_spo::extract_contract_guards); rust: data item ATTRIBUTES, file extracted, no call-graph fact",
+      "identity": {
+        "application": "openproject",
+        "effect": "guard:lowered",
+        "method": "WorkPackages::BaseContract.attribute(:derived_estimated_hours)",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:derived_estimated_hours)/guard:lowered",
+      "level": "GuardEvaluation",
+      "representation": "GeneratedData",
+      "residual": {
+        "attempts": [],
+        "evidence": [
+          {
+            "by": "tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+            "compared": 1,
+            "detail": "the checked-in table is byte-identical to the generator's output for this checkout",
+            "kind": "DriftCheck",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "6b656e0c595c18ae",
+                "path": "app/contracts/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "8fa00da1eaac0824",
+                "path": "app/contracts/work_packages/create_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "source_side_parsed": false
+          },
+          {
+            "by": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle (ruff GuardExpr truth table vs op_contracts::is_writable(derived_estimated_hours))",
+            "compared": 2,
+            "detail": "1 assignments of [] agree; the table reads the same facts",
+            "kind": "DataWitness",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              },
+              {
+                "fnv64": "bc4d0d8a6a10e947",
+                "path": "crates/op-contracts/src/work_packages/admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "source_side_parsed": true
+          }
+        ],
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:83; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+        "owner_stage": "DataWitness",
+        "proposed_remedy": {
+          "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
+          "missing_fact": "none for the behaviour: table data is invisible to a call graph",
+          "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
+          "source_location": "app/contracts/work_packages/base_contract.rb:83 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
+          "supplier_exists": true,
+          "validating_evidence": "this witness, bound to the generator drift check"
+        },
+        "reason": "RepresentedAsData",
+        "regression_gate": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle; tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+        "status": "RESOLVED(DataWitness)",
+        "sub_reason": "generated table row (ATTRIBUTES)"
+      },
+      "ruby": {
+        "extractor": "ruff_ruby_spo::extract_contract_guards",
+        "fact": "writable: Const(false)",
+        "span": "app/contracts/work_packages/base_contract.rb:83",
+        "state": "fact"
+      },
+      "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[derived_estimated_hours] (0 unresolved, not compared))",
+      "runtime_verdict": "ExecutedAgreement",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+      },
+      "structural_verdict": "Slag(RepresentedAsData)"
+    },
+    {
+      "coverage": "ruby: fact (ruff_ruby_spo::extract_contract_guards); rust: data item ATTRIBUTES, file extracted, no call-graph fact",
+      "identity": {
+        "application": "openproject",
+        "effect": "guard:lowered",
+        "method": "WorkPackages::BaseContract.attribute(:derived_remaining_hours)",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:derived_remaining_hours)/guard:lowered",
+      "level": "GuardEvaluation",
+      "representation": "GeneratedData",
+      "residual": {
+        "attempts": [],
+        "evidence": [
+          {
+            "by": "tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+            "compared": 1,
+            "detail": "the checked-in table is byte-identical to the generator's output for this checkout",
+            "kind": "DriftCheck",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "6b656e0c595c18ae",
+                "path": "app/contracts/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "8fa00da1eaac0824",
+                "path": "app/contracts/work_packages/create_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "source_side_parsed": false
+          },
+          {
+            "by": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle (ruff GuardExpr truth table vs op_contracts::is_writable(derived_remaining_hours))",
+            "compared": 2,
+            "detail": "1 assignments of [] agree; the table reads the same facts",
+            "kind": "DataWitness",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              },
+              {
+                "fnv64": "bc4d0d8a6a10e947",
+                "path": "crates/op-contracts/src/work_packages/admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "source_side_parsed": true
+          }
+        ],
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:91; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+        "owner_stage": "DataWitness",
+        "proposed_remedy": {
+          "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
+          "missing_fact": "none for the behaviour: table data is invisible to a call graph",
+          "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
+          "source_location": "app/contracts/work_packages/base_contract.rb:91 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
+          "supplier_exists": true,
+          "validating_evidence": "this witness, bound to the generator drift check"
+        },
+        "reason": "RepresentedAsData",
+        "regression_gate": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle; tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+        "status": "RESOLVED(DataWitness)",
+        "sub_reason": "generated table row (ATTRIBUTES)"
+      },
+      "ruby": {
+        "extractor": "ruff_ruby_spo::extract_contract_guards",
+        "fact": "writable: Const(false)",
+        "span": "app/contracts/work_packages/base_contract.rb:91",
+        "state": "fact"
+      },
+      "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[derived_remaining_hours] (0 unresolved, not compared))",
+      "runtime_verdict": "ExecutedAgreement",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+      },
+      "structural_verdict": "Slag(RepresentedAsData)"
+    },
+    {
+      "coverage": "ruby: fact (ruff_ruby_spo::extract_contract_guards); rust: data item ATTRIBUTES, file extracted, no call-graph fact",
+      "identity": {
+        "application": "openproject",
+        "effect": "guard:lowered",
+        "method": "WorkPackages::BaseContract.attribute(:done_ratio)",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:done_ratio)/guard:lowered",
+      "level": "GuardEvaluation",
+      "representation": "GeneratedData",
+      "residual": {
+        "attempts": [],
+        "evidence": [
+          {
+            "by": "tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+            "compared": 1,
+            "detail": "the checked-in table is byte-identical to the generator's output for this checkout",
+            "kind": "DriftCheck",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "6b656e0c595c18ae",
+                "path": "app/contracts/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "8fa00da1eaac0824",
+                "path": "app/contracts/work_packages/create_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "source_side_parsed": false
+          },
+          {
+            "by": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle (ruff GuardExpr truth table vs op_contracts::is_writable(done_ratio))",
+            "compared": 3,
+            "detail": "2 assignments of [\"WorkPackage.work_based_mode?\"] agree; the table reads the same facts",
+            "kind": "DataWitness",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              },
+              {
+                "fnv64": "bc4d0d8a6a10e947",
+                "path": "crates/op-contracts/src/work_packages/admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "source_side_parsed": true
+          }
+        ],
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:67; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+        "owner_stage": "DataWitness",
+        "proposed_remedy": {
+          "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
+          "missing_fact": "none for the behaviour: table data is invisible to a call graph",
+          "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
+          "source_location": "app/contracts/work_packages/base_contract.rb:67 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
+          "supplier_exists": true,
+          "validating_evidence": "this witness, bound to the generator drift check"
+        },
+        "reason": "RepresentedAsData",
+        "regression_gate": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle; tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+        "status": "RESOLVED(DataWitness)",
+        "sub_reason": "generated table row (ATTRIBUTES)"
+      },
+      "ruby": {
+        "extractor": "ruff_ruby_spo::extract_contract_guards",
+        "fact": "writable: Fact(\"WorkPackage.work_based_mode?\")",
+        "span": "app/contracts/work_packages/base_contract.rb:67",
+        "state": "fact"
+      },
+      "runtime_evidence": "EXECUTED 1 compared, 0 mismatches (op_contracts is_writable vs trace writable[done_ratio] (5 unresolved, not compared))",
+      "runtime_verdict": "ExecutedAgreement",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+      },
+      "structural_verdict": "Slag(RepresentedAsData)"
+    },
+    {
+      "coverage": "ruby: fact (ruff_ruby_spo::extract_contract_guards); rust: data item ATTRIBUTES, file extracted, no call-graph fact",
+      "identity": {
+        "application": "openproject",
+        "effect": "guard:lowered",
+        "method": "WorkPackages::BaseContract.attribute(:due_date)",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:due_date)/guard:lowered",
+      "level": "GuardEvaluation",
+      "representation": "GeneratedData",
+      "residual": {
+        "attempts": [],
+        "evidence": [
+          {
+            "by": "tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+            "compared": 1,
+            "detail": "the checked-in table is byte-identical to the generator's output for this checkout",
+            "kind": "DriftCheck",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "6b656e0c595c18ae",
+                "path": "app/contracts/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "8fa00da1eaac0824",
+                "path": "app/contracts/work_packages/create_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "source_side_parsed": false
+          },
+          {
+            "by": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle (ruff GuardExpr truth table vs op_contracts::is_writable(due_date))",
+            "compared": 5,
+            "detail": "4 assignments of [\"model.leaf?\", \"model.schedule_manually?\"] agree; the table reads the same facts",
+            "kind": "DataWitness",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              },
+              {
+                "fnv64": "bc4d0d8a6a10e947",
+                "path": "crates/op-contracts/src/work_packages/admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "source_side_parsed": true
+          }
+        ],
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:132; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+        "owner_stage": "DataWitness",
+        "proposed_remedy": {
+          "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
+          "missing_fact": "none for the behaviour: table data is invisible to a call graph",
+          "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
+          "source_location": "app/contracts/work_packages/base_contract.rb:132 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
+          "supplier_exists": true,
+          "validating_evidence": "this witness, bound to the generator drift check"
+        },
+        "reason": "RepresentedAsData",
+        "regression_gate": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle; tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+        "status": "RESOLVED(DataWitness)",
+        "sub_reason": "generated table row (ATTRIBUTES)"
+      },
+      "ruby": {
+        "extractor": "ruff_ruby_spo::extract_contract_guards",
+        "fact": "writable: Or(Fact(\"model.leaf?\"), Fact(\"model.schedule_manually?\"))",
+        "span": "app/contracts/work_packages/base_contract.rb:132",
+        "state": "fact"
+      },
+      "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[due_date] (0 unresolved, not compared))",
+      "runtime_verdict": "ExecutedAgreement",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+      },
+      "structural_verdict": "Slag(RepresentedAsData)"
+    },
+    {
+      "coverage": "ruby: fact (ruff_ruby_spo::extract_contract_guards); rust: data item ATTRIBUTES, file extracted, no call-graph fact",
+      "identity": {
+        "application": "openproject",
+        "effect": "guard:lowered",
+        "method": "WorkPackages::BaseContract.attribute(:ignore_non_working_days)",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:ignore_non_working_days)/guard:lowered",
+      "level": "GuardEvaluation",
+      "representation": "GeneratedData",
+      "residual": {
+        "attempts": [],
+        "evidence": [
+          {
+            "by": "tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+            "compared": 1,
+            "detail": "the checked-in table is byte-identical to the generator's output for this checkout",
+            "kind": "DriftCheck",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "6b656e0c595c18ae",
+                "path": "app/contracts/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "8fa00da1eaac0824",
+                "path": "app/contracts/work_packages/create_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "source_side_parsed": false
+          },
+          {
+            "by": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle (ruff GuardExpr truth table vs op_contracts::is_writable(ignore_non_working_days))",
+            "compared": 5,
+            "detail": "4 assignments of [\"model.leaf?\", \"model.schedule_manually?\"] agree; the table reads the same facts",
+            "kind": "DataWitness",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              },
+              {
+                "fnv64": "bc4d0d8a6a10e947",
+                "path": "crates/op-contracts/src/work_packages/admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "source_side_parsed": true
+          }
+        ],
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:120; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+        "owner_stage": "DataWitness",
+        "proposed_remedy": {
+          "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
+          "missing_fact": "none for the behaviour: table data is invisible to a call graph",
+          "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
+          "source_location": "app/contracts/work_packages/base_contract.rb:120 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
+          "supplier_exists": true,
+          "validating_evidence": "this witness, bound to the generator drift check"
+        },
+        "reason": "RepresentedAsData",
+        "regression_gate": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle; tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+        "status": "RESOLVED(DataWitness)",
+        "sub_reason": "generated table row (ATTRIBUTES)"
+      },
+      "ruby": {
+        "extractor": "ruff_ruby_spo::extract_contract_guards",
+        "fact": "writable: Or(Fact(\"model.leaf?\"), Fact(\"model.schedule_manually?\"))",
+        "span": "app/contracts/work_packages/base_contract.rb:120",
+        "state": "fact"
+      },
+      "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[ignore_non_working_days] (0 unresolved, not compared))",
+      "runtime_verdict": "ExecutedAgreement",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+      },
+      "structural_verdict": "Slag(RepresentedAsData)"
+    },
+    {
+      "coverage": "ruby: fact (ruff_ruby_spo::extract_contract_guards); rust: data item ATTRIBUTES, file extracted, no call-graph fact",
+      "identity": {
+        "application": "openproject",
+        "effect": "guard:lowered",
+        "method": "WorkPackages::BaseContract.attribute(:start_date)",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:start_date)/guard:lowered",
+      "level": "GuardEvaluation",
+      "representation": "GeneratedData",
+      "residual": {
+        "attempts": [],
+        "evidence": [
+          {
+            "by": "tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+            "compared": 1,
+            "detail": "the checked-in table is byte-identical to the generator's output for this checkout",
+            "kind": "DriftCheck",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "6b656e0c595c18ae",
+                "path": "app/contracts/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "8fa00da1eaac0824",
+                "path": "app/contracts/work_packages/create_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "source_side_parsed": false
+          },
+          {
+            "by": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle (ruff GuardExpr truth table vs op_contracts::is_writable(start_date))",
+            "compared": 5,
+            "detail": "4 assignments of [\"model.leaf?\", \"model.schedule_manually?\"] agree; the table reads the same facts",
+            "kind": "DataWitness",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              },
+              {
+                "fnv64": "bc4d0d8a6a10e947",
+                "path": "crates/op-contracts/src/work_packages/admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "source_side_parsed": true
+          }
+        ],
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:125; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+        "owner_stage": "DataWitness",
+        "proposed_remedy": {
+          "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
+          "missing_fact": "none for the behaviour: table data is invisible to a call graph",
+          "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
+          "source_location": "app/contracts/work_packages/base_contract.rb:125 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
+          "supplier_exists": true,
+          "validating_evidence": "this witness, bound to the generator drift check"
+        },
+        "reason": "RepresentedAsData",
+        "regression_gate": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle; tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+        "status": "RESOLVED(DataWitness)",
+        "sub_reason": "generated table row (ATTRIBUTES)"
+      },
+      "ruby": {
+        "extractor": "ruff_ruby_spo::extract_contract_guards",
+        "fact": "writable: Or(Fact(\"model.leaf?\"), Fact(\"model.schedule_manually?\"))",
+        "span": "app/contracts/work_packages/base_contract.rb:125",
+        "state": "fact"
+      },
+      "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[start_date] (0 unresolved, not compared))",
+      "runtime_verdict": "ExecutedAgreement",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+      },
+      "structural_verdict": "Slag(RepresentedAsData)"
+    },
+    {
+      "coverage": "ruby: fact (ruff_ruby_spo::extract_contract_guards); rust: data item ATTRIBUTES, file extracted, no call-graph fact",
+      "identity": {
+        "application": "openproject",
+        "effect": "guard:lowered",
+        "method": "WorkPackages::BaseContract.attribute(:status_id)",
+        "model": "WorkPackage",
+        "operation": "create",
+        "phase": "guard"
+      },
+      "key": "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:status_id)/guard:lowered",
+      "level": "GuardEvaluation",
+      "representation": "GeneratedData",
+      "residual": {
+        "attempts": [],
+        "evidence": [
+          {
+            "by": "tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+            "compared": 1,
+            "detail": "the checked-in table is byte-identical to the generator's output for this checkout",
+            "kind": "DriftCheck",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "6b656e0c595c18ae",
+                "path": "app/contracts/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "8fa00da1eaac0824",
+                "path": "app/contracts/work_packages/create_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "source_side_parsed": false
+          },
+          {
+            "by": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle (ruff GuardExpr truth table vs op_contracts::is_writable(status_id))",
+            "compared": 9,
+            "detail": "8 assignments of [\"model.effective_target_versions.any?(&:closed?)\", \"model.status&.closed?\", \"model.status_id_change\"] agree; the table reads the same facts",
+            "kind": "DataWitness",
+            "mismatches": 0,
+            "rests_on": [
+              {
+                "fnv64": "c0f7563ae9fdd2fa",
+                "path": "app/contracts/work_packages/base_contract.rb",
+                "root": "Source"
+              },
+              {
+                "fnv64": "26c83f1d0aaec607",
+                "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
+                "root": "Target"
+              },
+              {
+                "fnv64": "bc4d0d8a6a10e947",
+                "path": "crates/op-contracts/src/work_packages/admission.rs",
+                "root": "Target"
+              }
+            ],
+            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "source_side_parsed": true
+          }
+        ],
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:39; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+        "owner_stage": "DataWitness",
+        "proposed_remedy": {
+          "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
+          "missing_fact": "none for the behaviour: table data is invisible to a call graph",
+          "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
+          "source_location": "app/contracts/work_packages/base_contract.rb:39 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
+          "supplier_exists": true,
+          "validating_evidence": "this witness, bound to the generator drift check"
+        },
+        "reason": "RepresentedAsData",
+        "regression_gate": "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle; tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces",
+        "status": "RESOLVED(DataWitness)",
+        "sub_reason": "generated table row (ATTRIBUTES)"
+      },
+      "ruby": {
+        "extractor": "ruff_ruby_spo::extract_contract_guards",
+        "fact": "writable: Or(Fact(\"model.status_id_change\"), Not(And(Fact(\"model.status&.closed?\"), Fact(\"model.effective_target_versions.any?(&:closed?)\"))))",
+        "span": "app/contracts/work_packages/base_contract.rb:39",
+        "state": "fact"
+      },
+      "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[status_id] (0 unresolved, not compared))",
+      "runtime_verdict": "ExecutedAgreement",
+      "rust": {
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+      },
+      "structural_verdict": "Slag(RepresentedAsData)"
+    }
+  ],
+  "generated_by": "crates/op-codegen-pipeline/tests/ore_slag/resolution.rs (via reconcile_create_admission). Do not edit by hand.",
+  "revisions": {
+    "charon": "AdaWorldAPI/charon c69e231ea8d71566d4b728e90c12efc432d11b8c",
+    "charon_extractor": "AdaWorldAPI/ruff 52eb6c856824ccc7d5bc044d0cdb145a223a7e4e",
+    "source_app": "openproject 2725194454c895dfab6ff2685d9688b0cba53068",
+    "source_extractor": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+    "target": "nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f"
+  },
+  "scorecard": {
+    "claims": 21,
+    "lifecycle": {
+      "CANDIDATE": 1,
+      "EVIDENCED": 1,
+      "OPEN": 4,
+      "RESOLVED(DataWitness)": 9
+    },
+    "open_slag_by_owner": {
+      "ContractHarvest": 2,
+      "DataWitness": 1,
+      "RustExtraction": 3
+    },
+    "open_slag_by_reason": {
+      "RepresentedAsData": 1,
+      "RubySideNotHarvested": 2,
+      "RustBodyNotStructured": 2,
+      "RustSideNotExtracted": 1
+    },
+    "resolved_by_level": {
+      "DataWitness": 9
+    },
+    "ruby_facts_from_parser": 9,
+    "ruby_facts_inspected": 18,
+    "runtime": {
+      "ExecutedAgreement": 10,
+      "ExecutedDisagreement": 1,
+      "NotExecuted": 7,
+      "Unverified": 3
+    },
+    "runtime_items_compared_overlapping": 55,
+    "runtime_items_mismatched": 1,
+    "rust_counterparts_inspectable": 18,
+    "structural": {
+      "Agreement": 4,
+      "CharonOnly": 1,
+      "NotComparable": 1,
+      "Slag": 15
+    }
+  },
+  "stale_store_files": [],
+  "title": "WorkPackage create admission: three-witness reconciliation"
+}

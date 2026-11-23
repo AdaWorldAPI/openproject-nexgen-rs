@@ -55,6 +55,10 @@ pub mod admission_gen;
 /// semantic claim.
 pub mod reconcile;
 
+/// The residual lifecycle over a reconciliation: owner stages, inert proposals,
+/// evidence with file hashes, resolution levels, and the machine-readable ledger.
+pub mod resolution;
+
 /// Callback harvest shared by the Rails-callback differentials (test support).
 pub mod callback_harvest;
 
