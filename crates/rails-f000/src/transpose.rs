@@ -376,6 +376,12 @@ impl ScopeCatalog {
     pub fn default_scope(&self, class: &str) -> Option<&ScopeBody> {
         self.scopes.iter().find(|s| s.default && s.class == class)
     }
+
+    /// Every `default_scope` of `class`, in declaration order. ActiveRecord
+    /// combines them all (`default_scopes` accumulates), so each one applies.
+    pub fn default_scopes<'a>(&'a self, class: &'a str) -> impl Iterator<Item = &'a ScopeBody> + 'a {
+        self.scopes.iter().filter(move |s| s.default && s.class == class)
+    }
 }
 
 // ------------------------------------------------------------------ chains
@@ -657,7 +663,15 @@ fn collect(
 }
 
 fn default_scope_evidence(cat: &ScopeCatalog, class: &str, acc: &mut Acc) -> Result<(), RefuseReason> {
-    let Some(d) = cat.default_scope(class) else { return Ok(()) };
+    // Every default_scope applies, not only the first; any one that filters
+    // refuses the plan.
+    for d in cat.default_scopes(class) {
+        one_default_scope_evidence(d, class, acc)?;
+    }
+    Ok(())
+}
+
+fn one_default_scope_evidence(d: &ScopeBody, class: &str, acc: &mut Acc) -> Result<(), RefuseReason> {
     let Some(body) = &d.body else {
         return Err(RefuseReason::DefaultScopeFilters { what: format!("default_scope of {class} has no analysable body ({})", d.provenance) });
     };
@@ -1113,6 +1127,20 @@ mod tests {
         );
         let t = transpose(&mut b, &cat, &Request { receiver: Receiver::Class("State"), scope: Some("ranked"), terminal: Terminal::Count });
         assert!(matches!(t.verdict, Verdict::Refuse(RefuseReason::DefaultScopeFilters { .. })));
+    }
+
+    /// ActiveRecord combines every default_scope: an order-only first one
+    /// does not make a later filtering one irrelevant.
+    #[test]
+    fn a_filtering_second_default_scope_refuses_too() {
+        let mut b = basis();
+        let cat = ScopeCatalog::from_class_source(
+            "State",
+            "default_scope { order(id: :asc) }\ndefault_scope { where(active: true) }\nscope :ranked, -> { where(rank: 7) }\n",
+        );
+        assert_eq!(cat.default_scopes("State").count(), 2, "both declarations are collected");
+        let t = transpose(&mut b, &cat, &Request { receiver: Receiver::Class("State"), scope: Some("ranked"), terminal: Terminal::Count });
+        assert!(matches!(t.verdict, Verdict::Refuse(RefuseReason::DefaultScopeFilters { .. })), "{:?}", t.verdict);
     }
 
     #[test]

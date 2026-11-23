@@ -32,3 +32,9 @@ oracle-file strings in text and match arms; they are carried as is.
   count ignores it (Codex, nexgen #166). Test:
   `a_two_term_scope_without_room_for_its_scratch_mask_is_refused`. Not in
   zammad-rs.
+- `transpose`: every `default_scope` of a class is checked, not only the
+  first; a filtering one in any position refuses the plan, since ActiveRecord
+  combines them (checked against ActiveRecord 8.1.4.1: two default scopes
+  produce `WHERE active = TRUE AND rank = 7 ORDER BY id`). zammad-rs checks
+  only the first (Codex, nexgen #166). Test:
+  `a_filtering_second_default_scope_refuses_too`. Not in zammad-rs.
