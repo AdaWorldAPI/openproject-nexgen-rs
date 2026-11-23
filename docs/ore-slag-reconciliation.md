@@ -160,7 +160,7 @@ OPEN -> CANDIDATE -> EVIDENCED -> VERIFIED(level) -> RESOLVED(level)
 - **OPEN**: no candidate. Either the supplier does not exist yet, or every attempt
   was rejected.
 - **CANDIDATE**: a located source and an existing supplier are named, but nothing
-  has been run. Example: running Charon on `op-api`.
+  has been run. Example: a crate whose Charon extraction is a command away.
 - **EVIDENCED**: current evidence is attached, but it establishes no level. Example:
   the drift check over a line-scan input.
 - **VERIFIED(level)**: a witness established the level against current evidence,
@@ -293,7 +293,7 @@ permission lowering feeds the generator, the same witness can verify it.
   extraction that includes the changed Rust files: until then the stored ledger still
   shows the earlier numbers.
 
-## 10. Scorecard (this branch; ruff `79ed2ba`, OpenProject `2725194`, store from nexgen `8f2680e`)
+## 10. Scorecard (this branch; ruff `79ed2ba`, OpenProject `2725194`, store from nexgen `8d38cd3`, crates op-contracts, op-services, op-api)
 
 Separate denominators. Before means #138 as it was; after means this change.
 
@@ -306,10 +306,10 @@ Separate denominators. Before means #138 as it was; after means this change.
 | Structural: Agreement / Disagreement | 4 / 0 | 4 / 0 |
 | Structural: RubyOnly / CharonOnly / NotComparable | 0 / 1 / 1 | 0 / 1 / 1 |
 | Slag rows | 15 | 15 (verdicts unchanged) |
-| Residuals open, by reason | not typed | RubySideNotHarvested 2, RustBodyNotStructured 2, RustSideNotExtracted 1, RepresentedAsData 1 |
+| Residuals open, by reason | not typed | RubySideNotHarvested 2, RustBodyNotStructured 3, RepresentedAsData 1 (op-api is in the store; claim 12 is now `RustBodyNotStructured`) |
 | Residuals open, by owner | not typed | ContractHarvest 2, RustExtraction 3, DataWitness 1 |
 | Resolved by extraction / data witness / semantic rule | 0 / 0 / 0 | 0 / 9 / 0 |
-| Lifecycle | none | RESOLVED(DataWitness) 9, EVIDENCED 1, CANDIDATE 1, OPEN 4 |
+| Lifecycle | none | RESOLVED(DataWitness) 9, EVIDENCED 1, OPEN 5 |
 | Runtime verdicts over the 21 claims | 10 executed (0 mismatches), 3 cited, 8 none | ExecutedAgreement 11, ExecutedDisagreement 0, Unverified 3, NotExecuted 7 |
 | Contract-rule items executed against the oracle (`create_transition_differential`) | 350, 0 mismatches | 350, 0 mismatches (unchanged; the new case is separate) |
 | Lowered guards against the oracle (`guard_differential`) | 84 pairs, 0 mismatches | 84, 0 |
@@ -618,7 +618,12 @@ the same two readings. Its residuals map onto `OwnerStage`: `Ore` maps to
 - ruff pinned at `RUFF_REV` (`79ed2ba`) in `crates/op-codegen-pipeline/src/lib.rs`.
 - The Charon store is committed. Its revisions are in `oracle/charon/PROVENANCE.txt`.
   Re-run Charon only when a hashed file changed; the reconciliation fails on a stale
-  file.
+  file. The store holds op-contracts, op-services and op-api. Extract one crate at a
+  time (`charon cargo --dest-file <crate>.llbc` in the crate directory, nightly
+  toolchain and the extraction-only sqlx-postgres patch from `PROVENANCE.txt`), then
+  `CHARON_TSV=1 ruff_charon import <dir> <crate>.llbc <crate>` per crate and copy the
+  four `.tsv` files into `oracle/charon/`. `op_api.rows.tsv` is about 20 MB because
+  Charon harvests the crate's monomorphized dependency graph.
 
 ```bash
 export OPENPROJECT_SRC=/path/to/openproject OP_CORPUS_SRC=$OPENPROJECT_SRC REQUIRE_SOURCES=1

@@ -451,6 +451,21 @@ fn residual_for(
             "validator inside an attribute block; absent from the generated admission path and from NOT_EVALUATED_VALIDATORS".to_string(),
             OwnerStage::ContractHarvest,
         )
+    } else if key == KEY_API {
+        (
+            p(
+                "a structured body for op_api::handlers::work_packages::create_work_package_core",
+                "Charon structuring of async bodies (op-api is in the store; the function is defined, listed in residuals.tsv as BODY_NOT_STRUCTURED), or a synchronous seam the call graph can see",
+                false,
+                format!("crates/op-api/src/handlers/work_packages.rs:{}", locate(&std::fs::read_to_string(root().join("crates/op-api/src/handlers/work_packages.rs")).unwrap_or_default(), "pub async fn create_work_package_core").unwrap_or(0)),
+                nexgen_rev(store),
+                "Slag(RustBodyNotStructured) -> RubySideNotHarvested once the edge create_work_package_core -> mutation::create is structured: the API v3 create endpoint is not harvested either, so Rust structuring alone does not decide the row",
+                "the CALLS_RESOLVED edge create_work_package_core -> mutation::create, plus a harvested endpoint",
+                "remove the call from a structured body: the row must not stay agreeing; drop op-api again: the row returns to RustSideNotExtracted, never Disagreement",
+            ),
+            "Charon residual BODY_NOT_STRUCTURED (async fn); op-api extracted, no edge visible".to_string(),
+            OwnerStage::RustExtraction,
+        )
     } else if reason == SlagReason::RustBodyNotStructured {
         let charon = row
             .rust_span
@@ -474,21 +489,6 @@ fn residual_for(
             } else {
                 format!("Charon residual {charon}")
             },
-            OwnerStage::RustExtraction,
-        )
-    } else if key == KEY_API {
-        (
-            p(
-                "op-api in the Charon store",
-                "run Charon on op-api and add its four artifacts (not run here: no changed source requires it)",
-                true,
-                format!("crates/op-api/src/handlers/work_packages.rs:{}", locate(&std::fs::read_to_string(root().join("crates/op-api/src/handlers/work_packages.rs")).unwrap_or_default(), "pub async fn create_work_package_core").unwrap_or(0)),
-                nexgen_rev(store),
-                "Slag(RustSideNotExtracted) -> Slag(RubySideNotHarvested): the API v3 create endpoint is not harvested either, so extraction alone does not decide the row",
-                "the CALLS_RESOLVED edge create_work_package_core -> mutation::create, plus a harvested endpoint",
-                "drop op-api again: the row returns to RustSideNotExtracted, never Disagreement",
-            ),
-            "missing crate extraction, not missing behaviour".to_string(),
             OwnerStage::RustExtraction,
         )
     } else {
@@ -674,7 +674,7 @@ fn ore_slag_ledger_and_lifecycle() {
         Lifecycle::Open
     );
     assert_eq!(status_of(&rs, KEY_PERSIST).status, Lifecycle::Open);
-    assert_eq!(status_of(&rs, KEY_API).status, Lifecycle::Candidate);
+    assert_eq!(status_of(&rs, KEY_API).status, Lifecycle::Open);
     assert_eq!(status_of(&rs, KEY_WRITABLE).status, Lifecycle::Open);
 
     // Nothing resolves except a RepresentedAsData row, and only at DataWitness level.

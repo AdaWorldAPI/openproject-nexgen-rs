@@ -50,6 +50,8 @@ const API_CREATE: &str = "op_api::handlers::work_packages::create_work_package_c
 const KEY_ENTRY: &str = "openproject/WorkPackage/create/admission/CreateWorkPackageService.call/evaluates:WorkPackages::CreateContract";
 const KEY_BOUNDARY_PERMISSION: &str =
     "openproject/WorkPackage/create/admission/mutation::create/checks:add_work_packages-in-project";
+const KEY_API: &str =
+    "openproject/WorkPackage/create/admission/POST /api/v3/work_packages/enters:mutation::create";
 const KEY_PERMISSION: &str =
     "openproject/WorkPackage/create/admission/user_allowed_to_add/requires:add_work_packages";
 
@@ -328,7 +330,7 @@ fn claims(ruby: Option<&Ruby>) -> Vec<ClaimSpec> {
             ruby: not_harvested("the API v3 create endpoint is not harvested"),
             rust: edges(&[(API_CREATE, MUTATION_CREATE)]),
             comparability: Comparability::Same,
-            repair: "Charon: run on op-api (structural only: API mutations refuse until bearer auth exists)".into(),
+            repair: "Charon: structure async bodies (create_work_package_core); Ruby: harvest the API v3 create endpoint".into(),
         },
     ];
     if let Some(r) = ruby {
@@ -660,7 +662,7 @@ fn create_admission_three_witness_reconciliation() {
     let store = CharonStore::load(&store_dir()).expect("Charon fixture loads");
     assert_eq!(
         store.crates.keys().map(String::as_str).collect::<Vec<_>>(),
-        ["op_contracts", "op_services"]
+        ["op_api", "op_contracts", "op_services"]
     );
     let src = source();
     let ruby = src.as_deref().map(Ruby::load);
@@ -706,8 +708,14 @@ fn create_admission_three_witness_reconciliation() {
             .iter()
             .filter(|r| r.verdict == Verdict::Slag(SlagReason::RustSideNotExtracted))
             .count(),
-        1,
-        "only the op-api row lacks an extracted crate"
+        0,
+        "every probed crate is in the store"
+    );
+    // (b') The API handler is an async body Charon did not structure either: the edge
+    // `create_work_package_core -> mutation::create` cannot be inspected.
+    assert_eq!(
+        rec.row(KEY_API).expect("row").verdict,
+        Verdict::Slag(SlagReason::RustBodyNotStructured)
     );
     assert_eq!(rec.counts().get("Disagreement"), None);
 
@@ -751,7 +759,8 @@ fn create_admission_three_witness_reconciliation() {
     for drop in [
         &["op_services"][..],
         &["op_contracts"][..],
-        &["op_services", "op_contracts"][..],
+        &["op_api"][..],
+        &["op_services", "op_contracts", "op_api"][..],
     ] {
         let without = store_without(drop);
         let neg = reconcile(&without, ruby.as_ref());

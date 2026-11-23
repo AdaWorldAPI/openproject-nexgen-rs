@@ -1,0 +1,507 @@
+#version 1
+#schema subject	effect	kind	file	start	end
+op_api::representers::work_package::format_duration	ASSERT	DivisionByZero	crates/op-api/src/representers/work_package.rs	15707	15725
+op_api::representers::work_package::format_duration	ASSERT	Overflow:Div	crates/op-api/src/representers/work_package.rs	15707	15725
+op_api::representers::work_package::format_duration	ASSERT	RemainderByZero	crates/op-api/src/representers/work_package.rs	15739	15757
+op_api::representers::work_package::format_duration	ASSERT	Overflow:Rem	crates/op-api/src/representers/work_package.rs	15739	15757
+op_api::error::_::{impl Serialize for op_api::error::HalError}::serialize	ASSERT	Overflow:Add	crates/op-api/src/error.rs	1731	1740
+op_api::error::_::{impl Serialize for op_api::error::HalError}::serialize	ASSERT	Overflow:Add	crates/op-api/src/error.rs	1731	1740
+op_api::error::_::{impl Serialize for op_api::error::HalError}::serialize	ASSERT	Overflow:Add	crates/op-api/src/error.rs	1731	1740
+op_api::representers::hal::{HalCollection<T>[TraitClause0]}::with_pagination_links	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	6595	6616
+op_api::representers::hal::{HalCollection<T>[TraitClause0]}::with_pagination_links	ASSERT	Overflow:Sub	crates/op-api/src/representers/hal.rs	6594	6621
+op_api::representers::hal::{HalCollection<T>[TraitClause0]}::with_pagination_links	ASSERT	DivisionByZero	crates/op-api/src/representers/hal.rs	6594	6632
+op_api::representers::hal::{HalCollection<T>[TraitClause0]}::with_pagination_links	ASSERT	Overflow:Div	crates/op-api/src/representers/hal.rs	6594	6632
+op_api::representers::hal::{HalCollection<T>[TraitClause0]}::with_pagination_links	ASSERT	Overflow:Sub	crates/op-api/src/representers/hal.rs	7246	7256
+op_api::representers::hal::{HalCollection<T>[TraitClause0]}::with_pagination_links	ASSERT	Overflow:Mul	crates/op-api/src/representers/hal.rs	7246	7267
+op_api::representers::hal::{HalCollection<T>[TraitClause0]}::with_pagination_links	ASSERT	Overflow:Mul	crates/op-api/src/representers/hal.rs	7542	7557
+op_api::representers::work_package::{WorkPackageRepresenter}::represent_collection	ASSERT	DivisionByZero	crates/op-api/src/representers/work_package.rs	4999	5019
+op_api::representers::work_package::{WorkPackageRepresenter}::represent_collection	ASSERT	Overflow:Div	crates/op-api/src/representers/work_package.rs	4999	5019
+op_api::representers::work_package::{WorkPackageRepresenter}::represent_collection	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	4999	5023
+op_api::representers::project::{ProjectRepresenter}::represent_collection	ASSERT	DivisionByZero	crates/op-api/src/representers/project.rs	2247	2267
+op_api::representers::project::{ProjectRepresenter}::represent_collection	ASSERT	Overflow:Div	crates/op-api/src/representers/project.rs	2247	2267
+op_api::representers::project::{ProjectRepresenter}::represent_collection	ASSERT	Overflow:Add	crates/op-api/src/representers/project.rs	2247	2271
+op_api::representers::user::{UserRepresenter}::represent_collection	ASSERT	DivisionByZero	crates/op-api/src/representers/user.rs	2450	2470
+op_api::representers::user::{UserRepresenter}::represent_collection	ASSERT	Overflow:Div	crates/op-api/src/representers/user.rs	2450	2470
+op_api::representers::user::{UserRepresenter}::represent_collection	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	2450	2474
+op_api::representers::query::{QueryRepresenter}::represent_collection	ASSERT	DivisionByZero	crates/op-api/src/representers/query.rs	2948	2968
+op_api::representers::query::{QueryRepresenter}::represent_collection	ASSERT	Overflow:Div	crates/op-api/src/representers/query.rs	2948	2968
+op_api::representers::query::{QueryRepresenter}::represent_collection	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	2948	2972
+op_api::representers::query::{QueryRepresenter}::values_to_links	DEREF_WRITE	Local	crates/op-api/src/representers/query.rs	9197	9248
+op_api::representers::query::{QueryRepresenter}::values_to_links	DEREF_WRITE	Local	crates/op-api/src/representers/query.rs	9024	9062
+op_api::representers::news::{NewsRepresenter}::represent_collection	ASSERT	DivisionByZero	crates/op-api/src/representers/news.rs	2855	2875
+op_api::representers::news::{NewsRepresenter}::represent_collection	ASSERT	Overflow:Div	crates/op-api/src/representers/news.rs	2855	2875
+op_api::representers::news::{NewsRepresenter}::represent_collection	ASSERT	Overflow:Add	crates/op-api/src/representers/news.rs	2855	2879
+op_api::handlers::work_packages::_::impl_Serialize_for_WorkPackageCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10464	10473
+op_api::handlers::work_packages::_::impl_Serialize_for_WorkPackageCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10464	10473
+op_api::handlers::work_packages::_::impl_Serialize_for_WorkPackageCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10464	10473
+op_api::handlers::work_packages::_::impl_Serialize_for_WorkPackageCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10464	10473
+op_api::handlers::work_packages::_::impl_Serialize_for_WorkPackageCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10464	10473
+op_api::handlers::work_packages::_::impl_Serialize_for_WorkPackageCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10464	10473
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::work_packages::_#1::impl_Serialize_for_WorkPackageResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/work_packages.rs	10767	10776
+op_api::handlers::relations::_#3::impl_Serialize_for_RelationCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7307	7316
+op_api::handlers::relations::_#3::impl_Serialize_for_RelationCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7307	7316
+op_api::handlers::relations::_#3::impl_Serialize_for_RelationCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7307	7316
+op_api::handlers::relations::_#3::impl_Serialize_for_RelationCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7307	7316
+op_api::handlers::relations::_#3::impl_Serialize_for_RelationCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7307	7316
+op_api::handlers::relations::_#3::impl_Serialize_for_RelationCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7307	7316
+op_api::handlers::watchers::_#1::impl_Serialize_for_WatcherCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6185	6194
+op_api::handlers::watchers::_#1::impl_Serialize_for_WatcherCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6185	6194
+op_api::handlers::watchers::_#1::impl_Serialize_for_WatcherCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6185	6194
+op_api::handlers::watchers::_#1::impl_Serialize_for_WatcherCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6185	6194
+op_api::handlers::watchers::_#1::impl_Serialize_for_WatcherCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6185	6194
+op_api::handlers::watchers::_#1::impl_Serialize_for_WatcherCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6185	6194
+op_api::handlers::watchers::_#2::impl_Serialize_for_WatcherResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6480	6489
+op_api::handlers::watchers::_#2::impl_Serialize_for_WatcherResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6480	6489
+op_api::handlers::watchers::_#2::impl_Serialize_for_WatcherResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6480	6489
+op_api::handlers::watchers::_#2::impl_Serialize_for_WatcherResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6480	6489
+op_api::handlers::watchers::_#5::impl_Serialize_for_WatchingResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	7032	7041
+op_api::handlers::attachments::_#3::impl_Serialize_for_AttachmentCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	8823	8832
+op_api::handlers::attachments::_#3::impl_Serialize_for_AttachmentCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	8823	8832
+op_api::handlers::attachments::_#3::impl_Serialize_for_AttachmentCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	8823	8832
+op_api::handlers::attachments::_#3::impl_Serialize_for_AttachmentCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	8823	8832
+op_api::handlers::attachments::_#3::impl_Serialize_for_AttachmentCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	8823	8832
+op_api::handlers::attachments::_#3::impl_Serialize_for_AttachmentCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	8823	8832
+op_api::handlers::journals::_#2::{impl Serialize for op_api::handlers::journals::ActivityCollection}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7116	7125
+op_api::handlers::journals::_#2::{impl Serialize for op_api::handlers::journals::ActivityCollection}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7116	7125
+op_api::handlers::journals::_#2::{impl Serialize for op_api::handlers::journals::ActivityCollection}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7116	7125
+op_api::handlers::journals::_#2::{impl Serialize for op_api::handlers::journals::ActivityCollection}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7116	7125
+op_api::handlers::journals::_#2::{impl Serialize for op_api::handlers::journals::ActivityCollection}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7116	7125
+op_api::handlers::journals::_#2::{impl Serialize for op_api::handlers::journals::ActivityCollection}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7116	7125
+op_api::handlers::projects::_#1::impl_Serialize_for_ProjectCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	7934	7943
+op_api::handlers::projects::_#1::impl_Serialize_for_ProjectCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	7934	7943
+op_api::handlers::projects::_#1::impl_Serialize_for_ProjectCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	7934	7943
+op_api::handlers::projects::_#1::impl_Serialize_for_ProjectCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	7934	7943
+op_api::handlers::projects::_#1::impl_Serialize_for_ProjectCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	7934	7943
+op_api::handlers::projects::_#1::impl_Serialize_for_ProjectCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	7934	7943
+op_api::handlers::projects::_#2::impl_Serialize_for_ProjectResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8229	8238
+op_api::handlers::projects::_#2::impl_Serialize_for_ProjectResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8229	8238
+op_api::handlers::projects::_#2::impl_Serialize_for_ProjectResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8229	8238
+op_api::handlers::projects::_#2::impl_Serialize_for_ProjectResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8229	8238
+op_api::handlers::projects::_#2::impl_Serialize_for_ProjectResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8229	8238
+op_api::handlers::projects::_#2::impl_Serialize_for_ProjectResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8229	8238
+op_api::handlers::projects::_#2::impl_Serialize_for_ProjectResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8229	8238
+op_api::handlers::projects::_#2::impl_Serialize_for_ProjectResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8229	8238
+op_api::handlers::projects::_#2::impl_Serialize_for_ProjectResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8229	8238
+op_api::handlers::projects::_#2::impl_Serialize_for_ProjectResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8229	8238
+op_api::handlers::projects::_#2::impl_Serialize_for_ProjectResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8229	8238
+op_api::handlers::types::_#2::impl_Serialize_for_TypeCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6499	6508
+op_api::handlers::types::_#2::impl_Serialize_for_TypeCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6499	6508
+op_api::handlers::types::_#2::impl_Serialize_for_TypeCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6499	6508
+op_api::handlers::types::_#2::impl_Serialize_for_TypeCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6499	6508
+op_api::handlers::types::_#2::impl_Serialize_for_TypeCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6499	6508
+op_api::handlers::types::_#2::impl_Serialize_for_TypeCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6499	6508
+op_api::handlers::versions::_#3::impl_Serialize_for_VersionCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	7927	7936
+op_api::handlers::versions::_#3::impl_Serialize_for_VersionCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	7927	7936
+op_api::handlers::versions::_#3::impl_Serialize_for_VersionCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	7927	7936
+op_api::handlers::versions::_#3::impl_Serialize_for_VersionCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	7927	7936
+op_api::handlers::versions::_#3::impl_Serialize_for_VersionCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	7927	7936
+op_api::handlers::versions::_#3::impl_Serialize_for_VersionCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	7927	7936
+op_api::handlers::categories::_#3::impl_Serialize_for_CategoryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7157	7166
+op_api::handlers::categories::_#3::impl_Serialize_for_CategoryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7157	7166
+op_api::handlers::categories::_#3::impl_Serialize_for_CategoryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7157	7166
+op_api::handlers::categories::_#3::impl_Serialize_for_CategoryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7157	7166
+op_api::handlers::categories::_#3::impl_Serialize_for_CategoryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7157	7166
+op_api::handlers::categories::_#3::impl_Serialize_for_CategoryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7157	7166
+op_api::handlers::news::_::impl_Serialize_for_NewsCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3202	3211
+op_api::handlers::news::_::impl_Serialize_for_NewsCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3202	3211
+op_api::handlers::news::_::impl_Serialize_for_NewsCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3202	3211
+op_api::handlers::news::_::impl_Serialize_for_NewsCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3202	3211
+op_api::handlers::news::_::impl_Serialize_for_NewsCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3202	3211
+op_api::handlers::news::_::impl_Serialize_for_NewsCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3202	3211
+op_api::handlers::users::_#2::impl_Serialize_for_UserCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12312	12321
+op_api::handlers::users::_#2::impl_Serialize_for_UserCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12312	12321
+op_api::handlers::users::_#2::impl_Serialize_for_UserCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12312	12321
+op_api::handlers::users::_#2::impl_Serialize_for_UserCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12312	12321
+op_api::handlers::users::_#2::impl_Serialize_for_UserCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12312	12321
+op_api::handlers::users::_#2::impl_Serialize_for_UserCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12312	12321
+op_api::handlers::users::_#3::impl_Serialize_for_UserResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12601	12610
+op_api::handlers::users::_#3::impl_Serialize_for_UserResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12601	12610
+op_api::handlers::users::_#3::impl_Serialize_for_UserResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12601	12610
+op_api::handlers::users::_#3::impl_Serialize_for_UserResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12601	12610
+op_api::handlers::users::_#3::impl_Serialize_for_UserResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12601	12610
+op_api::handlers::users::_#3::impl_Serialize_for_UserResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12601	12610
+op_api::handlers::users::_#3::impl_Serialize_for_UserResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12601	12610
+op_api::handlers::users::_#3::impl_Serialize_for_UserResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12601	12610
+op_api::handlers::users::_#3::impl_Serialize_for_UserResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12601	12610
+op_api::handlers::users::_#3::impl_Serialize_for_UserResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12601	12610
+op_api::handlers::users::_#3::impl_Serialize_for_UserResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12601	12610
+op_api::handlers::users::_#3::impl_Serialize_for_UserResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12601	12610
+op_api::handlers::users::_#3::impl_Serialize_for_UserResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	12601	12610
+op_api::handlers::statuses::_#2::impl_Serialize_for_StatusCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	5919	5928
+op_api::handlers::statuses::_#2::impl_Serialize_for_StatusCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	5919	5928
+op_api::handlers::statuses::_#2::impl_Serialize_for_StatusCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	5919	5928
+op_api::handlers::statuses::_#2::impl_Serialize_for_StatusCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	5919	5928
+op_api::handlers::statuses::_#2::impl_Serialize_for_StatusCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	5919	5928
+op_api::handlers::statuses::_#2::impl_Serialize_for_StatusCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	5919	5928
+op_api::handlers::statuses::_#3::impl_Serialize_for_StatusResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	6212	6221
+op_api::handlers::statuses::_#3::impl_Serialize_for_StatusResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	6212	6221
+op_api::handlers::statuses::_#3::impl_Serialize_for_StatusResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	6212	6221
+op_api::handlers::statuses::_#3::impl_Serialize_for_StatusResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	6212	6221
+op_api::handlers::statuses::_#3::impl_Serialize_for_StatusResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	6212	6221
+op_api::handlers::statuses::_#3::impl_Serialize_for_StatusResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	6212	6221
+op_api::handlers::statuses::_#3::impl_Serialize_for_StatusResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	6212	6221
+op_api::handlers::statuses::_#3::impl_Serialize_for_StatusResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	6212	6221
+op_api::handlers::statuses::_#3::impl_Serialize_for_StatusResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	6212	6221
+op_api::handlers::types::_#3::impl_Serialize_for_TypeResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6788	6797
+op_api::handlers::types::_#3::impl_Serialize_for_TypeResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6788	6797
+op_api::handlers::types::_#3::impl_Serialize_for_TypeResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6788	6797
+op_api::handlers::types::_#3::impl_Serialize_for_TypeResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6788	6797
+op_api::handlers::types::_#3::impl_Serialize_for_TypeResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6788	6797
+op_api::handlers::types::_#3::impl_Serialize_for_TypeResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6788	6797
+op_api::handlers::types::_#3::impl_Serialize_for_TypeResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6788	6797
+op_api::handlers::types::_#3::impl_Serialize_for_TypeResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	6788	6797
+op_api::handlers::priorities::_#2::impl_Serialize_for_PriorityCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	5521	5530
+op_api::handlers::priorities::_#2::impl_Serialize_for_PriorityCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	5521	5530
+op_api::handlers::priorities::_#2::impl_Serialize_for_PriorityCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	5521	5530
+op_api::handlers::priorities::_#2::impl_Serialize_for_PriorityCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	5521	5530
+op_api::handlers::priorities::_#2::impl_Serialize_for_PriorityCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	5521	5530
+op_api::handlers::priorities::_#2::impl_Serialize_for_PriorityCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	5521	5530
+op_api::handlers::priorities::_#3::impl_Serialize_for_PriorityResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	5818	5827
+op_api::handlers::priorities::_#3::impl_Serialize_for_PriorityResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	5818	5827
+op_api::handlers::priorities::_#3::impl_Serialize_for_PriorityResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	5818	5827
+op_api::handlers::priorities::_#3::impl_Serialize_for_PriorityResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	5818	5827
+op_api::handlers::priorities::_#3::impl_Serialize_for_PriorityResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	5818	5827
+op_api::handlers::priorities::_#3::impl_Serialize_for_PriorityResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	5818	5827
+op_api::handlers::priorities::_#3::impl_Serialize_for_PriorityResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	5818	5827
+op_api::handlers::roles::_#2::impl_Serialize_for_RoleCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6179	6188
+op_api::handlers::roles::_#2::impl_Serialize_for_RoleCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6179	6188
+op_api::handlers::roles::_#2::impl_Serialize_for_RoleCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6179	6188
+op_api::handlers::roles::_#2::impl_Serialize_for_RoleCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6179	6188
+op_api::handlers::roles::_#2::impl_Serialize_for_RoleCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6179	6188
+op_api::handlers::roles::_#2::impl_Serialize_for_RoleCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6179	6188
+op_api::handlers::roles::_#3::impl_Serialize_for_RoleResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6468	6477
+op_api::handlers::roles::_#3::impl_Serialize_for_RoleResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6468	6477
+op_api::handlers::roles::_#3::impl_Serialize_for_RoleResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6468	6477
+op_api::handlers::roles::_#3::impl_Serialize_for_RoleResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6468	6477
+op_api::handlers::roles::_#3::impl_Serialize_for_RoleResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6468	6477
+op_api::handlers::roles::_#3::impl_Serialize_for_RoleResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6468	6477
+op_api::handlers::roles::_#3::impl_Serialize_for_RoleResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6468	6477
+op_api::handlers::versions::_#4::impl_Serialize_for_VersionResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8222	8231
+op_api::handlers::versions::_#4::impl_Serialize_for_VersionResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8222	8231
+op_api::handlers::versions::_#4::impl_Serialize_for_VersionResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8222	8231
+op_api::handlers::versions::_#4::impl_Serialize_for_VersionResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8222	8231
+op_api::handlers::versions::_#4::impl_Serialize_for_VersionResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8222	8231
+op_api::handlers::versions::_#4::impl_Serialize_for_VersionResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8222	8231
+op_api::handlers::versions::_#4::impl_Serialize_for_VersionResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8222	8231
+op_api::handlers::versions::_#4::impl_Serialize_for_VersionResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8222	8231
+op_api::handlers::versions::_#4::impl_Serialize_for_VersionResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8222	8231
+op_api::handlers::versions::_#4::impl_Serialize_for_VersionResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8222	8231
+op_api::handlers::versions::_#4::impl_Serialize_for_VersionResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8222	8231
+op_api::handlers::memberships::_#3::impl_Serialize_for_MembershipCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7092	7101
+op_api::handlers::memberships::_#3::impl_Serialize_for_MembershipCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7092	7101
+op_api::handlers::memberships::_#3::impl_Serialize_for_MembershipCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7092	7101
+op_api::handlers::memberships::_#3::impl_Serialize_for_MembershipCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7092	7101
+op_api::handlers::memberships::_#3::impl_Serialize_for_MembershipCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7092	7101
+op_api::handlers::memberships::_#3::impl_Serialize_for_MembershipCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7092	7101
+op_api::handlers::memberships::_#4::impl_Serialize_for_MembershipResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7393	7402
+op_api::handlers::memberships::_#4::impl_Serialize_for_MembershipResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7393	7402
+op_api::handlers::memberships::_#4::impl_Serialize_for_MembershipResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7393	7402
+op_api::handlers::memberships::_#4::impl_Serialize_for_MembershipResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7393	7402
+op_api::handlers::memberships::_#4::impl_Serialize_for_MembershipResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7393	7402
+op_api::handlers::categories::_#4::impl_Serialize_for_CategoryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7454	7463
+op_api::handlers::categories::_#4::impl_Serialize_for_CategoryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7454	7463
+op_api::handlers::categories::_#4::impl_Serialize_for_CategoryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7454	7463
+op_api::handlers::categories::_#4::impl_Serialize_for_CategoryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7454	7463
+op_api::handlers::queries::_#3::impl_Serialize_for_QueryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10539	10548
+op_api::handlers::queries::_#3::impl_Serialize_for_QueryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10539	10548
+op_api::handlers::queries::_#3::impl_Serialize_for_QueryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10539	10548
+op_api::handlers::queries::_#3::impl_Serialize_for_QueryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10539	10548
+op_api::handlers::queries::_#3::impl_Serialize_for_QueryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10539	10548
+op_api::handlers::queries::_#3::impl_Serialize_for_QueryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10539	10548
+op_api::handlers::queries::_#4::impl_Serialize_for_QueryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10830	10839
+op_api::handlers::queries::_#4::impl_Serialize_for_QueryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10830	10839
+op_api::handlers::queries::_#4::impl_Serialize_for_QueryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10830	10839
+op_api::handlers::queries::_#4::impl_Serialize_for_QueryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10830	10839
+op_api::handlers::queries::_#4::impl_Serialize_for_QueryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10830	10839
+op_api::handlers::queries::_#4::impl_Serialize_for_QueryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10830	10839
+op_api::handlers::queries::_#4::impl_Serialize_for_QueryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10830	10839
+op_api::handlers::queries::_#4::impl_Serialize_for_QueryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10830	10839
+op_api::handlers::queries::_#4::impl_Serialize_for_QueryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10830	10839
+op_api::handlers::queries::_#4::impl_Serialize_for_QueryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10830	10839
+op_api::handlers::queries::_#4::impl_Serialize_for_QueryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	10830	10839
+op_api::handlers::queries::_#9::impl_Serialize_for_QueryFormResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	13851	13860
+op_api::handlers::queries::_#9::impl_Serialize_for_QueryFormResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	13851	13860
+op_api::handlers::queries::_#7::impl_Serialize_for_AvailableProjectsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	13529	13538
+op_api::handlers::queries::_#7::impl_Serialize_for_AvailableProjectsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	13529	13538
+op_api::handlers::queries::_#7::impl_Serialize_for_AvailableProjectsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	13529	13538
+op_api::handlers::time_entries::_#1::impl_Serialize_for_TimeEntryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6655	6664
+op_api::handlers::time_entries::_#1::impl_Serialize_for_TimeEntryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6655	6664
+op_api::handlers::time_entries::_#1::impl_Serialize_for_TimeEntryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6655	6664
+op_api::handlers::time_entries::_#1::impl_Serialize_for_TimeEntryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6655	6664
+op_api::handlers::time_entries::_#1::impl_Serialize_for_TimeEntryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6655	6664
+op_api::handlers::time_entries::_#1::impl_Serialize_for_TimeEntryCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6655	6664
+op_api::handlers::time_entries::_#2::impl_Serialize_for_TimeEntryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6954	6963
+op_api::handlers::time_entries::_#2::impl_Serialize_for_TimeEntryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6954	6963
+op_api::handlers::time_entries::_#2::impl_Serialize_for_TimeEntryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6954	6963
+op_api::handlers::time_entries::_#2::impl_Serialize_for_TimeEntryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6954	6963
+op_api::handlers::time_entries::_#2::impl_Serialize_for_TimeEntryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6954	6963
+op_api::handlers::time_entries::_#2::impl_Serialize_for_TimeEntryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6954	6963
+op_api::handlers::time_entries::_#2::impl_Serialize_for_TimeEntryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6954	6963
+op_api::handlers::time_entries::_#2::impl_Serialize_for_TimeEntryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6954	6963
+op_api::handlers::time_entries::_#2::impl_Serialize_for_TimeEntryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6954	6963
+op_api::handlers::time_entries::_#2::impl_Serialize_for_TimeEntryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6954	6963
+op_api::handlers::time_entries::_#2::impl_Serialize_for_TimeEntryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6954	6963
+op_api::handlers::time_entries::_#2::impl_Serialize_for_TimeEntryResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	6954	6963
+op_api::handlers::activities::_#3::{impl Serialize for op_api::handlers::activities::ActivityCollection}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6225	6234
+op_api::handlers::activities::_#3::{impl Serialize for op_api::handlers::activities::ActivityCollection}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6225	6234
+op_api::handlers::activities::_#3::{impl Serialize for op_api::handlers::activities::ActivityCollection}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6225	6234
+op_api::handlers::activities::_#3::{impl Serialize for op_api::handlers::activities::ActivityCollection}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6225	6234
+op_api::handlers::activities::_#3::{impl Serialize for op_api::handlers::activities::ActivityCollection}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6225	6234
+op_api::handlers::activities::_#3::{impl Serialize for op_api::handlers::activities::ActivityCollection}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6225	6234
+op_api::handlers::activities::_#4::{impl Serialize for op_api::handlers::activities::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6522	6531
+op_api::handlers::activities::_#4::{impl Serialize for op_api::handlers::activities::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6522	6531
+op_api::handlers::activities::_#4::{impl Serialize for op_api::handlers::activities::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6522	6531
+op_api::handlers::activities::_#4::{impl Serialize for op_api::handlers::activities::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6522	6531
+op_api::handlers::activities::_#4::{impl Serialize for op_api::handlers::activities::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6522	6531
+op_api::handlers::activities::_#4::{impl Serialize for op_api::handlers::activities::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6522	6531
+op_api::handlers::relations::_#4::impl_Serialize_for_RelationResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7604	7613
+op_api::handlers::relations::_#4::impl_Serialize_for_RelationResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7604	7613
+op_api::handlers::relations::_#4::impl_Serialize_for_RelationResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7604	7613
+op_api::handlers::relations::_#4::impl_Serialize_for_RelationResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7604	7613
+op_api::handlers::relations::_#4::impl_Serialize_for_RelationResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7604	7613
+op_api::handlers::relations::_#4::impl_Serialize_for_RelationResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7604	7613
+op_api::handlers::relations::_#4::impl_Serialize_for_RelationResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7604	7613
+op_api::handlers::relations::_#4::impl_Serialize_for_RelationResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7604	7613
+op_api::handlers::relations::_#4::impl_Serialize_for_RelationResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7604	7613
+op_api::handlers::relations::_#4::impl_Serialize_for_RelationResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	7604	7613
+op_api::handlers::attachments::_#4::impl_Serialize_for_AttachmentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9124	9133
+op_api::handlers::attachments::_#4::impl_Serialize_for_AttachmentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9124	9133
+op_api::handlers::attachments::_#4::impl_Serialize_for_AttachmentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9124	9133
+op_api::handlers::attachments::_#4::impl_Serialize_for_AttachmentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9124	9133
+op_api::handlers::attachments::_#4::impl_Serialize_for_AttachmentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9124	9133
+op_api::handlers::attachments::_#4::impl_Serialize_for_AttachmentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9124	9133
+op_api::handlers::attachments::_#4::impl_Serialize_for_AttachmentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9124	9133
+op_api::handlers::attachments::_#4::impl_Serialize_for_AttachmentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9124	9133
+op_api::handlers::attachments::_#4::impl_Serialize_for_AttachmentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9124	9133
+op_api::handlers::attachments::_#4::impl_Serialize_for_AttachmentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9124	9133
+op_api::handlers::attachments::_#4::impl_Serialize_for_AttachmentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9124	9133
+op_api::handlers::attachments::_#4::impl_Serialize_for_AttachmentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9124	9133
+op_api::handlers::journals::_#3::{impl Serialize for op_api::handlers::journals::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7413	7422
+op_api::handlers::journals::_#3::{impl Serialize for op_api::handlers::journals::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7413	7422
+op_api::handlers::journals::_#3::{impl Serialize for op_api::handlers::journals::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7413	7422
+op_api::handlers::journals::_#3::{impl Serialize for op_api::handlers::journals::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7413	7422
+op_api::handlers::journals::_#3::{impl Serialize for op_api::handlers::journals::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7413	7422
+op_api::handlers::journals::_#3::{impl Serialize for op_api::handlers::journals::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7413	7422
+op_api::handlers::journals::_#3::{impl Serialize for op_api::handlers::journals::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7413	7422
+op_api::handlers::journals::_#3::{impl Serialize for op_api::handlers::journals::ActivityResponse}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7413	7422
+op_api::handlers::news::_#1::impl_Serialize_for_NewsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3491	3500
+op_api::handlers::news::_#1::impl_Serialize_for_NewsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3491	3500
+op_api::handlers::news::_#1::impl_Serialize_for_NewsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3491	3500
+op_api::handlers::news::_#1::impl_Serialize_for_NewsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3491	3500
+op_api::handlers::news::_#1::impl_Serialize_for_NewsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3491	3500
+op_api::handlers::news::_#1::impl_Serialize_for_NewsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3491	3500
+op_api::handlers::news::_#1::impl_Serialize_for_NewsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3491	3500
+op_api::handlers::news::_#1::impl_Serialize_for_NewsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3491	3500
+op_api::handlers::news::_#1::impl_Serialize_for_NewsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3491	3500
+op_api::handlers::news::_#1::impl_Serialize_for_NewsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3491	3500
+op_api::handlers::news::_#1::impl_Serialize_for_NewsResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	3491	3500
+op_api::handlers::projects::_#3::impl_Serialize_for_ProjectLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8737	8746
+op_api::handlers::projects::_#3::impl_Serialize_for_ProjectLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8737	8746
+op_api::handlers::projects::_#3::impl_Serialize_for_ProjectLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8737	8746
+op_api::handlers::projects::_#3::impl_Serialize_for_ProjectLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8737	8746
+op_api::handlers::projects::_#3::impl_Serialize_for_ProjectLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8737	8746
+op_api::handlers::projects::_#3::impl_Serialize_for_ProjectLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	8737	8746
+op_api::handlers::projects::_#4::{impl Serialize for op_api::handlers::projects::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/projects.rs	9046	9055
+op_api::handlers::users::_#4::impl_Serialize_for_UserLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	13212	13221
+op_api::handlers::users::_#4::impl_Serialize_for_UserLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	13212	13221
+op_api::handlers::users::_#4::impl_Serialize_for_UserLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	13212	13221
+op_api::handlers::users::_#4::impl_Serialize_for_UserLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	13212	13221
+op_api::handlers::users::_#5::{impl Serialize for op_api::handlers::users::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/users.rs	13529	13538
+op_api::handlers::statuses::_#4::impl_Serialize_for_StatusLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	6556	6565
+op_api::handlers::statuses::_#4::impl_Serialize_for_StatusLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	6556	6565
+op_api::handlers::statuses::_#5::{impl Serialize for op_api::handlers::statuses::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/statuses.rs	6773	6782
+op_api::handlers::types::_#4::impl_Serialize_for_TypeLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	7166	7175
+op_api::handlers::types::_#4::impl_Serialize_for_TypeLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	7166	7175
+op_api::handlers::types::_#5::{impl Serialize for op_api::handlers::types::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/types.rs	7381	7390
+op_api::handlers::priorities::_#4::impl_Serialize_for_PriorityLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	6114	6123
+op_api::handlers::priorities::_#4::impl_Serialize_for_PriorityLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	6114	6123
+op_api::handlers::priorities::_#5::{impl Serialize for op_api::handlers::priorities::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/priorities.rs	6333	6342
+op_api::handlers::roles::_#4::impl_Serialize_for_RoleLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6762	6771
+op_api::handlers::roles::_#5::{impl Serialize for op_api::handlers::roles::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/roles.rs	6898	6907
+op_api::handlers::versions::_#5::impl_Serialize_for_VersionLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8800	8809
+op_api::handlers::versions::_#5::impl_Serialize_for_VersionLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8800	8809
+op_api::handlers::versions::_#5::impl_Serialize_for_VersionLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	8800	8809
+op_api::handlers::versions::_#6::{impl Serialize for op_api::handlers::versions::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/versions.rs	9000	9009
+op_api::handlers::memberships::_#5::impl_Serialize_for_MembershipLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7661	7670
+op_api::handlers::memberships::_#5::impl_Serialize_for_MembershipLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7661	7670
+op_api::handlers::memberships::_#5::impl_Serialize_for_MembershipLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7661	7670
+op_api::handlers::memberships::_#5::impl_Serialize_for_MembershipLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7661	7670
+op_api::handlers::memberships::_#6::{impl Serialize for op_api::handlers::memberships::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/memberships.rs	7927	7936
+op_api::handlers::activities::_#5::{impl Serialize for op_api::handlers::activities::ActivityLinks}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6797	6806
+op_api::handlers::activities::_#5::{impl Serialize for op_api::handlers::activities::ActivityLinks}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	6797	6806
+op_api::handlers::activities::_#6::{impl Serialize for op_api::handlers::activities::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/activities.rs	7018	7027
+op_api::handlers::categories::_#5::impl_Serialize_for_CategoryLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7688	7697
+op_api::handlers::categories::_#5::impl_Serialize_for_CategoryLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7688	7697
+op_api::handlers::categories::_#5::impl_Serialize_for_CategoryLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7688	7697
+op_api::handlers::categories::_#6::{impl Serialize for op_api::handlers::categories::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/categories.rs	7937	7946
+op_api::handlers::queries::_#5::impl_Serialize_for_QueryLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	11284	11293
+op_api::handlers::queries::_#5::impl_Serialize_for_QueryLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	11284	11293
+op_api::handlers::queries::_#5::impl_Serialize_for_QueryLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	11284	11293
+op_api::handlers::queries::_#5::impl_Serialize_for_QueryLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	11284	11293
+op_api::handlers::queries::_#5::impl_Serialize_for_QueryLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	11284	11293
+op_api::handlers::queries::_#6::{impl Serialize for op_api::handlers::queries::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	11552	11561
+op_api::handlers::queries::_#8::impl_Serialize_for_ProjectStub::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	13769	13778
+op_api::handlers::queries::_#8::impl_Serialize_for_ProjectStub::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	13769	13778
+op_api::handlers::queries::_#10::impl_Serialize_for_QueryFormPayload::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/queries.rs	14064	14073
+op_api::handlers::time_entries::_#3::impl_Serialize_for_TimeEntryLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	7487	7496
+op_api::handlers::time_entries::_#3::impl_Serialize_for_TimeEntryLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	7487	7496
+op_api::handlers::time_entries::_#3::impl_Serialize_for_TimeEntryLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	7487	7496
+op_api::handlers::time_entries::_#3::impl_Serialize_for_TimeEntryLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	7487	7496
+op_api::handlers::time_entries::_#3::impl_Serialize_for_TimeEntryLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	7487	7496
+op_api::handlers::time_entries::_#4::{impl Serialize for op_api::handlers::time_entries::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/time_entries.rs	7769	7778
+op_api::handlers::relations::_#5::impl_Serialize_for_RelationLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	8102	8111
+op_api::handlers::relations::_#5::impl_Serialize_for_RelationLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	8102	8111
+op_api::handlers::relations::_#5::impl_Serialize_for_RelationLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	8102	8111
+op_api::handlers::relations::_#6::{impl Serialize for op_api::handlers::relations::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/relations.rs	8272	8281
+op_api::handlers::watchers::_#3::impl_Serialize_for_WatcherLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6712	6721
+op_api::handlers::watchers::_#3::impl_Serialize_for_WatcherLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6712	6721
+op_api::handlers::watchers::_#3::impl_Serialize_for_WatcherLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6712	6721
+op_api::handlers::watchers::_#4::{impl Serialize for op_api::handlers::watchers::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6888	6897
+op_api::handlers::watchers::_#4::{impl Serialize for op_api::handlers::watchers::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/watchers.rs	6888	6897
+op_api::handlers::attachments::_#5::impl_Serialize_for_AttachmentLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9792	9801
+op_api::handlers::attachments::_#5::impl_Serialize_for_AttachmentLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9792	9801
+op_api::handlers::attachments::_#5::impl_Serialize_for_AttachmentLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9792	9801
+op_api::handlers::attachments::_#5::impl_Serialize_for_AttachmentLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	9792	9801
+op_api::handlers::attachments::_#6::{impl Serialize for op_api::handlers::attachments::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/attachments.rs	10064	10073
+op_api::handlers::journals::_#4::impl_Serialize_for_CommentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7883	7892
+op_api::handlers::journals::_#4::impl_Serialize_for_CommentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7883	7892
+op_api::handlers::journals::_#4::impl_Serialize_for_CommentResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	7883	7892
+op_api::handlers::journals::_#5::impl_Serialize_for_DetailResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	8029	8038
+op_api::handlers::journals::_#5::impl_Serialize_for_DetailResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	8029	8038
+op_api::handlers::journals::_#5::impl_Serialize_for_DetailResponse::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	8029	8038
+op_api::handlers::journals::_#6::{impl Serialize for op_api::handlers::journals::ActivityLinks}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	8174	8183
+op_api::handlers::journals::_#6::{impl Serialize for op_api::handlers::journals::ActivityLinks}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	8174	8183
+op_api::handlers::journals::_#6::{impl Serialize for op_api::handlers::journals::ActivityLinks}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	8174	8183
+op_api::handlers::journals::_#7::{impl Serialize for op_api::handlers::journals::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/journals.rs	8354	8363
+op_api::handlers::news::_#2::impl_Serialize_for_NewsLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	4248	4257
+op_api::handlers::news::_#2::impl_Serialize_for_NewsLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	4248	4257
+op_api::handlers::news::_#2::impl_Serialize_for_NewsLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	4248	4257
+op_api::handlers::news::_#3::{impl Serialize for op_api::handlers::news::Link}::serialize	ASSERT	Overflow:Add	crates/op-api/src/handlers/news.rs	4483	4492
+op_api::representers::hal::_::impl_Serialize_for_HalLink::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	296	305
+op_api::representers::hal::_::impl_Serialize_for_HalLink::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	296	305
+op_api::representers::hal::_::impl_Serialize_for_HalLink::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	296	305
+op_api::representers::hal::_::impl_Serialize_for_HalLink::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	296	305
+op_api::representers::hal::_::impl_Serialize_for_HalLink::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	296	305
+op_api::representers::hal::_#10::impl_Serialize_for_HalCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	5400	5409
+op_api::representers::hal::_#10::impl_Serialize_for_HalCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	5400	5409
+op_api::representers::hal::_#10::impl_Serialize_for_HalCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	5400	5409
+op_api::representers::hal::_#10::impl_Serialize_for_HalCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	5400	5409
+op_api::representers::hal::_#10::impl_Serialize_for_HalCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	5400	5409
+op_api::representers::hal::_#10::impl_Serialize_for_HalCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	5400	5409
+op_api::representers::hal::_#10::impl_Serialize_for_HalCollection::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	5400	5409
+op_api::representers::hal::_#11::impl_Serialize_for_HalCollectionEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	5825	5834
+op_api::representers::hal::_#12::{impl Serialize for op_api::representers::hal::HalError}::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	7984	7993
+op_api::representers::hal::_#12::{impl Serialize for op_api::representers::hal::HalError}::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	7984	7993
+op_api::representers::hal::_#12::{impl Serialize for op_api::representers::hal::HalError}::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	7984	7993
+op_api::representers::hal::_#12::{impl Serialize for op_api::representers::hal::HalError}::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	7984	7993
+op_api::representers::hal::_#13::impl_Serialize_for_HalErrorEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	8350	8359
+op_api::representers::hal::_#14::impl_Serialize_for_HalErrorDetails::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	8483	8492
+op_api::representers::hal::_#14::impl_Serialize_for_HalErrorDetails::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	8483	8492
+op_api::representers::hal::_#14::impl_Serialize_for_HalErrorDetails::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/hal.rs	8483	8492
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_::impl_Serialize_for_WorkPackageRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	372	381
+op_api::representers::work_package::_#1::{impl Serialize for op_api::representers::work_package::FormattableText}::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	2362	2371
+op_api::representers::work_package::_#1::{impl Serialize for op_api::representers::work_package::FormattableText}::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	2362	2371
+op_api::representers::work_package::_#1::{impl Serialize for op_api::representers::work_package::FormattableText}::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	2362	2371
+op_api::representers::work_package::_#2::impl_Serialize_for_StatusEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	13298	13307
+op_api::representers::work_package::_#2::impl_Serialize_for_StatusEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	13298	13307
+op_api::representers::work_package::_#2::impl_Serialize_for_StatusEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	13298	13307
+op_api::representers::work_package::_#2::impl_Serialize_for_StatusEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	13298	13307
+op_api::representers::work_package::_#2::impl_Serialize_for_StatusEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	13298	13307
+op_api::representers::work_package::_#3::impl_Serialize_for_TypeEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	13516	13525
+op_api::representers::work_package::_#3::impl_Serialize_for_TypeEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	13516	13525
+op_api::representers::work_package::_#3::impl_Serialize_for_TypeEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	13516	13525
+op_api::representers::work_package::_#3::impl_Serialize_for_TypeEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	13516	13525
+op_api::representers::work_package::_#4::impl_Serialize_for_PriorityEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	13743	13752
+op_api::representers::work_package::_#4::impl_Serialize_for_PriorityEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	13743	13752
+op_api::representers::work_package::_#4::impl_Serialize_for_PriorityEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	13743	13752
+op_api::representers::work_package::_#4::impl_Serialize_for_PriorityEmbedded::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/work_package.rs	13743	13752
+op_api::representers::project::_::impl_Serialize_for_ProjectRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/project.rs	333	342
+op_api::representers::project::_::impl_Serialize_for_ProjectRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/project.rs	333	342
+op_api::representers::project::_::impl_Serialize_for_ProjectRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/project.rs	333	342
+op_api::representers::project::_::impl_Serialize_for_ProjectRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/project.rs	333	342
+op_api::representers::project::_::impl_Serialize_for_ProjectRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/project.rs	333	342
+op_api::representers::project::_::impl_Serialize_for_ProjectRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/project.rs	333	342
+op_api::representers::project::_::impl_Serialize_for_ProjectRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/project.rs	333	342
+op_api::representers::project::_::impl_Serialize_for_ProjectRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/project.rs	333	342
+op_api::representers::project::_::impl_Serialize_for_ProjectRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/project.rs	333	342
+op_api::representers::project::_#1::{impl Serialize for op_api::representers::project::FormattableText}::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/project.rs	914	923
+op_api::representers::project::_#1::{impl Serialize for op_api::representers::project::FormattableText}::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/project.rs	914	923
+op_api::representers::project::_#1::{impl Serialize for op_api::representers::project::FormattableText}::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/project.rs	914	923
+op_api::representers::user::_::impl_Serialize_for_UserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	324	333
+op_api::representers::user::_::impl_Serialize_for_UserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	324	333
+op_api::representers::user::_::impl_Serialize_for_UserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	324	333
+op_api::representers::user::_::impl_Serialize_for_UserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	324	333
+op_api::representers::user::_::impl_Serialize_for_UserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	324	333
+op_api::representers::user::_::impl_Serialize_for_UserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	324	333
+op_api::representers::user::_::impl_Serialize_for_UserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	324	333
+op_api::representers::user::_::impl_Serialize_for_UserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	324	333
+op_api::representers::user::_::impl_Serialize_for_UserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	324	333
+op_api::representers::user::_::impl_Serialize_for_UserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	324	333
+op_api::representers::user::_::impl_Serialize_for_UserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	324	333
+op_api::representers::user::_::impl_Serialize_for_UserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	324	333
+op_api::representers::user::_#1::impl_Serialize_for_PlaceholderUserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	5273	5282
+op_api::representers::user::_#1::impl_Serialize_for_PlaceholderUserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	5273	5282
+op_api::representers::user::_#2::impl_Serialize_for_SystemUserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	5465	5474
+op_api::representers::user::_#2::impl_Serialize_for_SystemUserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	5465	5474
+op_api::representers::user::_#2::impl_Serialize_for_SystemUserRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/user.rs	5465	5474
+op_api::representers::query::_::impl_Serialize_for_QueryRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	470	479
+op_api::representers::query::_::impl_Serialize_for_QueryRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	470	479
+op_api::representers::query::_::impl_Serialize_for_QueryRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	470	479
+op_api::representers::query::_::impl_Serialize_for_QueryRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	470	479
+op_api::representers::query::_::impl_Serialize_for_QueryRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	470	479
+op_api::representers::query::_::impl_Serialize_for_QueryRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	470	479
+op_api::representers::query::_::impl_Serialize_for_QueryRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	470	479
+op_api::representers::query::_::impl_Serialize_for_QueryRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	470	479
+op_api::representers::query::_::impl_Serialize_for_QueryRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	470	479
+op_api::representers::query::_::impl_Serialize_for_QueryRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	470	479
+op_api::representers::query::_::impl_Serialize_for_QueryRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	470	479
+op_api::representers::query::_#1::impl_Serialize_for_FilterRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	1221	1230
+op_api::representers::query::_#1::impl_Serialize_for_FilterRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	1221	1230
+op_api::representers::query::_#2::impl_Serialize_for_FilterLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	1425	1434
+op_api::representers::query::_#2::impl_Serialize_for_FilterLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	1425	1434
+op_api::representers::query::_#2::impl_Serialize_for_FilterLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	1425	1434
+op_api::representers::query::_#2::impl_Serialize_for_FilterLinks::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/query.rs	1425	1434
+op_api::representers::news::_::impl_Serialize_for_NewsRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/news.rs	920	929
+op_api::representers::news::_::impl_Serialize_for_NewsRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/news.rs	920	929
+op_api::representers::news::_::impl_Serialize_for_NewsRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/news.rs	920	929
+op_api::representers::news::_::impl_Serialize_for_NewsRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/news.rs	920	929
+op_api::representers::news::_::impl_Serialize_for_NewsRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/news.rs	920	929
+op_api::representers::news::_::impl_Serialize_for_NewsRepresentation::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/news.rs	920	929
+op_api::representers::news::_#1::{impl Serialize for op_api::representers::news::FormattableText}::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/news.rs	1302	1311
+op_api::representers::news::_#1::{impl Serialize for op_api::representers::news::FormattableText}::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/news.rs	1302	1311
+op_api::representers::news::_#1::{impl Serialize for op_api::representers::news::FormattableText}::serialize	ASSERT	Overflow:Add	crates/op-api/src/representers/news.rs	1302	1311
