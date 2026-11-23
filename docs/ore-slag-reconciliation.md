@@ -318,7 +318,7 @@ Separate denominators. Before means #138 as it was; after means this change.
 | Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | AssociationNotInCheckout 2, GeneratedUndecided 1 |
 | Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 29 definite, 0 UNKNOWN, 0 differ (ruff ce96aae `hidden_complete`; 16 / 13 between the #140 review fix and this change) |
 | Callback bodies executed | 0 | 0 |
-| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 7/7, 19 rows asserted; create transactional, creation journal, default priority; cited by the reconciliation, run separately |
+| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 9/9, 59 rows asserted; create transactional, creation journal, default priority; update transactional with its journal (no-op, aggregated, new version, rollback); cited by the reconciliation, run separately |
 
 The P3b gaps are reported, not hidden:
 
@@ -335,6 +335,23 @@ The P3b gaps are reported, not hidden:
   Not ported of that journal: the association rows (attachments, custom values,
   labels, versions: empty for every work package this create writes), the
   `JOURNAL_CREATED` notification and aggregation.
+- Closed: the update is transactional and journals like `Journals::CreateService`.
+  `PgMutationStore::update_then` runs the advisory lock, the lookup and authorization,
+  the UPDATE and the journal on one transaction (`Shared::ServiceContext`,
+  `service_context.rb:34-49`). The journal follows `create_service.rb`: no journaled
+  column changed means no journal (`changes` CTE, :509-532); the same user within
+  `journal_aggregation_time_minutes` (default 5, `definition.rb:770-773`) with an empty
+  cause and no note rewrites the last journal in place (`aggregatable?` :595-601,
+  `update_journal_sql` :437-461), so an edit right after the create is NOT a version 2;
+  any other case adds the next version and closes the predecessor's validity period
+  (`update_predecessor_sql` :410-425). EXECUTED_DB steps 4, 8 and 9 assert each case,
+  a rollback after the journal, a stale `lock_version`, and a work package with no
+  journal yet. Not ported: the association rows, notifications, notes and causes,
+  `skip_aggregation`, journaling of the anonymous demo editor (this schema has no
+  `users.type`, so that update is applied without a journal as before), and Rails' skipped
+  UPDATE for a no-op save (a no-op edit still bumps `lock_version` and `updated_at`;
+  it writes no journal). The aggregation window is a constant because there is no
+  settings table.
 - Open: the rest of Ruby's `after_create` (watchers, ancestor updates,
   `apply_patterns`, reschedule) is not ported.
 
