@@ -985,7 +985,7 @@ fn checked_in_admission_table_is_what_the_generator_produces() {
         CHECKED_IN_TABLE,
         "generated_create_admission.rs is stale: run `cargo run -p op-codegen-pipeline --example emit_create_admission`"
     );
-    eprintln!("{}", ExtractionGap::PermissionDeclScan.describe());
+    eprintln!("{}", ExtractionGap::ContractDeclScan.describe());
 }
 
 #[test]
@@ -1342,6 +1342,6 @@ fn create_member_transition_is_executed_and_compared() {
     );
     eprintln!(
         "   typed extraction gap: {}",
-        ExtractionGap::PermissionDeclScan.describe()
+        ExtractionGap::ContractDeclScan.describe()
     );
 }

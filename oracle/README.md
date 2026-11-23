@@ -364,11 +364,16 @@ names for the submitted work package, not values, so no value is compared and th
 takes names only. The permission set is held in "the case's project", an opaque handle: the test
 user answers for it and for no other id.
 
-`ExtractionGap::PermissionDeclScan` (typed, temporary): `permission:`, `default_attribute_permission`,
-`attribute_alias`, `allow_writable_timestamps`, the `validate :x` list and the permission literal in
-`user_allowed_to_add` are read by a line scan of `base_contract.rb` / `create_contract.rb`
-(`op-codegen-pipeline/src/admission_gen.rs`). Its only consumer is the generator. It goes when ruff
-lowers `permission:`.
+Permissions come from ruff's `extract_contract_permissions` (ruff #157): `permission:`,
+`default_attribute_permission` and `attribute_alias`, resolved as `BaseContract` does (canonical
+name, then `_id`, then the default; subclass wins per key). A requirement ruff cannot determine is
+generated as `PermissionRule::Unresolved` and makes the verdict unresolved, never "no permission".
+
+`ExtractionGap::ContractDeclScan` (typed, temporary): the `attribute :x` names and
+`writable: false`, `allow_writable_timestamps`, the `validate :x` list and the permission literal in
+`user_allowed_to_add` are still read by a line scan of `base_contract.rb` / `create_contract.rb`
+(`op-codegen-pipeline/src/admission_gen.rs`). Its consumers are the generator and the
+reconciliation (`contract_scan_facts`).
 
 Acceptance report (OpenProject `2725194`):
 
