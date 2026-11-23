@@ -50,6 +50,19 @@ pub const DELETE_WORK_PACKAGES: &str = "delete_work_packages";
 /// schema has no settings table, so the default is the setting; `0` would switch aggregation off
 /// (`Journals::CreateService#aggregation_active?`, `create_service.rb:603-605`).
 pub const JOURNAL_AGGREGATION_TIME_MINUTES: i64 = 5;
+/// `Setting.total_percent_complete_mode`, at its OpenProject default `work_weighted_average`
+/// (`total_percent_complete_mode: { default: "work_weighted_average", allowed: %w[work_weighted_average
+/// simple_average] }`, `config/constants/settings/definition.rb:279-283`). This schema has no
+/// settings table, so the default is the setting. Only `work_weighted_average` is ported; under any
+/// other value [`derive_done_ratio`]'s caller derives no done ratio (Ruby returns `nil` when
+/// neither `work_weighted_average_mode?` nor `simple_average_mode?` holds,
+/// `update_ancestors_service.rb:121-127`).
+pub const TOTAL_PERCENT_COMPLETE_MODE: &str = WORK_WEIGHTED_AVERAGE;
+/// The one `total_percent_complete_mode` this port computes.
+pub const WORK_WEIGHTED_AVERAGE: &str = "work_weighted_average";
+/// `Journal::CausedByWorkPackageChildValuesChange#type`
+/// (`app/models/journal/caused_by_work_package_child_values_change.rb:31-34`).
+pub const CAUSE_CHILD_VALUES_CHANGE: &str = "work_package_children_changed_values";
 
 // ── who is asking ────────────────────────────────────────────────────
 
@@ -602,12 +615,144 @@ pub async fn create_in<S: CreationStore>(
         start_date: entity.start_date,
         due_date: entity.due_date,
         estimated_hours: entity.estimated_hours,
+        remaining_hours: entity.remaining_hours,
         done_ratio: entity.done_ratio,
         parent_id: entity.parent_id,
         version_id: entity.version_id,
         category_id: entity.category_id,
     };
     Ok(store.insert_wp(dto).await?)
+}
+
+// ── ancestor totals (pure part) ──────────────────────────────────────
+
+/// `Journal::CausedByWorkPackageChildValuesChange.new(work_package).to_hash`
+/// (`caused_by_work_package_child_values_change.rb:31-36`, `CauseOfChange::Base#to_hash`,
+/// `lib_static/plugins/acts_as_journalized/lib/cause_of_change/base.rb:38-40`): `{"type" => type}`
+/// merged with `{"work_package_id" => id}`. `Journals::CreateService#cause_sql` stores it as JSON
+/// (`create_service.rb:583-586`).
+pub fn child_values_change_cause(work_package_id: Id) -> serde_json::Value {
+    serde_json::json!({
+        "type": CAUSE_CHILD_VALUES_CHANGE,
+        "work_package_id": work_package_id,
+    })
+}
+
+/// Ruby's `Array#sum` over floats (`rb_ary_sum`, `array.c`): Kahan-Babuska compensated summation
+/// from an integer `0`, so a list of floats sums with the compensation term added at the end. A
+/// plain left fold (or Postgres `sum(float8)`) can differ in the last bit. Non-finite values follow
+/// Ruby's branches: NaN wins, infinities of opposite sign give NaN.
+pub fn ruby_float_sum(values: &[f64]) -> f64 {
+    let mut f = 0.0_f64;
+    let mut c = 0.0_f64;
+    for &x in values {
+        if f.is_nan() {
+            continue;
+        }
+        if x.is_nan() {
+            f = x;
+            continue;
+        }
+        if x.is_infinite() {
+            if f.is_infinite() && x.signum() != f.signum() {
+                f = f64::NAN;
+            } else {
+                f = x;
+            }
+            continue;
+        }
+        if f.is_infinite() {
+            continue;
+        }
+        let t = f + x;
+        if f.abs() >= x.abs() {
+            c += (f - t) + x;
+        } else {
+            c += (x - t) + f;
+        }
+        f = t;
+    }
+    f + c
+}
+
+/// One work package as `UpdateAncestors::Loader` sees it for a total: its own `estimated_hours` and
+/// `remaining_hours`, and whether its status is `excluded_from_totals`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TotalsInput {
+    pub estimated_hours: Option<f64>,
+    pub remaining_hours: Option<f64>,
+    pub excluded_from_totals: bool,
+}
+
+/// The three derived values of one ancestor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DerivedTotals {
+    pub estimated_hours: Option<f64>,
+    pub remaining_hours: Option<f64>,
+    pub done_ratio: Option<i32>,
+}
+
+/// `derive_total` (`update_ancestors_service.rb:219-228`): `nil` when the ancestor has no
+/// descendants (`no_children?` counts every descendant, excluded or not); otherwise the sum of the
+/// non-nil values over the ancestor and its descendants whose status is not excluded from totals
+/// (`included_in_totals_calculation?`, `app/models/work_package.rb:295-297`, and the loader's
+/// `WorkPackageLikeStruct`, `loader.rb:33-37`), `nil` when there is none.
+fn derive_total(
+    own: &TotalsInput,
+    descendants: &[TotalsInput],
+    attribute: fn(&TotalsInput) -> Option<f64>,
+) -> Option<f64> {
+    if descendants.is_empty() {
+        return None;
+    }
+    let values: Vec<f64> = std::iter::once(own)
+        .chain(descendants)
+        .filter(|w| !w.excluded_from_totals)
+        .filter_map(attribute)
+        .collect();
+    if values.is_empty() {
+        return None;
+    }
+    Some(ruby_float_sum(&values))
+}
+
+/// `calculate_work_weighted_average_percent_complete` (`update_ancestors_service.rb:129-138`):
+/// `nil` when either total is `nil` or the estimate is zero, otherwise
+/// `(((estimated - remaining).to_f / estimated) * 100).round`. Ruby's `Float#round` rounds half
+/// away from zero, as Rust's `f64::round`; Postgres' `round(double precision)` rounds half to even,
+/// so this is computed here and not in SQL.
+pub fn derive_done_ratio(
+    derived_estimated: Option<f64>,
+    derived_remaining: Option<f64>,
+) -> Option<i32> {
+    let (estimated, remaining) = (derived_estimated?, derived_remaining?);
+    if estimated == 0.0 {
+        return None;
+    }
+    let work_done = estimated - remaining;
+    let progress = (work_done / estimated) * 100.0;
+    Some(progress.round() as i32)
+}
+
+/// `derive_total_estimated_and_remaining_hours` then `derive_done_ratio`
+/// (`update_ancestors_service.rb:210-213`, :103-107, `compute_derived_done_ratio` :112-127) for
+/// one ancestor, from itself and all its descendants.
+pub fn derive_ancestor_totals(own: &TotalsInput, descendants: &[TotalsInput]) -> DerivedTotals {
+    let estimated_hours = derive_total(own, descendants, |w| w.estimated_hours);
+    let remaining_hours = derive_total(own, descendants, |w| w.remaining_hours);
+    let done_ratio = if descendants.is_empty() {
+        None
+    } else {
+        match TOTAL_PERCENT_COMPLETE_MODE {
+            WORK_WEIGHTED_AVERAGE => derive_done_ratio(estimated_hours, remaining_hours),
+            _ => None,
+        }
+    };
+    DerivedTotals {
+        estimated_hours,
+        remaining_hours,
+        done_ratio,
+    }
 }
 
 // ── Postgres store ───────────────────────────────────────────────────
@@ -759,8 +904,10 @@ impl PgMutationStore {
     /// only if both succeed. `post_insert` is the statement that runs after the INSERT on the same
     /// transaction (OpenProject runs `after_create`: ancestors, rescheduling, watcher, and the
     /// journal in its save callbacks, inside `in_user_context`). The journal is written here
-    /// ([`PgCreateScope::write_creation_journal`]), then the creator as watcher
-    /// ([`PgCreateScope::add_creator_as_watcher`]); the ancestors and rescheduling are not ported. `None` is the production call. `post_insert` exists so the
+    /// ([`PgCreateScope::write_creation_journal`]), then the ancestors' totals
+    /// ([`PgCreateScope::update_ancestors_of_created`]), then the creator as watcher
+    /// ([`PgCreateScope::add_creator_as_watcher`]); `apply_patterns` and rescheduling are not
+    /// ported. `None` is the production call. `post_insert` exists so the
     /// failure-after-the-journal case can be exercised through the real transaction code.
     pub async fn create_then(
         &self,
@@ -775,6 +922,19 @@ impl PgMutationStore {
         if let Ok(row) = &out {
             if let Err(e) = scope.write_creation_journal(row.id, row.author_id).await {
                 out = Err(e.into());
+            }
+        }
+        // `after_create`'s `multi_update_ancestors` (create_service.rb:75-77): the totals of the
+        // ancestors, before the watcher (:82) and after the journal. Only a work package with a
+        // parent has ancestors.
+        if let Ok(row) = &out {
+            if row.parent_id.is_some() {
+                if let Err(e) = scope
+                    .update_ancestors_of_created(row.id, row.parent_id, row.author_id)
+                    .await
+                {
+                    out = Err(e.into());
+                }
             }
         }
         // `after_create`'s last step, `set_user_as_watcher` (create_service.rb:82, :118-122). The
@@ -892,6 +1052,132 @@ impl PgCreateScope {
         let _ = self.tx.into_inner().rollback().await;
     }
 
+    /// `WorkPackages::CreateService#after_create`'s `multi_update_ancestors`
+    /// (`create_service.rb:75-77`) for the new work package `work_package_id`: Ruby runs
+    /// `UpdateAncestorsService` (`update_ancestors_service.rb:40-52`) with every attribute marked
+    /// changed (`Shared::UpdateAncestors#update_ancestors`, `shared/update_ancestors.rb:44-50`), so
+    /// each ancestor, parent first, derives its totals from itself and all its descendants
+    /// ([`derive_ancestor_totals`]); only an ancestor whose derived values changed is saved
+    /// (`select { ancestor.changed? }`, `update_ancestors_service.rb:62-69`), and each saved
+    /// ancestor is journaled with `Journal::CausedByWorkPackageChildValuesChange`
+    /// (`set_journal_cause`, :99-102) as the acting `user_id` (`save_journals` falls back to
+    /// `User.current`, which `in_user_context` sets to the creator,
+    /// `lib_static/plugins/acts_as_journalized/lib/acts/journalized/save_hooks.rb:61-80`),
+    /// through [`PgCreateScope::write_journal`] so the aggregation rules of
+    /// `Journals::CreateService` apply. The save is `wp.save(validate: false)` (:78-87): it bumps
+    /// `lock_version` and `updated_at` as any save does.
+    ///
+    /// The new work package is itself one of the loader's candidates (`Loader#select` yields
+    /// `[work_package, *ancestors]`), but it has no descendants, so every derived value is `nil`
+    /// as before and it is not saved: nothing is done for it here. Returns the ids of the ancestors
+    /// that were saved, nearest first.
+    ///
+    /// Not ported: `switch_to_automatic_mode` (:157-181; it needs scheduling relations, which this
+    /// schema does not have), `derive_ignore_non_working_days` (:183-199; no column),
+    /// `simple_average` mode and the status-based done-ratio mode ([`TOTAL_PERCENT_COMPLETE_MODE`]),
+    /// former ancestors (only a change of parent has any, `Loader#former_ancestors`), the
+    /// `JOURNAL_CREATED` notification (the ancestors are saved with notifications off,
+    /// :80-84) and the update path: an edit does not recompute ancestors yet. Like Ruby's create
+    /// (`in_user_context`, not `in_mutex_context`) it takes no lock on the ancestors.
+    pub async fn update_ancestors_of_created(
+        &self,
+        work_package_id: Id,
+        parent_id: Option<Id>,
+        user_id: Id,
+    ) -> Result<Vec<Id>, StoreFailure> {
+        let Some(parent_id) = parent_id else {
+            return Ok(Vec::new());
+        };
+        // The chain parent, grandparent, ... root. `UNION` (not `UNION ALL`) ends a cycle.
+        let links: Vec<(Id, Option<Id>)> = {
+            let mut tx = self.tx.lock().await;
+            sqlx::query_as(
+                "WITH RECURSIVE up(id, parent_id) AS ( \
+                     SELECT id, parent_id FROM work_packages WHERE id = $1 \
+                     UNION \
+                     SELECT p.id, p.parent_id FROM up JOIN work_packages p ON p.id = up.parent_id) \
+                 SELECT id, parent_id FROM up",
+            )
+            .bind(parent_id)
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(db_failure)?
+        };
+        let parent_of: std::collections::HashMap<Id, Option<Id>> = links.into_iter().collect();
+        let mut chain = Vec::new();
+        let mut next = Some(parent_id);
+        while let Some(id) = next {
+            if id == work_package_id || chain.contains(&id) || !parent_of.contains_key(&id) {
+                break;
+            }
+            chain.push(id);
+            next = parent_of[&id];
+        }
+
+        let cause = child_values_change_cause(work_package_id);
+        let mut saved = Vec::new();
+        for ancestor in chain {
+            // The ancestor first, then its descendants (`[work_package] + descendants_of`),
+            // which exclude the ancestor itself even in a cycle (`where.not(id:)`).
+            let rows: Vec<(Id, Option<f64>, Option<f64>, bool)> = {
+                let mut tx = self.tx.lock().await;
+                sqlx::query_as(
+                    "WITH RECURSIVE down(id) AS ( \
+                         SELECT id FROM work_packages WHERE parent_id = $1 \
+                         UNION \
+                         SELECT w.id FROM work_packages w JOIN down d ON w.parent_id = d.id) \
+                     SELECT w.id, w.estimated_hours, w.remaining_hours, \
+                            COALESCE(s.excluded_from_totals, false) \
+                     FROM work_packages w LEFT JOIN statuses s ON s.id = w.status_id \
+                     WHERE w.id = $1 OR w.id IN (SELECT id FROM down WHERE id <> $1) \
+                     ORDER BY (w.id = $1) DESC, w.id",
+                )
+                .bind(ancestor)
+                .fetch_all(&mut **tx)
+                .await
+                .map_err(db_failure)?
+            };
+            let input = |r: &(Id, Option<f64>, Option<f64>, bool)| TotalsInput {
+                estimated_hours: r.1,
+                remaining_hours: r.2,
+                excluded_from_totals: r.3,
+            };
+            let Some(own) = rows.iter().find(|r| r.0 == ancestor).map(input) else {
+                continue;
+            };
+            let descendants: Vec<TotalsInput> =
+                rows.iter().filter(|r| r.0 != ancestor).map(input).collect();
+            let derived = derive_ancestor_totals(&own, &descendants);
+
+            let changed = {
+                let mut tx = self.tx.lock().await;
+                sqlx::query(
+                    "UPDATE work_packages SET derived_estimated_hours = $2, \
+                         derived_remaining_hours = $3, derived_done_ratio = $4, \
+                         lock_version = lock_version + 1, updated_at = statement_timestamp() \
+                     WHERE id = $1 AND (derived_estimated_hours IS DISTINCT FROM $2 \
+                         OR derived_remaining_hours IS DISTINCT FROM $3 \
+                         OR derived_done_ratio IS DISTINCT FROM $4)",
+                )
+                .bind(ancestor)
+                .bind(derived.estimated_hours)
+                .bind(derived.remaining_hours)
+                .bind(derived.done_ratio)
+                .execute(&mut **tx)
+                .await
+                .map_err(db_failure)?
+                .rows_affected()
+                    == 1
+            };
+            if changed {
+                self.write_journal(ancestor, user_id, JOURNAL_AGGREGATION_TIME_MINUTES, &cause)
+                    .await?;
+                saved.push(ancestor);
+            }
+        }
+        Ok(saved)
+    }
+
     /// The creator becomes a watcher of the new work package: `WorkPackages::CreateService#
     /// set_user_as_watcher` (`app/services/work_packages/create_service.rb:118-122`) runs
     /// `Services::CreateWatcher` (`lib/services/create_watcher.rb:36-49`), which adds the watcher
@@ -974,7 +1260,8 @@ impl PgCreateScope {
                 type_id, project_id, subject, description, due_date, category_id, status_id,
                 assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
                 start_date, parent_id, responsible_id, schedule_manually, duration,
-                remaining_hours, story_points
+                remaining_hours, story_points,
+                derived_estimated_hours, derived_remaining_hours, derived_done_ratio
             )
             SELECT
                 type_id, project_id, subject,
@@ -982,7 +1269,8 @@ impl PgCreateScope {
                 due_date, category_id, status_id,
                 assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
                 start_date, parent_id, responsible_id, schedule_manually, duration,
-                remaining_hours, story_points
+                remaining_hours, story_points,
+                derived_estimated_hours, derived_remaining_hours, derived_done_ratio
             FROM work_packages WHERE id = $1
             RETURNING id
             "#,
@@ -1185,6 +1473,40 @@ impl PgCreateScope {
         user_id: Id,
         aggregation_minutes: i64,
     ) -> Result<UpdateJournal, StoreFailure> {
+        self.write_journal(
+            work_package_id,
+            user_id,
+            aggregation_minutes,
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// [`PgCreateScope::write_update_journal`] for a journal with a `cause`
+    /// (`Journals::CreateService#call(cause:)`, `create_service.rb:55`); `{}` is `NoCause`.
+    ///
+    /// What a non-empty cause changes, all from `create_service.rb`:
+    ///
+    /// * **The journal is written even if no journaled column differs**
+    ///   (`only_on_changed_or_forced_condition_sql`, `helpers.rb:54-60`: the `changes` condition
+    ///   is only added when `notes.blank? && cause.blank?`, and `CauseOfChange::Base#blank?` is
+    ///   `false`, `lib_static/plugins/acts_as_journalized/lib/cause_of_change/base.rb`).
+    /// * **Aggregation** also needs `only_one_or_same_cause?` (:619-621): the predecessor's cause
+    ///   is empty, or equal to this cause (`Hash#==` hands a non-Hash operand to its own `==`,
+    ///   which compares `to_hash`), or `cause.mergeable_into?(predecessor.cause)`. `Base#merge_into`
+    ///   is `nil`, and `Journal::CausedByWorkPackageChildValuesChange` does not override it, so a
+    ///   predecessor with a different non-empty cause is never aggregated into.
+    /// * The rewritten journal takes this cause (`aggregate_cause`, :623-627: `merge_into` is
+    ///   `nil`, so the cause itself), and a new journal stores it (`insert_journal_sql`,
+    ///   `cause_sql` :583-586).
+    async fn write_journal(
+        &self,
+        work_package_id: Id,
+        user_id: Id,
+        aggregation_minutes: i64,
+        cause: &serde_json::Value,
+    ) -> Result<UpdateJournal, StoreFailure> {
+        let forced = cause.as_object().is_some_and(|c| !c.is_empty());
         let mut tx = self.tx.lock().await;
 
         // `max_journals`: the last journal, if any (`journable.last_journal` in Ruby).
@@ -1229,6 +1551,9 @@ impl PgCreateScope {
                     OR w.duration IS DISTINCT FROM d.duration
                     OR w.remaining_hours IS DISTINCT FROM d.remaining_hours
                     OR w.story_points IS DISTINCT FROM d.story_points
+                    OR w.derived_estimated_hours IS DISTINCT FROM d.derived_estimated_hours
+                    OR w.derived_remaining_hours IS DISTINCT FROM d.derived_remaining_hours
+                    OR w.derived_done_ratio IS DISTINCT FROM d.derived_done_ratio
                     OR REGEXP_REPLACE(COALESCE(w.description, ''), '\r\n', E'\n', 'g')
                        != REGEXP_REPLACE(COALESCE(d.description, ''), '\r\n', E'\n', 'g')
                 )
@@ -1240,17 +1565,18 @@ impl PgCreateScope {
         .fetch_one(&mut **tx)
         .await
         .map_err(db_failure)?;
-        if !changed {
+        if !changed && !forced {
             return Ok(UpdateJournal::Unchanged);
         }
 
         // `aggregatable?` for notes `""`, internal false, `NoCause`.
         let aggregate = last.as_ref().is_some_and(
-            |(_, _, _, last_user, notes, restricted, cause, within)| {
+            |(_, _, _, last_user, notes, restricted, last_cause, within)| {
                 aggregation_minutes > 0
                     && *within
                     && *last_user == user_id
-                    && cause.as_object().is_none_or(|c| c.is_empty())
+                    && (last_cause.as_object().is_none_or(|c| c.is_empty())
+                        || last_cause == cause)
                     && notes.as_deref().is_none_or(str::is_empty)
                     && !*restricted
             },
@@ -1296,7 +1622,8 @@ impl PgCreateScope {
                 type_id, project_id, subject, description, due_date, category_id, status_id,
                 assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
                 start_date, parent_id, responsible_id, schedule_manually, duration,
-                remaining_hours, story_points
+                remaining_hours, story_points,
+                derived_estimated_hours, derived_remaining_hours, derived_done_ratio
             )
             SELECT
                 type_id, project_id, subject,
@@ -1304,7 +1631,8 @@ impl PgCreateScope {
                 due_date, category_id, status_id,
                 assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
                 start_date, parent_id, responsible_id, schedule_manually, duration,
-                remaining_hours, story_points
+                remaining_hours, story_points,
+                derived_estimated_hours, derived_remaining_hours, derived_done_ratio
             FROM work_packages WHERE id = $1
             RETURNING id
             "#,
@@ -1317,12 +1645,13 @@ impl PgCreateScope {
         if aggregate {
             // `update_journal_sql`: the predecessor is rewritten in place.
             sqlx::query(
-                "UPDATE journals SET updated_at = $2, data_id = $3, cause = '{}'::jsonb \
+                "UPDATE journals SET updated_at = $2, data_id = $3, cause = $4 \
                  WHERE id = $1",
             )
             .bind(last_id)
             .bind(fetch_time)
             .bind(data_id)
+            .bind(cause)
             .execute(&mut **tx)
             .await
             .map_err(db_failure)?;
@@ -1348,7 +1677,7 @@ impl PgCreateScope {
                 created_at, updated_at, data_id, data_type, cause, validity_period
             ) VALUES (
                 $1, 'WorkPackage', $2, $3, '', false,
-                $4, $4, $5, 'Journal::WorkPackageJournal', '{}'::jsonb,
+                $4, $4, $5, 'Journal::WorkPackageJournal', $6,
                 tstzrange($4, NULL)
             )
             "#,
@@ -1358,6 +1687,7 @@ impl PgCreateScope {
         .bind(user_id)
         .bind(fetch_time)
         .bind(data_id)
+        .bind(cause)
         .execute(&mut **tx)
         .await
         .map_err(db_failure)?;
@@ -1514,9 +1844,9 @@ impl CreationStore for PgCreateScope {
                 priority_id, author_id, assigned_to_id, responsible_id,
                 start_date, due_date, estimated_hours, done_ratio,
                 parent_id, version_id, category_id, lock_version,
-                created_at, updated_at
+                created_at, updated_at, remaining_hours
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0, NOW(), NOW()
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0, NOW(), NOW(), $17
             )
             RETURNING id, subject, description, project_id, type_id, status_id,
                       priority_id, author_id, assigned_to_id, responsible_id,
@@ -1541,6 +1871,7 @@ impl CreationStore for PgCreateScope {
         .bind(dto.parent_id)
         .bind(dto.version_id)
         .bind(dto.category_id)
+        .bind(dto.remaining_hours)
         .fetch_one(&mut **tx)
         .await
         .map_err(db_failure)
@@ -2116,6 +2447,100 @@ mod tests {
             delete(&store, &alice(), 100).await,
             Err(MutationError::Forbidden)
         ));
+    }
+
+    // ── ancestor totals (pure part) ──────────────────────────────────
+
+    fn input(est: Option<f64>, rem: Option<f64>, excluded: bool) -> TotalsInput {
+        TotalsInput {
+            estimated_hours: est,
+            remaining_hours: rem,
+            excluded_from_totals: excluded,
+        }
+    }
+
+    #[test]
+    fn a_work_package_without_descendants_derives_nothing() {
+        let d = derive_ancestor_totals(&input(Some(8.0), Some(4.0), false), &[]);
+        assert_eq!(
+            d,
+            DerivedTotals {
+                estimated_hours: None,
+                remaining_hours: None,
+                done_ratio: None
+            }
+        );
+    }
+
+    #[test]
+    fn totals_sum_the_ancestor_and_its_included_descendants() {
+        // 10 + 5 (+ 99 excluded) = 15 estimated; 4 + 1 = 5 remaining; (15 - 5) / 15 * 100 = 66.67.
+        let d = derive_ancestor_totals(
+            &input(Some(10.0), Some(4.0), false),
+            &[
+                input(Some(5.0), Some(1.0), false),
+                input(Some(99.0), Some(99.0), true),
+            ],
+        );
+        assert_eq!(d.estimated_hours, Some(15.0));
+        assert_eq!(d.remaining_hours, Some(5.0));
+        assert_eq!(d.done_ratio, Some(67));
+    }
+
+    #[test]
+    fn an_excluded_ancestor_does_not_count_itself_and_only_nulls_give_null() {
+        let d = derive_ancestor_totals(
+            &input(Some(10.0), Some(10.0), true),
+            &[input(Some(2.0), None, false)],
+        );
+        assert_eq!(
+            d.estimated_hours,
+            Some(2.0),
+            "the excluded ancestor is left out"
+        );
+        assert_eq!(d.remaining_hours, None, "no non-null remaining value: nil");
+        assert_eq!(d.done_ratio, None, "a nil total gives no done ratio");
+        // An excluded-only subtree: descendants exist (`no_children?` is false) but no value counts.
+        let d = derive_ancestor_totals(
+            &input(None, None, false),
+            &[input(Some(3.0), Some(1.0), true)],
+        );
+        assert_eq!(
+            (d.estimated_hours, d.remaining_hours, d.done_ratio),
+            (None, None, None)
+        );
+    }
+
+    #[test]
+    fn the_done_ratio_rounds_half_away_from_zero_like_ruby() {
+        // 0.5 -> 1 (round-half-even would give 0), 1.5 -> 2, 2.5 -> 3, and -0.5 -> -1.
+        assert_eq!(derive_done_ratio(Some(200.0), Some(199.0)), Some(1));
+        assert_eq!(derive_done_ratio(Some(200.0), Some(197.0)), Some(2));
+        assert_eq!(derive_done_ratio(Some(200.0), Some(195.0)), Some(3));
+        assert_eq!(derive_done_ratio(Some(200.0), Some(201.0)), Some(-1));
+        assert_eq!(
+            derive_done_ratio(Some(0.0), Some(0.0)),
+            None,
+            "zero estimate: nil"
+        );
+        assert_eq!(derive_done_ratio(None, Some(1.0)), None);
+        assert_eq!(derive_done_ratio(Some(1.0), None), None);
+    }
+
+    #[test]
+    fn the_float_sum_is_compensated_like_rubys_array_sum() {
+        // `[0.1, 0.2, 0.3].sum` is 0.6 in Ruby (Kahan-Babuska); a plain fold gives 0.6000000000000001.
+        assert_eq!(ruby_float_sum(&[0.1, 0.2, 0.3]), 0.6);
+        assert_ne!([0.1_f64, 0.2, 0.3].iter().sum::<f64>(), 0.6);
+        assert_eq!(ruby_float_sum(&[]), 0.0);
+    }
+
+    #[test]
+    fn the_cause_is_the_children_changed_values_hash() {
+        assert_eq!(
+            child_values_change_cause(42),
+            serde_json::json!({"type": "work_package_children_changed_values", "work_package_id": 42})
+        );
     }
 
     #[test]

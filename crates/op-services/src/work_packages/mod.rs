@@ -31,6 +31,7 @@ pub struct WorkPackageParams {
     pub start_date: Option<chrono::NaiveDate>,
     pub due_date: Option<chrono::NaiveDate>,
     pub estimated_hours: Option<f64>,
+    pub remaining_hours: Option<f64>,
     pub done_ratio: Option<i32>,
     pub parent_id: Option<i64>,
     pub version_id: Option<i64>,
@@ -86,6 +87,11 @@ impl WorkPackageParams {
 
     pub fn with_estimated_hours(mut self, hours: f64) -> Self {
         self.estimated_hours = Some(hours);
+        self
+    }
+
+    pub fn with_remaining_hours(mut self, hours: f64) -> Self {
+        self.remaining_hours = Some(hours);
         self
     }
 

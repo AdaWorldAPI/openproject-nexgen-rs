@@ -49,6 +49,7 @@ pub struct CreateWorkPackageDto {
     pub start_date: Option<chrono::NaiveDate>,
     pub due_date: Option<chrono::NaiveDate>,
     pub estimated_hours: Option<f64>,
+    pub remaining_hours: Option<f64>,
     pub done_ratio: i32,
     pub parent_id: Option<i64>,
     pub version_id: Option<i64>,
@@ -303,9 +304,9 @@ impl Repository<WorkPackageRow, CreateWorkPackageDto, UpdateWorkPackageDto>
                 priority_id, author_id, assigned_to_id, responsible_id,
                 start_date, due_date, estimated_hours, done_ratio,
                 parent_id, version_id, category_id, lock_version,
-                created_at, updated_at
+                created_at, updated_at, remaining_hours
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0, NOW(), NOW()
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0, NOW(), NOW(), $17
             )
             RETURNING id, subject, description, project_id, type_id, status_id,
                       priority_id, author_id, assigned_to_id, responsible_id,
@@ -330,6 +331,7 @@ impl Repository<WorkPackageRow, CreateWorkPackageDto, UpdateWorkPackageDto>
         .bind(dto.parent_id)
         .bind(dto.version_id)
         .bind(dto.category_id)
+        .bind(dto.remaining_hours)
         .fetch_one(&self.pool)
         .await?;
 

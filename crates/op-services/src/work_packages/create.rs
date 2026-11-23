@@ -224,6 +224,7 @@ fn submitted_attributes(p: &WorkPackageParams) -> Vec<&'static str> {
         (p.start_date.is_some(), "start_date"),
         (p.due_date.is_some(), "due_date"),
         (p.estimated_hours.is_some(), "estimated_hours"),
+        (p.remaining_hours.is_some(), "remaining_hours"),
         (p.done_ratio.is_some(), "done_ratio"),
         (p.parent_id.is_some(), "parent"),
         (p.version_id.is_some(), "target_versions"),
