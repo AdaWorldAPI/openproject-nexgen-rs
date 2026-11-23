@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use a2ui_layout::{LayoutMode, Region, ZONES_CSS};
+use a2ui_layout::{LayoutMode, Region, RIGHT_SLIM_PX, ZONES_CSS};
 use axum::extract::{Extension, Form, Path, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -2008,6 +2008,29 @@ fn page_shell(title: &str, body_html: &str) -> String {
     page_shell_with(title, body_html, &layout::default_region_mask())
 }
 
+/// Theme rules on top of the shared `a2ui-layout` grid. Pages use
+/// [`LayoutMode::MainWide`] (210px nav | center | 70px quick menu; at 1920px
+/// the center is 2 x 820). The shared grid only covers widths that fit the
+/// chrome; below that a wrap breakpoint is the theme's job (`Budget::for_viewport`
+/// docs): at 640px and below the side menu is hidden and the center is the
+/// only column, the top bar carrying the same live links ([`nav::menu`]). A
+/// page without the side menu would otherwise put its center into the 210px
+/// slot, so its grid drops that column.
+fn body_grid_css(regions: &WideFieldMask) -> String {
+    let mut css = String::new();
+    if !layout::region_on(regions, "left_menu") {
+        css.push_str(&format!(
+            "  .a2-body.{} {{ grid-template-columns: minmax(0, 1fr) {RIGHT_SLIM_PX}px; }}\n",
+            LayoutMode::MainWide.class()
+        ));
+    }
+    css.push_str(
+        "  @media (max-width: 640px) { .a2-body, .a2-body.mode-main-wide { grid-template-columns: minmax(0, 1fr); } \
+         aside.sidemenu-region { display: none; } nav.topnav { flex-wrap: wrap; } }\n",
+    );
+    css
+}
+
 /// [`page_shell`] with an explicit region mask. Layer-0 region composition:
 /// which chrome regions render is a masked ClassView (crate::layout). The
 /// center zone is always `body_html`; the header, side menu, right menu, and
@@ -2059,6 +2082,7 @@ fn page_shell_with(title: &str, body_html: &str, regions: &WideFieldMask) -> Str
 <title>{title}</title>
 <style>
 {zones_css}
+{body_grid}
   :root {{ color-scheme: light dark; }}
   * {{ box-sizing: border-box; }}
   body {{
@@ -2175,7 +2199,8 @@ fn page_shell_with(title: &str, body_html: &str, regions: &WideFieldMask) -> Str
 </body>
 </html>"#,
         zones_css = ZONES_CSS,
-        mode = LayoutMode::Standard.class(),
+        body_grid = body_grid_css(regions),
+        mode = LayoutMode::MainWide.class(),
         center = Region::Center.marker(),
         header = header_region,
         left_menu = left_menu_region,
@@ -2201,6 +2226,51 @@ mod executed_db;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pages use the shared main-wide layout: 210px nav, the center, a 70px
+    /// quick-menu rail (1920 = 210 + 2 x 820 + 70). No page-local column
+    /// override while the side menu renders; without it the center does not
+    /// fall into the 210px slot.
+    #[test]
+    fn pages_use_the_main_wide_layout_and_own_no_columns_while_the_menu_renders() {
+        let html = page_shell("t", "<p>x</p>");
+        assert!(
+            html.contains("<div class=\"a2-body mode-main-wide\">"),
+            "{html}"
+        );
+        assert!(html.contains(
+            ".a2-body.mode-main-wide { grid-template-columns: 210px minmax(0, 1fr) 70px; }"
+        ));
+        let default = body_grid_css(&layout::default_region_mask());
+        assert!(
+            !default.contains("grid-template-columns: 210px"),
+            "{default}"
+        );
+        assert!(!default.contains("270px"), "{default}");
+
+        let no_left = body_grid_css(&layout::region_mask(&["global", "header", "main"]));
+        assert!(
+            no_left.contains(
+                ".a2-body.mode-main-wide { grid-template-columns: minmax(0, 1fr) 70px; }"
+            ),
+            "{no_left}"
+        );
+    }
+
+    /// At phone width the side menu is hidden and the center is the only
+    /// column; the rule comes after `ZONES_CSS` so it overrides the shared grid.
+    #[test]
+    fn a_phone_width_page_is_one_column_and_the_override_follows_the_shared_grid() {
+        let html = page_shell("t", "<p>x</p>");
+        let phone = "@media (max-width: 640px) { .a2-body, .a2-body.mode-main-wide { grid-template-columns: minmax(0, 1fr); } aside.sidemenu-region { display: none; } nav.topnav { flex-wrap: wrap; } }";
+        assert!(html.contains(phone), "{html}");
+        let zones = html.find(ZONES_CSS).expect("shared grid present");
+        let ours = html.find(phone).expect("phone rule present");
+        assert!(
+            ours > zones,
+            "the override must come after the shared grid to win"
+        );
+    }
     use chrono::Utc;
 
     fn status(id: i64, name: &str, position: i32) -> StatusRow {
