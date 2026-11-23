@@ -3,7 +3,10 @@
 //! Mirrors: app/services/work_packages/create_service.rb
 
 use op_contracts::base::UserContext;
-use op_contracts::work_packages::{admit_create, AdmissionFacts, CreateAdmission, Verdict};
+use op_contracts::work_packages::{
+    admit_create, AdmissionFacts, CreateAdmission, Verdict, FACT_HAS_CHILDREN,
+    FACT_HAS_SCHEDULING_PREDECESSORS, FACT_SCHEDULE_MANUALLY,
+};
 use op_core::error::ValidationErrors;
 use op_core::traits::Id;
 
@@ -35,6 +38,32 @@ struct NoFacts;
 impl AdmissionFacts for NoFacts {
     fn fact(&self, _name: &str) -> Option<bool> {
         None
+    }
+}
+
+/// What a create itself determines about the new model, for
+/// `validate_has_predecessors_or_children`. The caller's facts win; these answer only
+/// what the caller left out.
+///
+/// - `schedule_manually`: [`WorkPackageParams`] cannot submit it, so the new record has the column
+///   default, `true` (`db/migrate/tables/work_packages.rb:53`).
+/// - `children`: an unsaved work package has none.
+/// - scheduling predecessors: `Relation.used_for_scheduling_of(nil)` is `[]`
+///   (`app/models/relations/scopes/used_for_scheduling_of.rb:45`), so without a parent there are
+///   none; with a parent they are not looked up here and stay unknown.
+struct WithCreateFacts<'a> {
+    caller: &'a dyn AdmissionFacts,
+    parent_submitted: bool,
+}
+
+impl AdmissionFacts for WithCreateFacts<'_> {
+    fn fact(&self, name: &str) -> Option<bool> {
+        self.caller.fact(name).or(match name {
+            FACT_SCHEDULE_MANUALLY => Some(true),
+            FACT_HAS_CHILDREN => Some(false),
+            FACT_HAS_SCHEDULING_PREDECESSORS => (!self.parent_submitted).then_some(false),
+            _ => None,
+        })
     }
 }
 
@@ -86,8 +115,12 @@ impl<'a, U: UserContext> CreateWorkPackageService<'a, U> {
         // cannot be made (a fact the rules read was not supplied, or the rule is not
         // extractable) is a typed refusal, never an admission.
         let names = submitted_attributes(&params);
-        let facts: &dyn AdmissionFacts = self.facts.unwrap_or(&NoFacts);
-        let admission = self.admit(params.project_id, &names, facts);
+        let caller_facts: &dyn AdmissionFacts = self.facts.unwrap_or(&NoFacts);
+        let facts = WithCreateFacts {
+            caller: caller_facts,
+            parent_submitted: params.parent_id.is_some(),
+        };
+        let admission = self.admit(params.project_id, &names, &facts);
         // `WorkPackage` validates `project` presence (app/models/work_package/
         // validations.rb:34). The model and contract validations run together,
         // so a denied request without a project reports both. No project is
@@ -362,6 +395,54 @@ mod tests {
             .with_status_id(1);
         let result = CreateWorkPackageService::new(&user).with_facts(&Open).call(params);
         assert!(result.is_success());
+    }
+
+    #[test]
+    fn a_new_automatically_scheduled_package_without_scheduling_input_is_refused() {
+        // create_contract.rb:46-48, 68-72: automatic, no parent, no children.
+        struct Automatic;
+        impl AdmissionFacts for Automatic {
+            fn fact(&self, name: &str) -> Option<bool> {
+                (name == FACT_SCHEDULE_MANUALLY).then_some(false)
+            }
+        }
+        let user = create_user_with_permission();
+        let params = WorkPackageParams::new()
+            .with_subject("Automatic leaf")
+            .with_project_id(1)
+            .with_type_id(1);
+        let result = CreateWorkPackageService::new(&user)
+            .with_facts(&Automatic)
+            .call(params.clone());
+        assert!(result.is_failure());
+        assert_eq!(
+            result.errors().get("schedule_manually"),
+            Some(&vec!["cannot_be_automatically_scheduled".to_string()])
+        );
+        // The same create under the column default (manual) is admitted.
+        assert!(CreateWorkPackageService::new(&user).call(params).is_success());
+    }
+
+    #[test]
+    fn an_automatic_package_under_a_parent_is_unresolved_not_guessed() {
+        struct Automatic;
+        impl AdmissionFacts for Automatic {
+            fn fact(&self, name: &str) -> Option<bool> {
+                (name == FACT_SCHEDULE_MANUALLY).then_some(false)
+            }
+        }
+        let user = create_user_with_permission();
+        let params = WorkPackageParams {
+            parent_id: Some(9),
+            ..WorkPackageParams::new()
+                .with_subject("Child")
+                .with_project_id(1)
+                .with_type_id(1)
+        };
+        let result = CreateWorkPackageService::new(&user)
+            .with_facts(&Automatic)
+            .call(params);
+        assert!(result.errors().base_errors[0].starts_with("admission_unresolved"));
     }
 
     #[test]

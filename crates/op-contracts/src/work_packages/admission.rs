@@ -248,8 +248,63 @@ fn user_allowed_to_add<U: UserContext + ?Sized>(user: &U, project: Option<Id>) -
     }
 }
 
+/// The facts `validate_has_predecessors_or_children` reads.
+pub const FACT_SCHEDULE_MANUALLY: &str = "model.schedule_manually?";
+pub const FACT_HAS_CHILDREN: &str = "model.children.any?";
+pub const FACT_HAS_SCHEDULING_PREDECESSORS: &str =
+    "Relation.used_for_scheduling_of(model.parent).any?";
+
+/// The error code of that validator.
+pub const CANNOT_BE_AUTOMATICALLY_SCHEDULED: &str = "cannot_be_automatically_scheduled";
+
+/// `CreateContract` (`app/contracts/work_packages/create_contract.rb:46-48, 68-72`):
+///
+/// ```ruby
+/// attribute :schedule_manually do
+///   validate_has_predecessors_or_children if model.schedule_automatically?
+/// end
+/// def validate_has_predecessors_or_children
+///   if Relation.used_for_scheduling_of(model.parent).empty? && model.children.empty?
+///     errors.add(:schedule_manually, :cannot_be_automatically_scheduled)
+///   end
+/// end
+/// ```
+///
+/// The block is registered with `validate(attribute, &block)`
+/// (`base_contract.rb:89`), so it runs on every validation, whether or not
+/// `schedule_manually` was submitted. It reads the PARENT's scheduling predecessors
+/// (`used_for_scheduling_of(model.parent)`, `[]` for no parent), not the work
+/// package's own. The error fires only when all three terms hold
+/// (`schedule_automatically?`, no predecessors, no children); one term known to
+/// block it decides the answer, otherwise an unknown term is unresolved.
+fn validate_has_predecessors_or_children(
+    facts: &dyn AdmissionFacts,
+) -> Result<bool, Vec<&'static str>> {
+    let manual = facts.fact(FACT_SCHEDULE_MANUALLY);
+    let preds = facts.fact(FACT_HAS_SCHEDULING_PREDECESSORS);
+    let children = facts.fact(FACT_HAS_CHILDREN);
+    if [manual, preds, children].contains(&Some(true)) {
+        return Ok(false);
+    }
+    let unknown: Vec<&'static str> = [
+        (manual, FACT_SCHEDULE_MANUALLY),
+        (preds, FACT_HAS_SCHEDULING_PREDECESSORS),
+        (children, FACT_HAS_CHILDREN),
+    ]
+    .iter()
+    .filter(|(v, _)| v.is_none())
+    .map(|(_, n)| *n)
+    .collect();
+    if unknown.is_empty() {
+        Ok(true)
+    } else {
+        Err(unknown)
+    }
+}
+
 /// Admission of a create that submits `submitted` attributes (names, as the API
 /// receives them): the authorization rule plus the read-only check of each.
+/// Also evaluated: `validate_has_predecessors_or_children`, on every create.
 /// Other contract rules are listed by [`not_evaluated_validators`].
 pub fn admit_create<U: UserContext + ?Sized>(
     user: &U,
@@ -265,6 +320,14 @@ pub fn admit_create<U: UserContext + ?Sized>(
             .entry("base".into())
             .or_default()
             .push("error_unauthorized");
+    }
+    match validate_has_predecessors_or_children(facts) {
+        Ok(true) => errors
+            .entry("schedule_manually".into())
+            .or_default()
+            .push(CANNOT_BE_AUTOMATICALLY_SCHEDULED),
+        Ok(false) => {}
+        Err(names) => unresolved = Some(Unresolved::FactUnavailable(names)),
     }
     for attr in submitted {
         let col = changed_column(attr);
@@ -326,6 +389,8 @@ mod tests {
                 "model.status_id_change" => Some(self.0),
                 "model.status.closed?" | "model.status&.closed?" => Some(self.1),
                 "model.effective_target_versions.any?(&:closed?)" => Some(self.2),
+                FACT_SCHEDULE_MANUALLY => Some(true),
+                FACT_HAS_CHILDREN | FACT_HAS_SCHEDULING_PREDECESSORS => Some(false),
                 _ => None,
             }
         }
@@ -488,5 +553,85 @@ mod tests {
             &Facts(true, false, false),
         );
         assert_eq!(w, Writable::Unresolved(Unresolved::UndeclaredAttribute));
+    }
+
+    /// `schedule_manually`, children, scheduling predecessors of the parent.
+    struct Sched(Option<bool>, Option<bool>, Option<bool>);
+
+    impl AdmissionFacts for Sched {
+        fn fact(&self, name: &str) -> Option<bool> {
+            match name {
+                FACT_SCHEDULE_MANUALLY => self.0,
+                FACT_HAS_CHILDREN => self.1,
+                FACT_HAS_SCHEDULING_PREDECESSORS => self.2,
+                _ => None,
+            }
+        }
+    }
+
+    fn schedule_errors(f: &Sched) -> (Verdict, Option<Vec<&'static str>>) {
+        let a = admit_create(&MEMBER, Some(5), &[], f);
+        let e = a.errors.get("schedule_manually").cloned();
+        (a.verdict, e)
+    }
+
+    #[test]
+    fn automatic_without_predecessors_or_children_is_refused() {
+        // create_contract.rb:46-48, 68-72 on the oracle's `leaf_automatic`.
+        let (v, e) = schedule_errors(&Sched(Some(false), Some(false), Some(false)));
+        assert_eq!(v, Verdict::Denied);
+        assert_eq!(e.unwrap(), [CANNOT_BE_AUTOMATICALLY_SCHEDULED]);
+    }
+
+    #[test]
+    fn manual_scheduling_is_never_refused() {
+        // `if model.schedule_automatically?` is false: the validator is not called.
+        let (v, e) = schedule_errors(&Sched(Some(true), Some(false), Some(false)));
+        assert_eq!((v, e), (Verdict::Admitted, None));
+    }
+
+    #[test]
+    fn children_or_parent_predecessors_silence_the_validator() {
+        for f in [
+            Sched(Some(false), Some(true), Some(false)),
+            Sched(Some(false), Some(false), Some(true)),
+            Sched(Some(false), Some(true), Some(true)),
+        ] {
+            assert_eq!(schedule_errors(&f), (Verdict::Admitted, None));
+        }
+    }
+
+    #[test]
+    fn a_blocking_term_decides_without_the_unknown_ones() {
+        // Ruby never evaluates the rest once one term blocks.
+        assert_eq!(
+            schedule_errors(&Sched(Some(true), None, None)),
+            (Verdict::Admitted, None)
+        );
+        assert_eq!(
+            schedule_errors(&Sched(None, Some(true), None)),
+            (Verdict::Admitted, None)
+        );
+    }
+
+    #[test]
+    fn an_unknown_term_with_no_blocker_is_unresolved_not_guessed() {
+        let (v, e) = schedule_errors(&Sched(Some(false), Some(false), None));
+        assert_eq!(
+            v,
+            Verdict::Unresolved(Unresolved::FactUnavailable(vec![
+                FACT_HAS_SCHEDULING_PREDECESSORS
+            ]))
+        );
+        assert_eq!(e, None);
+    }
+
+    #[test]
+    fn it_runs_whether_or_not_schedule_manually_is_submitted() {
+        let f = Sched(Some(false), Some(false), Some(false));
+        for submitted in [&[][..], &["schedule_manually"][..]] {
+            let a = admit_create(&MEMBER, Some(5), submitted, &f);
+            assert!(a.errors.contains_key("schedule_manually"), "{submitted:?}");
+        }
     }
 }
