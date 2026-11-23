@@ -20,6 +20,7 @@ When an item is fixed, delete its row in the fixing PR.
 | P7 | `lock_optimistically = false` per model is not modelled | A model can turn locking off while having a `lock_version` column | #165 | `ModelSpec` has no per-model flag; presence of the column is the switch |
 | P8 | On a locked table the stale check runs before the NOT NULL check | Not checked against Rails | #165 | Order only matters when an update is both stale and violates NOT NULL |
 | P9 | **Not on main yet:** transaction participants are tracked by memory address, which merges records built one after another in a loop (only one `after_commit` runs), and a nested save that raises after its write loses its `after_commit` | Participants are objects; a written row's `after_commit` runs (*checked*: `loop creates`, `rescued save`) | Codex on #165, after merge | Fix is commit 6ce2673, landed after #165 merged; re-landed as its own PR (`claude/polyfill-participant-tokens`) |
+| P10 | `run_commit_callbacks_on_first_saved_instances_in_transaction = false` is not modelled: when one row is saved through several instances, after_commit always runs on the first one saved | With `false`, the last instance saved runs it, and inherits `_new_record_before_last_commit` from an earlier one (`transaction.rb:359-383`; *checked*: oracle `same row twice`) | Codex on #168 | `true` is the class default and OpenProject's effective value (`load_defaults 6.1`; the 7.1 override is commented out); `ModelSpec` has no per-model flag |
 
 ## 2. Copied crates: bugs zammad-rs still has
 
