@@ -722,7 +722,7 @@ fn ore_slag_ledger_and_lifecycle() {
     eprintln!("== ORE/SLAG SCORECARD (WorkPackage create admission)\n{card}");
     eprintln!("   schedule_manually differential: 1 discriminating record compared, 0 disagreements (separate from the 350 contract-rule items)");
     eprintln!("   database effects performed here: 0 (EXECUTED_DB is cited: needs OP_TEST_DATABASE_URL); callback bodies executed: 0");
-    eprintln!("   P3b: create is transactional (step 7: a post-INSERT failure leaves no row); it still writes no journal");
+    eprintln!("   P3b: create is transactional (step 7: a post-INSERT failure leaves no row); it writes its creation journal on that transaction (step 2) and still ports no watcher, ancestor update or reschedule");
     for r in &rs {
         eprintln!(
             "   {} [{:?} / {:?}] {}",

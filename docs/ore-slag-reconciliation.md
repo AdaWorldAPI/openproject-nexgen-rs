@@ -325,8 +325,14 @@ The P3b gaps are reported, not hidden:
 - Closed: the create is transactional. The authorization reads, defaults and
   INSERT run on one transaction; a failure after the INSERT leaves no row
   (EXECUTED_DB step 7, `transactional create: YES`, with a committing control).
-- Open: the create writes no journal, and the rest of Ruby's `after_create`
-  (watchers, ancestor updates, `apply_patterns`, reschedule) is not ported.
+- Closed: the create writes its creation journal on the same transaction (one
+  `journals` row at version 1 and one `work_package_journals` row copied from the work
+  package; EXECUTED_DB step 2, and step 7 shows a post-insert failure rolls it back).
+  Not ported of that journal: the association rows (attachments, custom values,
+  labels, versions: empty for every work package this create writes), the
+  `JOURNAL_CREATED` notification and aggregation.
+- Open: the rest of Ruby's `after_create` (watchers, ancestor updates,
+  `apply_patterns`, reschedule) is not ported.
 
 A committed row in that journey is evidence about the Rust paths, not Rails
 persistence parity.

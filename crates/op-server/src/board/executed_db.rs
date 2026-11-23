@@ -130,7 +130,7 @@ async fn executed_db_work_package_journey() {
 
     match outcome {
         Ok(tally) => eprintln!(
-            "EXECUTED_DB: journey steps {}/7, rows asserted {}, transactional create: YES (step 7)",
+            "EXECUTED_DB: journey steps {}/7, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7)",
             tally.steps, tally.rows
         ),
         Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
@@ -367,6 +367,73 @@ async fn journey(db_url: String) -> Tally {
         1
     );
     t.rows += 2;
+
+    // The creation journal (OpenProject: `acts_as_journalized` `after_save :save_journals` ->
+    // `Journals::CreateService`, app/services/journals/create_service.rb:465-507 and :389-404):
+    // exactly one journal at version 1 for this work package, written by the caller, plus the one
+    // data row it points at, copied from the committed work_packages row.
+    assert_eq!(
+        count(
+            &verify,
+            &format!(
+                "SELECT count(*) FROM journals WHERE journable_type = 'WorkPackage' \
+                 AND journable_id = {id}"
+            )
+        )
+        .await,
+        1,
+        "exactly one journal for the new work package"
+    );
+    let (version, j_user, notes, restricted, data_type, data_id, cause, stamped_ok): (
+        i32,
+        i64,
+        Option<String>,
+        bool,
+        String,
+        i64,
+        serde_json::Value,
+        bool,
+    ) = sqlx::query_as(
+        "SELECT j.version, j.user_id, j.notes, j.restricted, j.data_type, j.data_id, j.cause, \
+                (j.created_at = w.updated_at AND j.updated_at = w.updated_at \
+                 AND j.validity_period = tstzrange(w.updated_at, NULL)) \
+         FROM journals j JOIN work_packages w ON w.id = j.journable_id \
+         WHERE j.journable_type = 'WorkPackage' AND j.journable_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&verify)
+    .await
+    .expect("the creation journal is committed");
+    assert_eq!(version, 1, "a create writes version 1");
+    assert_eq!(j_user, USER_A, "the journal's user is the caller");
+    assert_eq!(notes.as_deref(), Some(""), "NoCause create: empty notes");
+    assert!(!restricted);
+    assert_eq!(data_type, "Journal::WorkPackageJournal");
+    assert_eq!(cause, serde_json::json!({}), "NoCause#to_hash is {{}}");
+    assert!(
+        stamped_ok,
+        "created_at = updated_at = the work package's updated_at; validity_period = [that, ∞)"
+    );
+    let data_matches: bool = sqlx::query_scalar(
+        "SELECT (d.type_id, d.project_id, d.subject, COALESCE(d.description, ''), d.status_id, \
+                 d.author_id, d.done_ratio, d.parent_id, d.schedule_manually) \
+                IS NOT DISTINCT FROM \
+                (w.type_id, w.project_id, w.subject, COALESCE(w.description, ''), w.status_id, \
+                 w.author_id, w.done_ratio, w.parent_id, w.schedule_manually) \
+         FROM work_package_journals d, work_packages w WHERE d.id = $1 AND w.id = $2",
+    )
+    .bind(data_id)
+    .bind(id)
+    .fetch_one(&verify)
+    .await
+    .expect("the journal points at exactly one data row");
+    assert!(data_matches, "the data row is a copy of the work package");
+    assert_eq!(
+        count(&verify, "SELECT count(*) FROM work_package_journals").await,
+        1,
+        "one data row for the one journal"
+    );
+    t.rows += 3;
     t.steps += 1;
 
     // ── 3. read it back through the page read path ───────────────────
@@ -516,9 +583,9 @@ async fn journey(db_url: String) -> Tally {
     // ── 7. transactionality of the create ────────────────────────────
     // `create` runs authorization reads, defaults and the INSERT on one transaction
     // (`PgMutationStore::create_then`), as OpenProject's `in_user_context` does. To
-    // observe a failure after the insert (the place a journal write would go), the unit of work
-    // runs a failing statement on the same transaction right after the real insert.
-    // The insert must roll back with it: no row survives. (Two-sided: the control below inserts
+    // observe a failure after the insert and the journal write, the unit of work runs a failing
+    // statement on the same transaction right after them.
+    // The insert and the journal must roll back with it: no row survives. (Two-sided: the control below inserts
     // through the same wrapper without the failure and the row is committed.)
     let probe = FailAfterInsert {
         fail: true,
@@ -537,6 +604,18 @@ async fn journey(db_url: String) -> Tally {
         survivors, 0,
         "the create is transactional: a post-insert failure must leave no row"
     );
+    // The failure comes after the journal write, so the journal must have rolled back with it:
+    // still only step 2's journal and data row.
+    assert_eq!(
+        count(&verify, "SELECT count(*) FROM journals").await,
+        1,
+        "a post-insert failure leaves no journal"
+    );
+    assert_eq!(
+        count(&verify, "SELECT count(*) FROM work_package_journals").await,
+        1,
+        "a post-insert failure leaves no journal data row"
+    );
     // Control: the same wrapper without the injected failure commits, so the 0 above is the
     // rollback and not a create that never inserts.
     let control = FailAfterInsert {
@@ -554,11 +633,21 @@ async fn journey(db_url: String) -> Tally {
     )
     .await;
     assert_eq!(committed, 1, "the control create commits its row");
+    assert_eq!(
+        count(
+            &verify,
+            "SELECT count(*) FROM journals j JOIN work_packages w ON w.id = j.journable_id \
+             WHERE w.subject = 'transaction control' AND j.version = 1"
+        )
+        .await,
+        1,
+        "the control create commits its journal too (so the 1 above is the rollback)"
+    );
     eprintln!(
         "EXECUTED_DB step 7: create is one transaction; a failure after the INSERT left \
          {survivors} rows (control committed {committed})"
     );
-    t.rows += 2;
+    t.rows += 4;
     t.steps += 1;
 
     verify.close().await;

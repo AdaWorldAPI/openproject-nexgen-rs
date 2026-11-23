@@ -676,9 +676,10 @@ impl PgMutationStore {
     /// The production create: one transaction around [`create_in`] and `post_insert`, committed
     /// only if both succeed. `post_insert` is the statement that runs after the INSERT on the same
     /// transaction (OpenProject runs `after_create`: ancestors, rescheduling, watcher, and the
-    /// journal in its save callbacks, inside `in_user_context`). Nothing in Rust runs there yet
-    /// (no journal, no watcher); `None` is the production call. It exists so the
-    /// failure-after-insert case can be exercised through the real transaction code.
+    /// journal in its save callbacks, inside `in_user_context`). The journal is written here
+    /// ([`PgCreateScope::write_creation_journal`]); the ancestors, rescheduling and watcher are
+    /// not ported. `None` is the production call. `post_insert` exists so the
+    /// failure-after-the-journal case can be exercised through the real transaction code.
     pub async fn create_then(
         &self,
         caller: &Caller,
@@ -687,6 +688,13 @@ impl PgMutationStore {
     ) -> Result<WorkPackageRow, MutationError> {
         let scope = PgCreateScope::begin(&self.pool).await?;
         let mut out = create_in(&scope, caller, params).await;
+        // The creation journal (`acts_as_journalized`'s `after_save :save_journals`), on the same
+        // transaction as the INSERT: a failure here rolls the work package back with it.
+        if let Ok(row) = &out {
+            if let Err(e) = scope.write_creation_journal(row.id, row.author_id).await {
+                out = Err(e.into());
+            }
+        }
         if let (Ok(_), Some(sql)) = (&out, post_insert) {
             if let Err(e) = scope.execute(sql).await {
                 out = Err(e.into());
@@ -745,7 +753,87 @@ impl PgCreateScope {
         let _ = self.tx.into_inner().rollback().await;
     }
 
-    /// Run a statement on the open transaction (the place a journal write would go).
+    /// The creation journal of a work package, written on the open transaction.
+    ///
+    /// OpenProject: `WorkPackage` is `acts_as_journalized`
+    /// (`app/models/work_package/journalized.rb`), whose `after_save :save_journals`
+    /// (`lib_static/plugins/acts_as_journalized/lib/acts/journalized/save_hooks.rb:55,61-80`) calls
+    /// `Journals::CreateService.new(self, User.current).call(notes: "", internal: false,
+    /// cause: NoCause)`. For a work package with no journal yet that service writes
+    /// (`app/services/journals/create_service.rb`):
+    ///
+    /// * one `work_package_journals` row (`insert_data_sql`, :389-404): every journaled column
+    ///   copied from the `work_packages` row; text columns pass through
+    ///   `REGEXP_REPLACE(COALESCE(col,''), '\r\n', '\n', 'g')` (`helpers.rb`
+    ///   `normalize_newlines_sql`), so a NULL `description` is stored as `''`;
+    /// * one `journals` row (`insert_journal_sql`, :465-507): `journable_type` `'WorkPackage'`,
+    ///   `version` `COALESCE(max version, 0) + 1` (1 on create), `user_id` the acting user,
+    ///   `notes` `''`, `restricted` false, `created_at` = `updated_at` = the work package's
+    ///   `updated_at` (`fetch_time_sql`, :354-365, with no earlier journal), `data_id` the new
+    ///   data row, `data_type` `'Journal::WorkPackageJournal'`, `cause` `{}` (`NoCause#to_hash`)
+    ///   and `validity_period` `tstzrange(created_at, NULL)`.
+    ///
+    /// Not ported: the association rows (`attachable_journals`, `customizable_journals`,
+    /// `label_journals`, `work_package_version_journals`: all empty for a work package that has
+    /// no attachment, custom value, label or version, which is every work package this create
+    /// writes), the `JOURNAL_CREATED` notification, and aggregation (a create has no predecessor).
+    pub async fn write_creation_journal(
+        &self,
+        work_package_id: Id,
+        user_id: Id,
+    ) -> Result<(), StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        let data_id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO work_package_journals (
+                type_id, project_id, subject, description, due_date, category_id, status_id,
+                assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
+                start_date, parent_id, responsible_id, schedule_manually, duration,
+                remaining_hours, story_points
+            )
+            SELECT
+                type_id, project_id, subject,
+                REGEXP_REPLACE(COALESCE(description, ''), '
+', E'
+', 'g'),
+                due_date, category_id, status_id,
+                assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
+                start_date, parent_id, responsible_id, schedule_manually, duration,
+                remaining_hours, story_points
+            FROM work_packages WHERE id = $1
+            RETURNING id
+            "#,
+        )
+        .bind(work_package_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(db_failure)?;
+        sqlx::query(
+            r#"
+            INSERT INTO journals (
+                journable_id, journable_type, version, user_id, notes, restricted,
+                created_at, updated_at, data_id, data_type, cause, validity_period
+            )
+            SELECT
+                wp.id, 'WorkPackage',
+                COALESCE((SELECT MAX(version) FROM journals
+                          WHERE journable_id = wp.id AND journable_type = 'WorkPackage'), 0) + 1,
+                $2, '', false,
+                wp.updated_at, wp.updated_at, $3, 'Journal::WorkPackageJournal', '{}'::jsonb,
+                tstzrange(wp.updated_at, NULL)
+            FROM work_packages wp WHERE wp.id = $1
+            "#,
+        )
+        .bind(work_package_id)
+        .bind(user_id)
+        .bind(data_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(db_failure)?;
+        Ok(())
+    }
+
+    /// Run a statement on the open transaction (the hook after the insert and the journal).
     pub async fn execute(&self, sql: &str) -> Result<(), StoreFailure> {
         let mut tx = self.tx.lock().await;
         sqlx::query(sql)
