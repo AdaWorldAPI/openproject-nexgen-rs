@@ -64,6 +64,13 @@ async fn main() -> anyhow::Result<()> {
         "Starting OpenProject RS"
     );
 
+    // Company identity: a [brand] TOML table from OP_BRAND_FILE or OP_BRAND_TOML;
+    // neither keeps the default identity. A brand that cannot be used stops the start.
+    let brand =
+        brand::Brand::from_env(|k| std::env::var(k).ok()).map_err(|e| anyhow::anyhow!("{e}"))?;
+    info!(brand = %brand.name, custom = std::env::var("OP_BRAND_FILE").is_ok() || std::env::var("OP_BRAND_TOML").is_ok(), "Brand");
+    brand::install(brand);
+
     // Klickweg connectivity affirmation — the runtime counterpart to the
     // `scripts/nav-crawl.sh` BFS, proven at boot via the sanctioned Core brick
     // `nav_is_fully_connected` (lance-graph #670/#673), in TWO layers: the
@@ -202,13 +209,6 @@ async fn main() -> anyhow::Result<()> {
         config: config.clone(),
         db: db.map(|d| d.pool().clone()),
     });
-
-    // Company identity: a [brand] TOML table from OP_BRAND_FILE or OP_BRAND_TOML;
-    // neither keeps the default identity. A brand that cannot be used stops the start.
-    let brand =
-        brand::Brand::from_env(|k| std::env::var(k).ok()).map_err(|e| anyhow::anyhow!("{e}"))?;
-    info!(brand = %brand.name, custom = std::env::var("OP_BRAND_FILE").is_ok() || std::env::var("OP_BRAND_TOML").is_ok(), "Brand");
-    brand::install(brand);
 
     // Sign-in is on only when OP_SIGNIN_OIDC_ISSUER is set; a half-configured sign-in
     // stops the start instead of serving open pages.
