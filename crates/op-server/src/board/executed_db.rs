@@ -31,8 +31,8 @@ use axum::http::{header, HeaderMap, StatusCode};
 use http_body_util::BodyExt as _;
 use op_db::{Database, DatabaseConfig};
 use op_services::work_packages::mutation::{
-    self, Caller, CreationStore, MutationError, MutationStore, PgMutationStore, Principal,
-    StoreFailure,
+    self, Caller, CreationStore, MutationError, MutationStore, PgCreateScope, PgMutationStore,
+    Principal, StoreFailure,
 };
 use op_services::work_packages::WorkPackageParams;
 use sqlx::PgPool;
@@ -1695,6 +1695,83 @@ async fn journey(db_url: String) -> Tally {
     );
     t.rows += 12;
     t.steps += 1;
+
+    // Two creates under P at the same time. A recomputes P's totals and saves P, holding its row
+    // lock until A commits; B has read P (and P's descendants, without A's uncommitted child)
+    // before that and then waits on the lock. ActiveRecord's optimistic locking makes B's save
+    // `UPDATE ... WHERE lock_version = <as loaded>` find no row once A commits, and
+    // `StaleObjectError` fails B: B must not overwrite P with totals that miss A's child.
+    let p_before = derived(&verify, p).await;
+    let race = |subject: &str| {
+        let mut params = WorkPackageParams::new()
+            .with_subject(subject)
+            .with_estimated_hours(8.0)
+            .with_remaining_hours(8.0);
+        params.project_id = Some(TARGET_PROJECT);
+        params.parent_id = Some(p);
+        params
+    };
+    let a = PgCreateScope::begin(&pool).await.expect("A begins");
+    let row_a = mutation::create_in(&a, &caller_a, race("race A"))
+        .await
+        .expect("A inserts");
+    a.update_ancestors_of_created(row_a.id, row_a.parent_id, USER_A)
+        .await
+        .expect("A saves P");
+    let b = PgCreateScope::begin(&pool).await.expect("B begins");
+    let row_b = mutation::create_in(&b, &caller_a, race("race B"))
+        .await
+        .expect("B inserts");
+    let b_task = tokio::spawn(async move {
+        let r = b
+            .update_ancestors_of_created(row_b.id, row_b.parent_id, USER_A)
+            .await;
+        b.rollback().await;
+        r
+    });
+    // Wait until B is blocked on P's row lock, so B has loaded P before A commits.
+    let mut waiting = false;
+    for _ in 0..200 {
+        let n = count(
+            &verify,
+            "SELECT count(*) FROM pg_stat_activity \
+             WHERE wait_event_type = 'Lock' AND datname = current_database()",
+        )
+        .await;
+        if n > 0 {
+            waiting = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(waiting, "B waits on P's row lock held by A");
+    a.commit().await.expect("A commits");
+    let r = b_task.await.expect("B's task");
+    assert!(
+        matches!(r, Err(StoreFailure::Conflict(_))),
+        "B's stale save of P is a conflict, not a lost update: {r:?}"
+    );
+    assert_eq!(
+        derived(&verify, p).await,
+        // 130 + 8, 124 + 8; round((138 - 132) / 138 * 100) = round(4.35) = 4.
+        Derived {
+            est: Some(138.0),
+            rem: Some(132.0),
+            ratio: Some(4),
+            lock_version: p_before.lock_version + 1
+        },
+        "P carries A's child (saved once, by A) and nothing of B's"
+    );
+    assert_eq!(
+        count(
+            &verify,
+            "SELECT count(*) FROM work_packages WHERE subject = 'race B'"
+        )
+        .await,
+        0,
+        "B rolled back"
+    );
+    t.rows += 3;
 
     verify.close().await;
     db.close().await;

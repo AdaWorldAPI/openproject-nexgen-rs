@@ -1078,7 +1078,9 @@ impl PgCreateScope {
     /// former ancestors (only a change of parent has any, `Loader#former_ancestors`), the
     /// `JOURNAL_CREATED` notification (the ancestors are saved with notifications off,
     /// :80-84) and the update path: an edit does not recompute ancestors yet. Like Ruby's create
-    /// (`in_user_context`, not `in_mutex_context`) it takes no lock on the ancestors.
+    /// (`in_user_context`, not `in_mutex_context`) it takes no advisory lock on the ancestors;
+    /// a concurrent save of an ancestor is caught by its `lock_version`, as ActiveRecord's
+    /// optimistic locking catches it, and fails this create with a conflict.
     pub async fn update_ancestors_of_created(
         &self,
         work_package_id: Id,
@@ -1119,7 +1121,11 @@ impl PgCreateScope {
         for ancestor in chain {
             // The ancestor first, then its descendants (`[work_package] + descendants_of`),
             // which exclude the ancestor itself even in a cycle (`where.not(id:)`).
-            let rows: Vec<(Id, Option<f64>, Option<f64>, bool)> = {
+            // The ancestor's own row as loaded (its derived values and `lock_version`, which the
+            // save checks), then its totals inputs and those of its descendants, from one
+            // statement so they come from one snapshot.
+            type Loaded = (Id, Option<f64>, Option<f64>, bool, Option<f64>, Option<f64>, Option<i32>, i32);
+            let rows: Vec<Loaded> = {
                 let mut tx = self.tx.lock().await;
                 sqlx::query_as(
                     "WITH RECURSIVE down(id) AS ( \
@@ -1127,7 +1133,9 @@ impl PgCreateScope {
                          UNION \
                          SELECT w.id FROM work_packages w JOIN down d ON w.parent_id = d.id) \
                      SELECT w.id, w.estimated_hours, w.remaining_hours, \
-                            COALESCE(s.excluded_from_totals, false) \
+                            COALESCE(s.excluded_from_totals, false), \
+                            w.derived_estimated_hours, w.derived_remaining_hours, \
+                            w.derived_done_ratio, w.lock_version \
                      FROM work_packages w LEFT JOIN statuses s ON s.id = w.status_id \
                      WHERE w.id = $1 OR w.id IN (SELECT id FROM down WHERE id <> $1) \
                      ORDER BY (w.id = $1) DESC, w.id",
@@ -1137,38 +1145,55 @@ impl PgCreateScope {
                 .await
                 .map_err(db_failure)?
             };
-            let input = |r: &(Id, Option<f64>, Option<f64>, bool)| TotalsInput {
+            let input = |r: &Loaded| TotalsInput {
                 estimated_hours: r.1,
                 remaining_hours: r.2,
                 excluded_from_totals: r.3,
             };
-            let Some(own) = rows.iter().find(|r| r.0 == ancestor).map(input) else {
+            let Some(own_row) = rows.iter().find(|r| r.0 == ancestor) else {
                 continue;
             };
+            let own = input(own_row);
             let descendants: Vec<TotalsInput> =
                 rows.iter().filter(|r| r.0 != ancestor).map(input).collect();
             let derived = derive_ancestor_totals(&own, &descendants);
-
-            let changed = {
+            let loaded = DerivedTotals {
+                estimated_hours: own_row.4,
+                remaining_hours: own_row.5,
+                done_ratio: own_row.6,
+            };
+            // `select { ancestor.changed? }` (update_ancestors_service.rb:62-69).
+            let changed = derived != loaded;
+            if changed {
+                // `wp.save(validate: false)` (:78-87) under ActiveRecord optimistic locking:
+                // `UPDATE ... WHERE id = ? AND lock_version = <as loaded>`, and no row updated
+                // raises `ActiveRecord::StaleObjectError`. A concurrent create under the same
+                // ancestor that saved it first (its UPDATE holds the row lock until it commits)
+                // therefore fails this create instead of overwriting its totals with ones that
+                // miss its child.
                 let mut tx = self.tx.lock().await;
-                sqlx::query(
+                let updated = sqlx::query(
                     "UPDATE work_packages SET derived_estimated_hours = $2, \
                          derived_remaining_hours = $3, derived_done_ratio = $4, \
                          lock_version = lock_version + 1, updated_at = statement_timestamp() \
-                     WHERE id = $1 AND (derived_estimated_hours IS DISTINCT FROM $2 \
-                         OR derived_remaining_hours IS DISTINCT FROM $3 \
-                         OR derived_done_ratio IS DISTINCT FROM $4)",
+                     WHERE id = $1 AND lock_version = $5",
                 )
                 .bind(ancestor)
                 .bind(derived.estimated_hours)
                 .bind(derived.remaining_hours)
                 .bind(derived.done_ratio)
+                .bind(own_row.7)
                 .execute(&mut **tx)
                 .await
                 .map_err(db_failure)?
-                .rows_affected()
-                    == 1
-            };
+                .rows_affected();
+                if updated != 1 {
+                    return Err(StoreFailure::Conflict(format!(
+                        "work package {ancestor} was modified by another user while its totals \
+                         were recomputed"
+                    )));
+                }
+            }
             if changed {
                 self.write_journal(ancestor, user_id, JOURNAL_AGGREGATION_TIME_MINUTES, &cause)
                     .await?;
