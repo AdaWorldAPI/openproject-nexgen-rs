@@ -629,3 +629,36 @@ desk_routes!(users_list, users_detail, USERS);
 desk_routes!(journals_list, journals_detail, JOURNALS);
 desk_routes!(relations_list, relations_detail, RELATIONS);
 desk_routes!(time_entries_list, time_entries_detail, TIME_ENTRIES);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn journal_rows(journable_type: &str) -> Rows {
+        Rows {
+            columns: vec![
+                "journable_type".into(),
+                "journable_id".into(),
+                "user_id".into(),
+            ],
+            rows: vec![vec![json!(journable_type), json!(4), json!(2)]],
+        }
+    }
+
+    /// A polymorphic id links only when its type column names the target:
+    /// a journal of a Project is not a work-package link.
+    #[test]
+    fn a_polymorphic_link_needs_its_type() {
+        let rows = journal_rows("WorkPackage");
+        let s = shown(&JOURNALS, &rows, &rows.rows[0], "journable_id");
+        assert_eq!(s.link.map(|(h, _)| h), Some("/work_packages/4".to_string()));
+
+        let rows = journal_rows("Project");
+        let s = shown(&JOURNALS, &rows, &rows.rows[0], "journable_id");
+        assert!(s.link.is_none(), "a Project journal is not a work package");
+        assert_eq!(s.text, "4", "the id is still shown");
+        // An unconditional link is unaffected by the type column.
+        let s = shown(&JOURNALS, &rows, &rows.rows[0], "user_id");
+        assert_eq!(s.link.map(|(h, _)| h), Some("/users/2".to_string()));
+    }
+}
