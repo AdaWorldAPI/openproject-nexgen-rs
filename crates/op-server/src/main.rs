@@ -29,6 +29,7 @@ use op_db::{Database, DatabaseConfig};
 
 mod board;
 mod brand;
+mod desk_pages;
 mod health;
 mod layout;
 mod metrics;
@@ -70,6 +71,12 @@ async fn main() -> anyhow::Result<()> {
         brand::Brand::from_env(|k| std::env::var(k).ok()).map_err(|e| anyhow::anyhow!("{e}"))?;
     info!(brand = %brand.name, custom = brand != brand::Brand::default(), "Brand");
     brand::install(brand);
+
+    // The desk the read-only pages read: OP_DESK_SEED names a seed file, else
+    // the demo seed. A seed that cannot be loaded stops the start.
+    let desk = desk_pages::load_desk(|k| std::env::var(k).ok()).map_err(|e| anyhow::anyhow!(e))?;
+    info!(seed = std::env::var(desk_pages::SEED_VAR).as_deref().unwrap_or("demo"), "Desk");
+    let desk = desk_pages::shared(desk);
 
     // Klickweg connectivity affirmation — the runtime counterpart to the
     // `scripts/nav-crawl.sh` BFS, proven at boot via the sanctioned Core brick
@@ -208,6 +215,7 @@ async fn main() -> anyhow::Result<()> {
         health: Arc::new(health_checker),
         config: config.clone(),
         db: db.map(|d| d.pool().clone()),
+        desk,
     });
 
     // Sign-in is on only when OP_SIGNIN_OIDC_ISSUER is set; a half-configured sign-in
@@ -477,6 +485,9 @@ mod tests {
             health: health_checker,
             config,
             db: None,
+            desk: crate::desk_pages::shared(
+                crate::desk_pages::load_desk(|_| None).expect("demo desk"),
+            ),
         });
 
         build_router(state, metrics)

@@ -14,7 +14,8 @@
 //!   data and reads it back.
 //!
 //! [`desk::Desk`] holds the polyfill store and a Quack catalog over the same
-//! rows. Nothing here is wired into the server yet.
+//! rows. op-server holds one and reads the read-only pages from it
+//! (`crates/op-server/src/desk_pages.rs`).
 
 pub mod desk;
 pub mod reads;
@@ -24,6 +25,10 @@ pub mod generated;
 pub mod snapshot;
 pub mod structure;
 pub mod types;
+
+/// The demo seed (`seed/demo.json`): OpenProject's own schema, the same ids as
+/// op-server's `kanban_seed.sql`. Load it with [`desk::Desk::from_seed`].
+pub const DEMO_SEED: &str = include_str!("../seed/demo.json");
 
 /// The tables the work-package journey reads and writes
 /// (`crates/op-server/src/board/executed_db.rs`, `oracle/executed-db.pg.ndjson`).

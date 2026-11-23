@@ -118,6 +118,7 @@ fn state() -> Arc<AppState> {
         health: Arc::new(HealthChecker::new(HealthConfig::default())),
         config: AppConfig::default(),
         db: None,
+        desk: crate::desk_pages::shared(crate::desk_pages::load_desk(|_| None).expect("demo desk")),
     })
 }
 

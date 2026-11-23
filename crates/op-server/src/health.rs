@@ -268,6 +268,8 @@ pub struct AppState {
     pub health: Arc<HealthChecker>,
     pub config: op_core::config::AppConfig,
     pub db: Option<PgPool>,
+    /// The polyfill + Quack desk the read-only pages read from.
+    pub desk: crate::desk_pages::SharedDesk,
 }
 
 /// Simple liveness check (Kubernetes)
