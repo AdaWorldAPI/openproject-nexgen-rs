@@ -203,6 +203,10 @@ pub trait CreationStore: MutationStore {
     async fn first_enabled_type(&self, project_id: Id) -> Result<Option<Id>, StoreFailure>;
     /// `Status.default` (`app/models/status.rb:70-76`: the first row with `is_default`).
     async fn default_status(&self) -> Result<Option<Id>, StoreFailure>;
+    /// `IssuePriority.active.default` (`app/models/issue_priority.rb`, `app/models/enumeration.rb:50,58-67`:
+    /// the first active `IssuePriority` with `is_default`, ordered by `position`,
+    /// `enumeration.rb:33`).
+    async fn default_priority(&self) -> Result<Option<Id>, StoreFailure>;
     /// Whether the status is closed; `None` when no such status exists.
     async fn status_is_closed(&self, status_id: Id) -> Result<Option<bool>, StoreFailure>;
     async fn insert_wp(&self, dto: CreateWorkPackageDto) -> Result<WorkPackageRow, StoreFailure>;
@@ -481,6 +485,14 @@ pub async fn create_in<S: CreationStore>(
         })?),
         None => None,
     };
+    // `set_default_priority` (`set_attributes_service.rb:237-239`): `work_package.priority ||=
+    // IssuePriority.active.default`. With no default Ruby leaves it nil, and the model validation
+    // `validates :priority, ... presence: true` (`app/models/work_package/validations.rb:34`)
+    // fails the save with `priority: blank`; that is mirrored below, never a NULL insert.
+    let priority_id = match params.priority_id {
+        Some(p) => Some(p),
+        None => store.default_priority().await?,
+    };
     let facts = CreateFacts {
         status_submitted: params.status_id.is_some(),
         status_closed,
@@ -491,7 +503,10 @@ pub async fn create_in<S: CreationStore>(
         .with_facts(&facts)
         .call(params.clone());
     if result.is_failure() {
-        let errors = result.errors().clone();
+        let mut errors = result.errors().clone();
+        if priority_id.is_none() {
+            errors.add("priority", "blank");
+        }
         if let Some(msg) = errors
             .base_errors
             .iter()
@@ -505,6 +520,11 @@ pub async fn create_in<S: CreationStore>(
         return Err(MutationError::Invalid(errors));
     }
     let entity = result.unwrap();
+    let Some(priority_id) = priority_id else {
+        let mut errors = ValidationErrors::new();
+        errors.add("priority", "blank");
+        return Err(MutationError::Invalid(errors));
+    };
 
     let status_id = match params.status_id {
         Some(s) => s,
@@ -516,14 +536,14 @@ pub async fn create_in<S: CreationStore>(
     };
 
     // The entity's own status and priority are placeholders of the service's in-memory model;
-    // the row takes the resolved status and the submitted priority.
+    // the row takes the resolved status and the resolved priority.
     let dto = CreateWorkPackageDto {
         subject: entity.subject,
         description: entity.description,
         project_id: entity.project_id,
         type_id: entity.type_id,
         status_id,
-        priority_id: params.priority_id,
+        priority_id: Some(priority_id),
         author_id: entity.author_id,
         assigned_to_id: entity.assigned_to_id,
         responsible_id: entity.responsible_id,
@@ -650,6 +670,17 @@ impl CreationStore for PgMutationStore {
             .map(|s| s.id))
     }
 
+    async fn default_priority(&self) -> Result<Option<Id>, StoreFailure> {
+        // Same statement as `PgCreateScope::default_priority`; keep the two in sync.
+        sqlx::query_scalar(
+            "SELECT id FROM enumerations WHERE type = 'IssuePriority' AND active = true \
+             AND is_default = true ORDER BY position ASC, id ASC LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(db_failure)
+    }
+
     async fn status_is_closed(&self, status_id: Id) -> Result<Option<bool>, StoreFailure> {
         Ok(StatusRepository::new(self.pool.clone())
             .find_by_id(status_id)
@@ -676,9 +707,10 @@ impl PgMutationStore {
     /// The production create: one transaction around [`create_in`] and `post_insert`, committed
     /// only if both succeed. `post_insert` is the statement that runs after the INSERT on the same
     /// transaction (OpenProject runs `after_create`: ancestors, rescheduling, watcher, and the
-    /// journal in its save callbacks, inside `in_user_context`). Nothing in Rust runs there yet
-    /// (no journal, no watcher); `None` is the production call. It exists so the
-    /// failure-after-insert case can be exercised through the real transaction code.
+    /// journal in its save callbacks, inside `in_user_context`). The journal is written here
+    /// ([`PgCreateScope::write_creation_journal`]); the ancestors, rescheduling and watcher are
+    /// not ported. `None` is the production call. `post_insert` exists so the
+    /// failure-after-the-journal case can be exercised through the real transaction code.
     pub async fn create_then(
         &self,
         caller: &Caller,
@@ -687,6 +719,13 @@ impl PgMutationStore {
     ) -> Result<WorkPackageRow, MutationError> {
         let scope = PgCreateScope::begin(&self.pool).await?;
         let mut out = create_in(&scope, caller, params).await;
+        // The creation journal (`acts_as_journalized`'s `after_save :save_journals`), on the same
+        // transaction as the INSERT: a failure here rolls the work package back with it.
+        if let Ok(row) = &out {
+            if let Err(e) = scope.write_creation_journal(row.id, row.author_id).await {
+                out = Err(e.into());
+            }
+        }
         if let (Ok(_), Some(sql)) = (&out, post_insert) {
             if let Err(e) = scope.execute(sql).await {
                 out = Err(e.into());
@@ -745,7 +784,85 @@ impl PgCreateScope {
         let _ = self.tx.into_inner().rollback().await;
     }
 
-    /// Run a statement on the open transaction (the place a journal write would go).
+    /// The creation journal of a work package, written on the open transaction.
+    ///
+    /// OpenProject: `WorkPackage` is `acts_as_journalized`
+    /// (`app/models/work_package/journalized.rb`), whose `after_save :save_journals`
+    /// (`lib_static/plugins/acts_as_journalized/lib/acts/journalized/save_hooks.rb:55,61-80`) calls
+    /// `Journals::CreateService.new(self, User.current).call(notes: "", internal: false,
+    /// cause: NoCause)`. For a work package with no journal yet that service writes
+    /// (`app/services/journals/create_service.rb`):
+    ///
+    /// * one `work_package_journals` row (`insert_data_sql`, :389-404): every journaled column
+    ///   copied from the `work_packages` row; text columns pass through
+    ///   `REGEXP_REPLACE(COALESCE(col,''), '\r\n', '\n', 'g')` (`helpers.rb`
+    ///   `normalize_newlines_sql`), so a NULL `description` is stored as `''`;
+    /// * one `journals` row (`insert_journal_sql`, :465-507): `journable_type` `'WorkPackage'`,
+    ///   `version` `COALESCE(max version, 0) + 1` (1 on create), `user_id` the acting user,
+    ///   `notes` `''`, `restricted` false, `created_at` = `updated_at` = the work package's
+    ///   `updated_at` (`fetch_time_sql`, :354-365, with no earlier journal), `data_id` the new
+    ///   data row, `data_type` `'Journal::WorkPackageJournal'`, `cause` `{}` (`NoCause#to_hash`)
+    ///   and `validity_period` `tstzrange(created_at, NULL)`.
+    ///
+    /// Not ported: the association rows (`attachable_journals`, `customizable_journals`,
+    /// `label_journals`, `work_package_version_journals`: all empty for a work package that has
+    /// no attachment, custom value, label or version, which is every work package this create
+    /// writes), the `JOURNAL_CREATED` notification, and aggregation (a create has no predecessor).
+    pub async fn write_creation_journal(
+        &self,
+        work_package_id: Id,
+        user_id: Id,
+    ) -> Result<(), StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        let data_id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO work_package_journals (
+                type_id, project_id, subject, description, due_date, category_id, status_id,
+                assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
+                start_date, parent_id, responsible_id, schedule_manually, duration,
+                remaining_hours, story_points
+            )
+            SELECT
+                type_id, project_id, subject,
+                REGEXP_REPLACE(COALESCE(description, ''), '\r\n', E'\n', 'g'),
+                due_date, category_id, status_id,
+                assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
+                start_date, parent_id, responsible_id, schedule_manually, duration,
+                remaining_hours, story_points
+            FROM work_packages WHERE id = $1
+            RETURNING id
+            "#,
+        )
+        .bind(work_package_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(db_failure)?;
+        sqlx::query(
+            r#"
+            INSERT INTO journals (
+                journable_id, journable_type, version, user_id, notes, restricted,
+                created_at, updated_at, data_id, data_type, cause, validity_period
+            )
+            SELECT
+                wp.id, 'WorkPackage',
+                COALESCE((SELECT MAX(version) FROM journals
+                          WHERE journable_id = wp.id AND journable_type = 'WorkPackage'), 0) + 1,
+                $2, '', false,
+                wp.updated_at, wp.updated_at, $3, 'Journal::WorkPackageJournal', '{}'::jsonb,
+                tstzrange(wp.updated_at, NULL)
+            FROM work_packages wp WHERE wp.id = $1
+            "#,
+        )
+        .bind(work_package_id)
+        .bind(user_id)
+        .bind(data_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(db_failure)?;
+        Ok(())
+    }
+
+    /// Run a statement on the open transaction (the hook after the insert and the journal).
     pub async fn execute(&self, sql: &str) -> Result<(), StoreFailure> {
         let mut tx = self.tx.lock().await;
         sqlx::query(sql)
@@ -848,6 +965,17 @@ impl CreationStore for PgCreateScope {
             .fetch_optional(&mut **tx)
             .await
             .map_err(db_failure)
+    }
+
+    async fn default_priority(&self) -> Result<Option<Id>, StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        sqlx::query_scalar(
+            "SELECT id FROM enumerations WHERE type = 'IssuePriority' AND active = true \
+             AND is_default = true ORDER BY position ASC, id ASC LIMIT 1",
+        )
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(db_failure)
     }
 
     async fn status_is_closed(&self, status_id: Id) -> Result<Option<bool>, StoreFailure> {
@@ -958,6 +1086,7 @@ mod tests {
         provisioned: bool,
         enabled_types: HashMap<Id, Vec<Id>>,
         default_status: Option<Id>,
+        default_priority: Option<Id>,
         closed: HashMap<Id, bool>,
         inserts: Mutex<Vec<CreateWorkPackageDto>>,
         updates: Mutex<Vec<(Id, UpdateWorkPackageDto)>>,
@@ -981,6 +1110,7 @@ mod tests {
                     (OTHER_PROJECT, vec![8]),
                 ]),
                 default_status: Some(3),
+                default_priority: Some(5),
                 closed: HashMap::from([(2, false), (4, true)]),
                 inserts: Mutex::new(vec![]),
                 updates: Mutex::new(vec![]),
@@ -1059,6 +1189,9 @@ mod tests {
         }
         async fn default_status(&self) -> Result<Option<Id>, StoreFailure> {
             Ok(self.default_status)
+        }
+        async fn default_priority(&self) -> Result<Option<Id>, StoreFailure> {
+            Ok(self.default_priority)
         }
         async fn status_is_closed(&self, status_id: Id) -> Result<Option<bool>, StoreFailure> {
             Ok(self.closed.get(&status_id).copied())
@@ -1171,7 +1304,11 @@ mod tests {
             "Status.default read from the database, not 1"
         );
         assert_eq!(dto.author_id, USER_ID, "the author is the caller");
-        assert_eq!(dto.priority_id, None, "no priority is invented");
+        assert_eq!(
+            dto.priority_id,
+            Some(5),
+            "IssuePriority.active.default read from the database"
+        );
     }
 
     #[tokio::test]
@@ -1266,6 +1403,20 @@ mod tests {
             "{r:?}"
         );
         assert_eq!(store.writes(), 0);
+    }
+
+    #[tokio::test]
+    async fn no_default_priority_is_a_blank_validation_error_not_a_null_insert() {
+        let mut store = Fake::new().member(MEMBER_PROJECT, &[ADD_WORK_PACKAGES]);
+        store.default_priority = None;
+        let r = create(&store, &alice(), new_wp(Some(MEMBER_PROJECT))).await;
+        assert!(matches!(&r, Err(MutationError::Invalid(_))), "{r:?}");
+        assert_eq!(store.writes(), 0);
+        let mut submitted = new_wp(Some(MEMBER_PROJECT));
+        submitted.priority_id = Some(8);
+        let ok = create(&store, &alice(), submitted).await;
+        assert!(ok.is_ok(), "a submitted priority needs no default: {ok:?}");
+        assert_eq!(store.inserts.lock().unwrap()[0].priority_id, Some(8));
     }
 
     #[tokio::test]

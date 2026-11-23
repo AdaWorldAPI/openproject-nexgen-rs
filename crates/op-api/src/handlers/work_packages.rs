@@ -492,6 +492,9 @@ mod tests {
         async fn default_status(&self) -> Result<Option<Id>, StoreFailure> {
             Ok(Some(99))
         }
+        async fn default_priority(&self) -> Result<Option<Id>, StoreFailure> {
+            Ok(Some(55))
+        }
         async fn status_is_closed(&self, _status_id: Id) -> Result<Option<bool>, StoreFailure> {
             Ok(Some(false))
         }

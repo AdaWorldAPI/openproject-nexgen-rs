@@ -318,15 +318,25 @@ Separate denominators. Before means #138 as it was; after means this change.
 | Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | AssociationNotInCheckout 2, GeneratedUndecided 1 |
 | Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 29 definite, 0 UNKNOWN, 0 differ (ruff ce96aae `hidden_complete`; 16 / 13 between the #140 review fix and this change) |
 | Callback bodies executed | 0 | 0 |
-| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 7/7, 14 rows asserted; create transactional; cited by the reconciliation, run separately |
+| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 7/7, 19 rows asserted; create transactional, creation journal, default priority; cited by the reconciliation, run separately |
 
 The P3b gaps are reported, not hidden:
 
 - Closed: the create is transactional. The authorization reads, defaults and
   INSERT run on one transaction; a failure after the INSERT leaves no row
   (EXECUTED_DB step 7, `transactional create: YES`, with a committing control).
-- Open: the create writes no journal, and the rest of Ruby's `after_create`
-  (watchers, ancestor updates, `apply_patterns`, reschedule) is not ported.
+- Closed: the create writes its creation journal on the same transaction (one
+  `journals` row at version 1 and one `work_package_journals` row copied from the work
+  package; EXECUTED_DB step 2, and step 7 shows a post-insert failure rolls it back).
+  The create defaults the priority as Ruby does (`IssuePriority.active.default`,
+  `set_attributes_service.rb:237-239`); with no default it fails `priority: blank`
+  (`work_package/validations.rb:34`) instead of inserting NULL, so
+  `work_package_journals.priority_id` keeps its NOT NULL.
+  Not ported of that journal: the association rows (attachments, custom values,
+  labels, versions: empty for every work package this create writes), the
+  `JOURNAL_CREATED` notification and aggregation.
+- Open: the rest of Ruby's `after_create` (watchers, ancestor updates,
+  `apply_patterns`, reschedule) is not ported.
 
 A committed row in that journey is evidence about the Rust paths, not Rails
 persistence parity.

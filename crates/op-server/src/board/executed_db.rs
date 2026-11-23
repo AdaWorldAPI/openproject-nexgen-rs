@@ -63,6 +63,11 @@ const TYPE_FEATURE: i64 = 32;
 const STATUS_NEW: i64 = 40;
 /// The one status with `is_default`.
 const STATUS_DEFAULT: i64 = 41;
+/// An `IssuePriority` that is not the default, and the active default one.
+const PRIORITY_LOW: i64 = 60;
+const PRIORITY_DEFAULT: i64 = 61;
+/// Inactive and marked default: `IssuePriority.active.default` must skip it.
+const PRIORITY_INACTIVE_DEFAULT: i64 = 62;
 
 /// Counts the committed-state assertions so the summary line can say how many were made.
 #[derive(Default)]
@@ -130,7 +135,7 @@ async fn executed_db_work_package_journey() {
 
     match outcome {
         Ok(tally) => eprintln!(
-            "EXECUTED_DB: journey steps {}/7, rows asserted {}, transactional create: YES (step 7)",
+            "EXECUTED_DB: journey steps {}/7, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7)",
             tally.steps, tally.rows
         ),
         Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
@@ -183,6 +188,13 @@ async fn seed(pool: &PgPool) {
         format!(
             "INSERT INTO statuses (id, name, is_default, position) VALUES \
              ({STATUS_NEW}, 'New', false, 1), ({STATUS_DEFAULT}, 'Open', true, 2)"
+        ),
+        // Position 0 puts the inactive default first: only the `active` filter skips it.
+        format!(
+            "INSERT INTO enumerations (id, type, name, position, is_default, active) VALUES \
+             ({PRIORITY_INACTIVE_DEFAULT}, 'IssuePriority', 'Retired', 0, true, false), \
+             ({PRIORITY_LOW}, 'IssuePriority', 'Low', 1, false, true), \
+             ({PRIORITY_DEFAULT}, 'IssuePriority', 'Normal', 2, true, true)"
         ),
     ];
     for s in statements {
@@ -334,15 +346,16 @@ async fn journey(db_url: String) -> Tally {
         .await
         .expect("A may add work packages in project 5");
     let id = created.id;
-    let (project_id, type_id, status_id, author_id, subject, lock_version): (
+    let (project_id, type_id, status_id, author_id, subject, lock_version, priority_id): (
         i64,
         i64,
         i64,
         i64,
         String,
         i32,
+        Option<i64>,
     ) = sqlx::query_as(
-        "SELECT project_id, type_id, status_id, author_id, subject, lock_version \
+        "SELECT project_id, type_id, status_id, author_id, subject, lock_version, priority_id \
          FROM work_packages WHERE id = $1",
     )
     .bind(id)
@@ -360,6 +373,11 @@ async fn journey(db_url: String) -> Tally {
     );
     assert_eq!(status_id, STATUS_DEFAULT, "the status marked is_default");
     assert_eq!(author_id, USER_A, "the author is the caller's users.id");
+    assert_eq!(
+        priority_id,
+        Some(PRIORITY_DEFAULT),
+        "IssuePriority.active.default: the active default, not the inactive one at position 0"
+    );
     assert_eq!(subject, "Persisted journey");
     assert_eq!(lock_version, 0);
     assert_eq!(
@@ -367,6 +385,93 @@ async fn journey(db_url: String) -> Tally {
         1
     );
     t.rows += 2;
+
+    // The creation journal (OpenProject: `acts_as_journalized` `after_save :save_journals` ->
+    // `Journals::CreateService`, app/services/journals/create_service.rb:465-507 and :389-404):
+    // exactly one journal at version 1 for this work package, written by the caller, plus the one
+    // data row it points at, copied from the committed work_packages row.
+    assert_eq!(
+        count(
+            &verify,
+            &format!(
+                "SELECT count(*) FROM journals WHERE journable_type = 'WorkPackage' \
+                 AND journable_id = {id}"
+            )
+        )
+        .await,
+        1,
+        "exactly one journal for the new work package"
+    );
+    let (version, j_user, notes, restricted, data_type, data_id, cause, stamped_ok): (
+        i32,
+        i64,
+        Option<String>,
+        bool,
+        String,
+        i64,
+        serde_json::Value,
+        bool,
+    ) = sqlx::query_as(
+        "SELECT j.version, j.user_id, j.notes, j.restricted, j.data_type, j.data_id, j.cause, \
+                (j.created_at = w.updated_at AND j.updated_at = w.updated_at \
+                 AND j.validity_period = tstzrange(w.updated_at, NULL)) \
+         FROM journals j JOIN work_packages w ON w.id = j.journable_id \
+         WHERE j.journable_type = 'WorkPackage' AND j.journable_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&verify)
+    .await
+    .expect("the creation journal is committed");
+    assert_eq!(version, 1, "a create writes version 1");
+    assert_eq!(j_user, USER_A, "the journal's user is the caller");
+    assert_eq!(notes.as_deref(), Some(""), "NoCause create: empty notes");
+    assert!(!restricted);
+    assert_eq!(data_type, "Journal::WorkPackageJournal");
+    assert_eq!(cause, serde_json::json!({}), "NoCause#to_hash is {{}}");
+    assert!(
+        stamped_ok,
+        "created_at = updated_at = the work package's updated_at; validity_period = [that, ∞)"
+    );
+    let data_matches: bool = sqlx::query_scalar(
+        "SELECT (d.type_id, d.project_id, d.subject, COALESCE(d.description, ''), d.status_id, \
+                 d.author_id, d.done_ratio, d.parent_id, d.schedule_manually) \
+                IS NOT DISTINCT FROM \
+                (w.type_id, w.project_id, w.subject, COALESCE(w.description, ''), w.status_id, \
+                 w.author_id, w.done_ratio, w.parent_id, w.schedule_manually) \
+         FROM work_package_journals d, work_packages w WHERE d.id = $1 AND w.id = $2",
+    )
+    .bind(data_id)
+    .bind(id)
+    .fetch_one(&verify)
+    .await
+    .expect("the journal points at exactly one data row");
+    assert!(data_matches, "the data row is a copy of the work package");
+    let data_priority: i64 =
+        sqlx::query_scalar("SELECT priority_id FROM work_package_journals WHERE id = $1")
+            .bind(data_id)
+            .fetch_one(&verify)
+            .await
+            .expect("the journal data row carries a priority (NOT NULL)");
+    assert_eq!(
+        data_priority, PRIORITY_DEFAULT,
+        "the snapshot carries the default priority"
+    );
+    // Reading the journals back decodes `priority_id` as a non-null i64; a NULL would panic here.
+    let read_back = op_db::journals::JournalRepository::new(verify.clone())
+        .find_work_package_journals_with_data(id, op_db::repository::Pagination::default())
+        .await
+        .expect("the created work package's journals read back");
+    assert_eq!(read_back.items.len(), 1);
+    assert_eq!(
+        read_back.items[0].data.as_ref().map(|d| d.priority_id),
+        Some(PRIORITY_DEFAULT)
+    );
+    assert_eq!(
+        count(&verify, "SELECT count(*) FROM work_package_journals").await,
+        1,
+        "one data row for the one journal"
+    );
+    t.rows += 3;
     t.steps += 1;
 
     // ── 3. read it back through the page read path ───────────────────
@@ -516,9 +621,9 @@ async fn journey(db_url: String) -> Tally {
     // ── 7. transactionality of the create ────────────────────────────
     // `create` runs authorization reads, defaults and the INSERT on one transaction
     // (`PgMutationStore::create_then`), as OpenProject's `in_user_context` does. To
-    // observe a failure after the insert (the place a journal write would go), the unit of work
-    // runs a failing statement on the same transaction right after the real insert.
-    // The insert must roll back with it: no row survives. (Two-sided: the control below inserts
+    // observe a failure after the insert and the journal write, the unit of work runs a failing
+    // statement on the same transaction right after them.
+    // The insert and the journal must roll back with it: no row survives. (Two-sided: the control below inserts
     // through the same wrapper without the failure and the row is committed.)
     let probe = FailAfterInsert {
         fail: true,
@@ -537,6 +642,18 @@ async fn journey(db_url: String) -> Tally {
         survivors, 0,
         "the create is transactional: a post-insert failure must leave no row"
     );
+    // The failure comes after the journal write, so the journal must have rolled back with it:
+    // still only step 2's journal and data row.
+    assert_eq!(
+        count(&verify, "SELECT count(*) FROM journals").await,
+        1,
+        "a post-insert failure leaves no journal"
+    );
+    assert_eq!(
+        count(&verify, "SELECT count(*) FROM work_package_journals").await,
+        1,
+        "a post-insert failure leaves no journal data row"
+    );
     // Control: the same wrapper without the injected failure commits, so the 0 above is the
     // rollback and not a create that never inserts.
     let control = FailAfterInsert {
@@ -554,11 +671,21 @@ async fn journey(db_url: String) -> Tally {
     )
     .await;
     assert_eq!(committed, 1, "the control create commits its row");
+    assert_eq!(
+        count(
+            &verify,
+            "SELECT count(*) FROM journals j JOIN work_packages w ON w.id = j.journable_id \
+             WHERE w.subject = 'transaction control' AND j.version = 1"
+        )
+        .await,
+        1,
+        "the control create commits its journal too (so the 1 above is the rollback)"
+    );
     eprintln!(
         "EXECUTED_DB step 7: create is one transaction; a failure after the INSERT left \
          {survivors} rows (control committed {committed})"
     );
-    t.rows += 2;
+    t.rows += 4;
     t.steps += 1;
 
     verify.close().await;
@@ -631,6 +758,13 @@ impl CreationStore for FailAfterInsert {
             pool: self.pool.clone(),
         }
         .default_status()
+        .await
+    }
+    async fn default_priority(&self) -> Result<Option<i64>, StoreFailure> {
+        PgMutationStore {
+            pool: self.pool.clone(),
+        }
+        .default_priority()
         .await
     }
     async fn status_is_closed(&self, status_id: i64) -> Result<Option<bool>, StoreFailure> {
