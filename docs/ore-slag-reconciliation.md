@@ -318,7 +318,7 @@ Separate denominators. Before means #138 as it was; after means this change.
 | Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | AssociationNotInCheckout 2, GeneratedUndecided 1 |
 | Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 29 definite, 0 UNKNOWN, 0 differ (ruff ce96aae `hidden_complete`; 16 / 13 between the #140 review fix and this change) |
 | Callback bodies executed | 0 | 0 |
-| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 7/7, 14 rows asserted; create transactional; cited by the reconciliation, run separately |
+| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 7/7, 19 rows asserted; create transactional, creation journal, default priority; cited by the reconciliation, run separately |
 
 The P3b gaps are reported, not hidden:
 
