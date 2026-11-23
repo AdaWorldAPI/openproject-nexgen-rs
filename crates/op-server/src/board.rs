@@ -2196,6 +2196,9 @@ fn topnav_menu_links() -> String {
 }
 
 #[cfg(test)]
+mod executed_db;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use chrono::Utc;
