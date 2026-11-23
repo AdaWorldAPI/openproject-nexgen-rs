@@ -71,6 +71,7 @@ starting point).
 | M2 | `timestamptz` columns: Quack refuses rendering `timestamp with time zone` (`Refusal::Unrenderable`) | Plan §3 gap 2; decision (feed as `timestamp(6)` or wait for Quack) still open |
 | M3 | `journals.validity_period` (`tstzrange`) and `journals.cause` (`jsonb`) have no polyfill type | op-desk maps them to Text / Json; plan §3 gap 4 decision open |
 | M4 | Quack refuses `ORDER BY` on text (`TextOrder`) and filters on unlaned columns (date, float, jsonb) | API sorts by subject/name must sort in Rust after `rows`, or stay refused (plan §3 gaps 7–8) |
+| M5 | A DateTime filter value has no settled encoding: the snapshot convention (and the PostgreSQL oracle) reads a number as microseconds since the epoch, Quack's timestamp lane as epoch seconds (it refuses a microsecond value as `ValueOutOfLane`) | No desk read filters on a DateTime column yet (`op_desk::reads::demo_reads` leaves them out); settle the encoding before the first such read |
 
 ## 6. WorkPackage::Create reconciliation (`oracle/charon/reconcile-create-admission.ledger.json`)
 
