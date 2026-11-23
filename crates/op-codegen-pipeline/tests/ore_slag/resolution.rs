@@ -635,11 +635,19 @@ fn ore_slag_ledger_and_lifecycle() {
     );
     assert!(diff.disagreements.is_empty(), "{:?}", diff.disagreements);
     let sched = rec.row(KEY_SCHEDULE).expect("row");
-    assert_eq!(sched.verdict, Verdict::Agreement);
-    assert!(
-        rs.iter().all(|r| r.key != KEY_SCHEDULE),
-        "an Agreement row has no residual"
-    );
+    if src.is_some() {
+        assert_eq!(sched.verdict, Verdict::Agreement);
+        assert!(
+            rs.iter().all(|r| r.key != KEY_SCHEDULE),
+            "an Agreement row has no residual"
+        );
+    } else {
+        // Without the Ruby checkout the block cannot be harvested.
+        assert_eq!(
+            sched.verdict,
+            Verdict::Slag(SlagReason::RubySideNotHarvested)
+        );
+    }
     assert_eq!(
         RuntimeVerdict::of(&sched.runtime),
         RuntimeVerdict::ExecutedAgreement
