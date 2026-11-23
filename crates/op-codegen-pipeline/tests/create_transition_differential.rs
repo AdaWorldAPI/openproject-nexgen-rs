@@ -739,7 +739,8 @@ fn layer2(
             None => {
                 out.both += 1;
                 if let Some(r) = entry_rank.into_iter().min() {
-                    let unread = ctx.order_unknown_scopes.contains(&regs[r].origin);
+                    let unread = ctx.order_unknown_scopes.contains(&regs[r].origin)
+                        || expanded.iter().any(|f| cb::hidden_could_register(ctx, f));
                     ranks
                         .entry((model.clone(), phase.clone()))
                         .or_default()

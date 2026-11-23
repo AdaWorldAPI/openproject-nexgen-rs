@@ -1336,16 +1336,22 @@ pub fn generated_of(origin: &str, ore: &ClassOre) -> GeneratedOf {
 /// `ruff-macros` feature the host is not read (the pinned ruff has no use for
 /// it) and that rule stays undecided.
 pub fn generated_in(host: Option<&str>, origin: &str, ore: &ClassOre) -> GeneratedOf {
+    generated_from(host, origin, &ore.declarations)
+}
+
+/// [`generated_in`] for a list of events that is not a whole body (the
+/// declarations a skipped branch holds).
+pub fn generated_from(host: Option<&str>, origin: &str, events: &[RailsEvent]) -> GeneratedOf {
     let mut out = GeneratedOf {
         callbacks: Vec::new(),
         undecided: Vec::new(),
     };
     #[cfg(feature = "ruff-macros")]
-    let derived = derive_in(host, &ore.declarations, OP_RAILS_DEFAULTS);
+    let derived = derive_in(host, events, OP_RAILS_DEFAULTS);
     #[cfg(not(feature = "ruff-macros"))]
     let derived = {
         let _ = host;
-        derive(&ore.declarations, OP_RAILS_DEFAULTS)
+        derive(events, OP_RAILS_DEFAULTS)
     };
     for g in derived {
         match g {
@@ -2288,9 +2294,64 @@ pub struct ModelCtx {
     /// `ClassOre::unharvested` is empty for a class by construction.
     pub modules: Vec<ModuleRead>,
     /// Names of modules whose include-time bodies leave a statement that may
-    /// hide a registration ([`hides_registration`]). A callback registered in
-    /// one of them has no definite position in the chain.
+    /// hide a registration ([`hides_registration`]) and that cannot be named
+    /// (see `order_hidden`). A callback registered in one of them has no
+    /// definite position in the chain.
     pub order_unknown_scopes: BTreeSet<String>,
+    /// What the skipped branches of the other hiding statements could register:
+    /// a conditional whose branches hold only associations, callbacks and
+    /// validations ruff can read (`Unharvested::hidden`), derived like any
+    /// declaration (its generated callbacks included). Such a branch can change
+    /// the order of the compared entries only by registering, or re-registering
+    /// (ActiveSupport moves a re-registered callback to the end of its chain,
+    /// activesupport-8.1.4.1/lib/active_support/callbacks.rb:645-663), a
+    /// callback the recording shows; a group none of whose entries one of these
+    /// names stays definite. The origin of each is its scope.
+    pub order_hidden: Vec<Declared>,
+}
+
+/// Whether a skipped branch of `ctx` could register the fired callback `f`
+/// (see [`ModelCtx::order_hidden`]).
+pub fn hidden_could_register(ctx: &ModelCtx, f: &Fired) -> bool {
+    ctx.order_hidden.iter().any(|d| declared_matches(d, f))
+}
+
+/// The callbacks a hiding statement could register, or `None` when it cannot
+/// be named: it is not a conditional, it holds a declaration whose callbacks
+/// are not derivable here (an `include`, a macro), or a generated rule for it
+/// is undecided.
+pub fn hidden_registrations(
+    u: &ruff_ruby_spo::events::Unharvested,
+    scope: &str,
+    host: &str,
+) -> Option<Vec<Declared>> {
+    #[cfg(feature = "ruff-macros")]
+    {
+        if u.reason != UnharvestedReason::ControlFlow || u.hidden.is_empty() {
+            return None;
+        }
+        let nameable = u.hidden.iter().all(|e| {
+            matches!(
+                e.decl,
+                Declaration::Association(_) | Declaration::Callback(_) | Declaration::Validation(_)
+            )
+        });
+        if !nameable {
+            return None;
+        }
+        let g = generated_from(Some(host), scope, &u.hidden);
+        if !g.undecided.is_empty() {
+            return None;
+        }
+        let mut out = declared_of(scope, &u.hidden);
+        out.extend(g.callbacks.into_iter().map(|(_, d)| d));
+        Some(out)
+    }
+    #[cfg(not(feature = "ruff-macros"))]
+    {
+        let _ = (u, scope, host);
+        None
+    }
 }
 
 /// How much of one module's include-time bodies was read.
@@ -2655,6 +2716,7 @@ fn build_ctx(
     }
     let mut modules = Vec::new();
     let mut order_unknown_scopes = BTreeSet::new();
+    let mut order_hidden = Vec::new();
     for a in ancestors.iter().filter(|a| a.ore.kind == OreKind::Module) {
         let included_decls = a
             .ore
@@ -2669,12 +2731,23 @@ fn build_ctx(
             (false, false) => Completeness::Unread,
             (false, true) => Completeness::NoIncludeTimeBody,
         };
-        if a.ore
+        let mut hidden = Vec::new();
+        let mut unnamed = false;
+        for u in a
+            .ore
             .unharvested
             .iter()
-            .any(|u| hides_registration(u.reason))
+            .filter(|u| hides_registration(u.reason))
         {
+            match hidden_registrations(u, &a.name, &a.host) {
+                Some(named) => hidden.extend(named),
+                None => unnamed = true,
+            }
+        }
+        if unnamed {
             order_unknown_scopes.insert(a.name.clone());
+        } else {
+            order_hidden.extend(hidden);
         }
         modules.push(ModuleRead {
             name: a.name.clone(),
@@ -2688,6 +2761,7 @@ fn build_ctx(
     ModelCtx {
         modules,
         order_unknown_scopes,
+        order_hidden,
         has_file,
         assocs: association_names(ancestors),
         ancestor_files: ancestors.iter().map(|a| a.file.clone()).collect(),

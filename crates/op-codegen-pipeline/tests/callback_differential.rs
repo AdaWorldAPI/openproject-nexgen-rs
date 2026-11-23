@@ -100,13 +100,13 @@ const SLAG_CEILINGS: &[(Slag, usize)] = &[
 ];
 
 /// Order groups that must be DEFINITE and agree with the recording, as
-/// `(with vendor/bundle, without it)`. With class-level macros a group is
-/// UNKNOWN when one of its entries is registered in a macro body that leaves a
-/// conditional registration unread (`ModelCtx::order_unknown_scopes`).
+/// `(with vendor/bundle, without it)`. A group is UNKNOWN only when a skipped
+/// branch could register one of its entries, or a scope hides registrations
+/// that cannot be named (`ModelCtx::order_unknown_scopes`, `order_hidden`).
 #[cfg(not(feature = "ruff-macros"))]
 const ORDER_DEFINITE_FLOOR: (usize, usize) = (19, 19);
 #[cfg(feature = "ruff-macros")]
-const ORDER_DEFINITE_FLOOR: (usize, usize) = (16, 6);
+const ORDER_DEFINITE_FLOOR: (usize, usize) = (29, 19);
 
 /// Order groups that must stay DEFINITE and agree on the harvest WITHOUT
 /// class-level macros: the population the order gate was first measured on.
@@ -391,10 +391,12 @@ impl OrderReport {
 /// the rank of each matched entry in `chain_of(model)`. Membership is not in
 /// question here: an entry with an expansion that has no declaration is left
 /// out of the comparison. A group with an entry whose declaration comes from a
-/// module in `unknown_scopes(model)` is UNKNOWN, not definite.
+/// module in `unknown_scopes(model)`, or that a skipped branch could register
+/// (`hidden(model)`, see `ModelCtx::order_hidden`), is UNKNOWN, not definite.
 fn order_report<'a>(
     chain_of: impl Fn(&str) -> &'a [Declared],
     unknown_scopes: impl Fn(&str) -> &'a BTreeSet<String>,
+    hidden: impl Fn(&str) -> &'a [Declared],
     show_examples: usize,
 ) -> OrderReport {
     let t = trace();
@@ -426,7 +428,13 @@ fn order_report<'a>(
                     .iter()
                     .map(|r| &chain[*r].origin)
                     .find(|o| scopes.contains(*o))
-                    .cloned();
+                    .cloned()
+                    .or_else(|| {
+                        hidden(model)
+                            .iter()
+                            .find(|d| expanded.iter().any(|f| declared_matches(d, f)))
+                            .map(|d| format!("a skipped branch in {}", d.origin))
+                    });
                 if let Some(r) = ranks.into_iter().min() {
                     groups
                         .entry((model.into(), phase.into()))
@@ -736,6 +744,7 @@ fn fired_callbacks_are_matched_or_named_slag() {
     let bare_order = order_report(
         |m| bare_ctxs[m].effective.as_slice(),
         |m| &bare_ctxs[m].order_unknown_scopes,
+        |m| bare_ctxs[m].order_hidden.as_slice(),
         0,
     );
     eprintln!(
@@ -764,6 +773,7 @@ fn fired_callbacks_are_matched_or_named_slag() {
     let nomacro_order = order_report(
         |m| nomacro_ctxs[m].effective.as_slice(),
         |m| &nomacro_ctxs[m].order_unknown_scopes,
+        |m| nomacro_ctxs[m].order_hidden.as_slice(),
         3,
     );
     eprintln!(
@@ -1025,6 +1035,12 @@ fn fired_callbacks_are_matched_or_named_slag() {
                 );
             }
         }
+        for d in &c.order_hidden {
+            eprintln!(
+                "    a skipped branch in {} could register {} {} {:?}",
+                d.origin, d.kind, d.chain, d.filter
+            );
+        }
         if !c.order_unknown_scopes.is_empty() {
             eprintln!(
                 "    order-unknown scopes (unread ControlFlow / DynamicSend / UnreadBlockBody): {:?}",
@@ -1049,10 +1065,16 @@ fn fired_callbacks_are_matched_or_named_slag() {
         .values()
         .flat_map(|c| c.effective.iter().map(|d| d.origin.clone()))
         .collect();
-    let forced = order_report(|m| ctxs[m].effective.as_slice(), |_| &all_origins, 0);
+    let forced = order_report(
+        |m| ctxs[m].effective.as_slice(),
+        |_| &all_origins,
+        |_| &[],
+        0,
+    );
     let plain = order_report(
         |m| ctxs[m].effective.as_slice(),
         |m| &ctxs[m].order_unknown_scopes,
+        |m| ctxs[m].order_hidden.as_slice(),
         0,
     );
     assert_eq!(
@@ -1068,7 +1090,23 @@ fn fired_callbacks_are_matched_or_named_slag() {
         plain.differing + plain.unknown_differing,
         "marking scopes unknown changed what the reconstruction says"
     );
-    if ctxs.values().all(|c| c.order_unknown_scopes.is_empty()) {
+    // The same for the named skipped branches: a branch that could register
+    // every callback of the chain makes every group unknown.
+    let no_scope = BTreeSet::new();
+    let forced_hidden = order_report(
+        |m| ctxs[m].effective.as_slice(),
+        |_| &no_scope,
+        |m| ctxs[m].effective.as_slice(),
+        0,
+    );
+    assert_eq!(
+        forced_hidden.unknown, forced_hidden.groups,
+        "a skipped branch that names an entry did not make its group unknown"
+    );
+    if ctxs
+        .values()
+        .all(|c| c.order_unknown_scopes.is_empty() && c.order_hidden.is_empty())
+    {
         assert_eq!(
             plain.unknown, 0,
             "a group is unknown though no scope hides a registration"
@@ -1082,6 +1120,7 @@ fn fired_callbacks_are_matched_or_named_slag() {
     let effective = order_report(
         |m| ctxs[m].effective.as_slice(),
         |m| &ctxs[m].order_unknown_scopes,
+        |m| ctxs[m].order_hidden.as_slice(),
         8,
     );
     print_order("reconstructed Rails registration order", &effective);
@@ -1099,7 +1138,7 @@ fn fired_callbacks_are_matched_or_named_slag() {
         })
         .collect();
     let no_unknown = BTreeSet::new();
-    let naive_rep = order_report(|m| naive[m].as_slice(), |_| &no_unknown, 3);
+    let naive_rep = order_report(|m| naive[m].as_slice(), |_| &no_unknown, |_| &[], 3);
     print_order(
         "file order of the walk, generated last (not runtime order)",
         &naive_rep,
