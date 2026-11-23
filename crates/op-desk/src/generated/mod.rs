@@ -20,6 +20,7 @@ pub mod user;
 pub mod watcher;
 pub mod work_package;
 pub mod relations;
+pub mod default_scopes;
 
 /// Every compiled model.
 pub static MODELS: &[&rails_polyfill::ModelSpec] = &[

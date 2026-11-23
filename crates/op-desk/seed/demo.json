@@ -6,7 +6,9 @@
       {"id": 2, "login": "alice", "firstname": "Alice", "lastname": "Anderson", "mail": "alice@example.com", "admin": false, "status": 1, "language": "en", "type": "User", "first_login": false, "created_at": 1783507124000000, "updated_at": 1783507124000000},
       {"id": 3, "login": "bob", "firstname": "Bob", "lastname": "Brown", "mail": "bob@example.com", "admin": false, "status": 1, "language": "en", "type": "User", "first_login": false, "created_at": 1783507124000000, "updated_at": 1783507124000000},
       {"id": 4, "login": "carol", "firstname": "Carol", "lastname": "Clark", "mail": "carol@example.com", "admin": false, "status": 1, "language": "en", "type": "User", "first_login": false, "created_at": 1783507124000000, "updated_at": 1783507124000000},
-      {"id": 5, "login": "dave", "firstname": "Dave", "lastname": "Diaz", "mail": "dave@example.com", "admin": false, "status": 1, "language": "en", "type": "User", "first_login": false, "created_at": 1783507124000000, "updated_at": 1783507124000000}
+      {"id": 5, "login": "dave", "firstname": "Dave", "lastname": "Diaz", "mail": "dave@example.com", "admin": false, "status": 1, "language": "en", "type": "User", "first_login": false, "created_at": 1783507124000000, "updated_at": 1783507124000000},
+      {"id": 6, "login": "erin", "firstname": "Erin", "lastname": "Evans", "mail": "erin@example.com", "admin": false, "status": 3, "language": "en", "type": "User", "first_login": false, "created_at": 1783507124000000, "updated_at": 1783507124000000},
+      {"id": 7, "login": "frank", "firstname": "Frank", "lastname": "Fischer", "mail": "frank@example.com", "admin": false, "status": 5, "language": "en", "type": "User", "first_login": false, "created_at": 1783507124000000, "updated_at": 1783507124000000}
     ],
     "roles": [
       {"id": 1, "name": "Manager", "position": 1, "builtin": 0, "type": "ProjectRole", "created_at": 1783507124000000, "updated_at": 1783507124000000},
@@ -22,9 +24,10 @@
     "statuses": [
       {"id": 1, "name": "New", "category": "to_do", "is_default": true, "position": 1, "default_done_ratio": 0, "is_readonly": false, "excluded_from_totals": false, "created_at": 1783507124000000, "updated_at": 1783507124000000},
       {"id": 2, "name": "In progress", "category": "in_progress", "is_default": false, "position": 2, "default_done_ratio": 40, "is_readonly": false, "excluded_from_totals": false, "created_at": 1783507124000000, "updated_at": 1783507124000000},
-      {"id": 3, "name": "Resolved", "category": "in_progress", "is_default": false, "position": 3, "default_done_ratio": 90, "is_readonly": false, "excluded_from_totals": false, "created_at": 1783507124000000, "updated_at": 1783507124000000},
-      {"id": 4, "name": "Closed", "category": "closed", "is_default": false, "position": 4, "default_done_ratio": 100, "is_readonly": true, "excluded_from_totals": false, "created_at": 1783507124000000, "updated_at": 1783507124000000},
-      {"id": 5, "name": "Rejected", "category": "closed", "is_default": false, "position": 5, "default_done_ratio": 0, "is_readonly": true, "excluded_from_totals": false, "created_at": 1783507124000000, "updated_at": 1783507124000000}
+      {"id": 3, "name": "Resolved", "category": "in_progress", "is_default": false, "position": 4, "default_done_ratio": 90, "is_readonly": false, "excluded_from_totals": false, "created_at": 1783507124000000, "updated_at": 1783507124000000},
+      {"id": 4, "name": "Closed", "category": "closed", "is_default": false, "position": 5, "default_done_ratio": 100, "is_readonly": true, "excluded_from_totals": false, "created_at": 1783507124000000, "updated_at": 1783507124000000},
+      {"id": 5, "name": "Rejected", "category": "closed", "is_default": false, "position": 6, "default_done_ratio": 0, "is_readonly": true, "excluded_from_totals": false, "created_at": 1783507124000000, "updated_at": 1783507124000000},
+      {"id": 6, "name": "On hold", "category": "in_progress", "is_default": false, "position": 3, "default_done_ratio": 0, "is_readonly": false, "excluded_from_totals": false, "created_at": 1783507124000000, "updated_at": 1783507124000000}
     ],
     "enumerations": [
       {"id": 1, "type": "IssuePriority", "name": "Low", "position": 1, "is_default": false, "active": true, "created_at": 1783507124000000, "updated_at": 1783507124000000},
@@ -35,10 +38,11 @@
       {"id": 6, "type": "TimeEntryActivity", "name": "Management", "position": 2, "is_default": false, "active": true, "created_at": 1783507124000000, "updated_at": 1783507124000000}
     ],
     "types": [
-      {"id": 1, "name": "Task", "position": 1, "is_in_roadmap": true, "is_milestone": false, "allow_project_variants": true, "created_at": 1783507124000000, "updated_at": 1783507124000000},
-      {"id": 2, "name": "Bug", "position": 2, "is_in_roadmap": true, "is_milestone": false, "allow_project_variants": true, "created_at": 1783507124000000, "updated_at": 1783507124000000},
-      {"id": 3, "name": "Feature", "position": 3, "is_in_roadmap": true, "is_milestone": false, "allow_project_variants": true, "created_at": 1783507124000000, "updated_at": 1783507124000000},
-      {"id": 4, "name": "Milestone", "position": 4, "is_in_roadmap": true, "is_milestone": true, "allow_project_variants": true, "created_at": 1783507124000000, "updated_at": 1783507124000000}
+      {"id": 1, "name": "Task", "position": 2, "is_in_roadmap": true, "is_milestone": false, "allow_project_variants": true, "created_at": 1783507124000000, "updated_at": 1783507124000000},
+      {"id": 2, "name": "Bug", "position": 3, "is_in_roadmap": true, "is_milestone": false, "allow_project_variants": true, "created_at": 1783507124000000, "updated_at": 1783507124000000},
+      {"id": 3, "name": "Feature", "position": 4, "is_in_roadmap": true, "is_milestone": false, "allow_project_variants": true, "created_at": 1783507124000000, "updated_at": 1783507124000000},
+      {"id": 4, "name": "Milestone", "position": 5, "is_in_roadmap": true, "is_milestone": true, "allow_project_variants": true, "created_at": 1783507124000000, "updated_at": 1783507124000000},
+      {"id": 5, "name": "Epic", "position": 1, "is_in_roadmap": true, "is_milestone": false, "allow_project_variants": true, "created_at": 1783507124000000, "updated_at": 1783507124000000}
     ],
     "projects": [
       {"id": 1, "name": "Website Relaunch", "description": "Marketing site redesign and rebuild.", "identifier": "website-relaunch", "public": true, "lft": 1, "rgt": 2, "active": true, "templated": false, "settings": "{\"zeta\": 1, \"beta\": [1,2], \"a\": true}", "workspace_type": "project", "wp_sequence_counter": 0, "created_at": 1783507124000000, "updated_at": 1783507124000000},

@@ -37,11 +37,53 @@
           null
         ],
         [
+          5,
+          "Development",
+          1,
+          true,
+          "TimeEntryActivity",
+          true,
+          null,
+          null,
+          {
+            "epoch": 1783507124,
+            "t": "2026-07-08T10:38:44.000000Z",
+            "usec": 0
+          },
+          {
+            "epoch": 1783507124,
+            "t": "2026-07-08T10:38:44.000000Z",
+            "usec": 0
+          },
+          null
+        ],
+        [
           2,
           "Normal",
           2,
           true,
           "IssuePriority",
+          true,
+          null,
+          null,
+          {
+            "epoch": 1783507124,
+            "t": "2026-07-08T10:38:44.000000Z",
+            "usec": 0
+          },
+          {
+            "epoch": 1783507124,
+            "t": "2026-07-08T10:38:44.000000Z",
+            "usec": 0
+          },
+          null
+        ],
+        [
+          6,
+          "Management",
+          2,
+          false,
+          "TimeEntryActivity",
           true,
           null,
           null,
@@ -84,48 +126,6 @@
           4,
           false,
           "IssuePriority",
-          true,
-          null,
-          null,
-          {
-            "epoch": 1783507124,
-            "t": "2026-07-08T10:38:44.000000Z",
-            "usec": 0
-          },
-          {
-            "epoch": 1783507124,
-            "t": "2026-07-08T10:38:44.000000Z",
-            "usec": 0
-          },
-          null
-        ],
-        [
-          5,
-          "Development",
-          1,
-          true,
-          "TimeEntryActivity",
-          true,
-          null,
-          null,
-          {
-            "epoch": 1783507124,
-            "t": "2026-07-08T10:38:44.000000Z",
-            "usec": 0
-          },
-          {
-            "epoch": 1783507124,
-            "t": "2026-07-08T10:38:44.000000Z",
-            "usec": 0
-          },
-          null
-        ],
-        [
-          6,
-          "Management",
-          2,
-          false,
-          "TimeEntryActivity",
           true,
           null,
           null,
@@ -1871,10 +1871,31 @@
           "in_progress"
         ],
         [
+          6,
+          "On hold",
+          false,
+          3,
+          0,
+          {
+            "epoch": 1783507124,
+            "t": "2026-07-08T10:38:44.000000Z",
+            "usec": 0
+          },
+          {
+            "epoch": 1783507124,
+            "t": "2026-07-08T10:38:44.000000Z",
+            "usec": 0
+          },
+          null,
+          false,
+          false,
+          "in_progress"
+        ],
+        [
           3,
           "Resolved",
           false,
-          3,
+          4,
           90,
           {
             "epoch": 1783507124,
@@ -1895,7 +1916,7 @@
           4,
           "Closed",
           false,
-          4,
+          5,
           100,
           {
             "epoch": 1783507124,
@@ -1916,7 +1937,7 @@
           5,
           "Rejected",
           false,
-          5,
+          6,
           0,
           {
             "epoch": 1783507124,
@@ -1942,7 +1963,7 @@
   },
   {
     "answer": {
-      "count": 5
+      "count": 6
     },
     "read": {
       "shape": "count",
@@ -2442,9 +2463,29 @@
       ],
       "rows": [
         [
+          5,
+          "Epic",
+          1,
+          true,
+          false,
+          null,
+          {
+            "epoch": 1783507124,
+            "t": "2026-07-08T10:38:44.000000Z",
+            "usec": 0
+          },
+          {
+            "epoch": 1783507124,
+            "t": "2026-07-08T10:38:44.000000Z",
+            "usec": 0
+          },
+          true,
+          null
+        ],
+        [
           1,
           "Task",
-          1,
+          2,
           true,
           false,
           null,
@@ -2464,7 +2505,7 @@
         [
           2,
           "Bug",
-          2,
+          3,
           true,
           false,
           null,
@@ -2484,7 +2525,7 @@
         [
           3,
           "Feature",
-          3,
+          4,
           true,
           false,
           null,
@@ -2504,7 +2545,7 @@
         [
           4,
           "Milestone",
-          4,
+          5,
           true,
           true,
           null,
@@ -2530,7 +2571,7 @@
   },
   {
     "answer": {
-      "count": 4
+      "count": 5
     },
     "read": {
       "shape": "count",
@@ -2711,6 +2752,36 @@
           null,
           null,
           null
+        ],
+        [
+          6,
+          "erin",
+          "Erin",
+          "Evans",
+          "erin@example.com",
+          false,
+          3,
+          null,
+          "en",
+          null,
+          {
+            "epoch": 1783507124,
+            "t": "2026-07-08T10:38:44.000000Z",
+            "usec": 0
+          },
+          {
+            "epoch": 1783507124,
+            "t": "2026-07-08T10:38:44.000000Z",
+            "usec": 0
+          },
+          "User",
+          null,
+          false,
+          false,
+          0,
+          null,
+          null,
+          null
         ]
       ]
     },
@@ -2721,7 +2792,7 @@
   },
   {
     "answer": {
-      "count": 5
+      "count": 6
     },
     "read": {
       "shape": "count",
@@ -12826,6 +12897,72 @@
       "shape": "eq",
       "table": "users",
       "value": "Alice"
+    }
+  },
+  {
+    "answer": {
+      "columns": [
+        "id",
+        "login",
+        "firstname",
+        "lastname",
+        "mail",
+        "admin",
+        "status",
+        "last_login_on",
+        "language",
+        "ldap_auth_source_id",
+        "created_at",
+        "updated_at",
+        "type",
+        "identity_url",
+        "first_login",
+        "force_password_change",
+        "failed_login_count",
+        "last_failed_login_on",
+        "consented_at",
+        "webauthn_id"
+      ],
+      "rows": []
+    },
+    "read": {
+      "col": "login",
+      "shape": "eq",
+      "table": "users",
+      "value": "frank"
+    }
+  },
+  {
+    "answer": {
+      "columns": [
+        "id",
+        "login",
+        "firstname",
+        "lastname",
+        "mail",
+        "admin",
+        "status",
+        "last_login_on",
+        "language",
+        "ldap_auth_source_id",
+        "created_at",
+        "updated_at",
+        "type",
+        "identity_url",
+        "first_login",
+        "force_password_change",
+        "failed_login_count",
+        "last_failed_login_on",
+        "consented_at",
+        "webauthn_id"
+      ],
+      "rows": []
+    },
+    "read": {
+      "col": "status",
+      "shape": "eq",
+      "table": "users",
+      "value": 5
     }
   },
   {
