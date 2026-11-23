@@ -10,6 +10,7 @@ BODY_NOT_STRUCTURED	op_services::work_packages::mutation::authorize_delete
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::update
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::delete
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::create
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::create_in
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::load_principal
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::load_project_active
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{AuthorizedUpdate}::commit
@@ -24,3 +25,19 @@ BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgMutationStore::default_status
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgMutationStore::status_is_closed
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgMutationStore::insert_wp
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgMutationStore::create_unit_of_work
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgMutationStore}::create_then
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::begin
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::commit
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::rollback
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::execute
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_MutationStore_for_PgCreateScope::find_wp
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_MutationStore_for_PgCreateScope::project_active
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_MutationStore_for_PgCreateScope::principal
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_MutationStore_for_PgCreateScope::update_wp
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::author_id
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::first_enabled_type
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::default_status
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::status_is_closed
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::insert_wp
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::create_unit_of_work

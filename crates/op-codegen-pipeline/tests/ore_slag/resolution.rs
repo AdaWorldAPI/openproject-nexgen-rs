@@ -470,7 +470,7 @@ fn residual_for(
                 "remove the call from a structured body: the row must become RubyOnly, never stay Agreement",
             ),
             if key == KEY_PERSIST {
-                format!("Charon residual {charon}; the create is not transactional and writes no journal (P3b gap)")
+                format!("Charon residual {charon}; the create is transactional (EXECUTED_DB step 7) but writes no journal")
             } else {
                 format!("Charon residual {charon}")
             },
@@ -722,7 +722,7 @@ fn ore_slag_ledger_and_lifecycle() {
     eprintln!("== ORE/SLAG SCORECARD (WorkPackage create admission)\n{card}");
     eprintln!("   schedule_manually differential: 1 discriminating record compared, 0 disagreements (separate from the 350 contract-rule items)");
     eprintln!("   database effects performed here: 0 (EXECUTED_DB is cited: needs OP_TEST_DATABASE_URL); callback bodies executed: 0");
-    eprintln!("   P3b gap: create is not transactional (a post-INSERT failure leaves the row committed), writes no journal, and authorize/write are not isolated");
+    eprintln!("   P3b: create is transactional (step 7: a post-INSERT failure leaves no row); it still writes no journal");
     for r in &rs {
         eprintln!(
             "   {} [{:?} / {:?}] {}",

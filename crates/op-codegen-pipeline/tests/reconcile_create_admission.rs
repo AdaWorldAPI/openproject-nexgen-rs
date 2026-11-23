@@ -594,7 +594,7 @@ fn attach_runtime(r: &mut Reconciliation) {
         "openproject/WorkPackage/create/persistence/mutation::create/inserts:work_packages",
         RuntimeEvidence::Cited {
             gate: "op-server board::executed_db (needs OP_TEST_DATABASE_URL)".into(),
-            asserts: "mutation::create over PgMutationStore commits the row (step 2); not transactional (step 7)".into(),
+            asserts: "mutation::create over PgMutationStore commits the row (step 2); a failure after the INSERT rolls it back (step 7)".into(),
         }
     ));
     let guard_rows: Vec<(String, String)> = r

@@ -206,6 +206,19 @@ pub trait CreationStore: MutationStore {
     /// Whether the status is closed; `None` when no such status exists.
     async fn status_is_closed(&self, status_id: Id) -> Result<Option<bool>, StoreFailure>;
     async fn insert_wp(&self, dto: CreateWorkPackageDto) -> Result<WorkPackageRow, StoreFailure>;
+    /// Run the whole create (authorization reads, defaults, insert and anything after the insert)
+    /// as ONE unit of work: committed when `create_in` returns `Ok`, rolled back when it returns
+    /// an error. OpenProject's `Shared::ServiceContext#in_user_context` wraps
+    /// `WorkPackages::CreateService` in `ActiveRecord::Base.transaction` and raises
+    /// `ActiveRecord::Rollback` on a failed result (`app/services/shared/service_context.rb`).
+    ///
+    /// A store with no transaction (a test fake) runs `create_in(self, ..)`; [`PgMutationStore`]
+    /// opens a real transaction and hands `create_in` a scope bound to it.
+    async fn create_unit_of_work(
+        &self,
+        caller: &Caller,
+        params: WorkPackageParams,
+    ) -> Result<WorkPackageRow, MutationError>;
 }
 
 // ── authorization ────────────────────────────────────────────────────
@@ -400,6 +413,17 @@ fn is_unresolved_refusal(msg: &str) -> Option<String> {
 /// * The generated admission of `WorkPackages::CreateContract` runs through
 ///   [`CreateWorkPackageService::call`]; the author is the caller, never a submitted value.
 pub async fn create<S: CreationStore>(
+    store: &S,
+    caller: &Caller,
+    params: WorkPackageParams,
+) -> Result<WorkPackageRow, MutationError> {
+    store.create_unit_of_work(caller, params).await
+}
+
+/// The body of [`create`]: identity, authorization, defaults, admission and the insert, against
+/// whatever scope the store hands it. Called by `CreationStore::create_unit_of_work`
+/// implementations, inside their transaction; not a boundary of its own.
+pub async fn create_in<S: CreationStore>(
     store: &S,
     caller: &Caller,
     params: WorkPackageParams,
@@ -638,6 +662,252 @@ impl CreationStore for PgMutationStore {
             .create(dto)
             .await?)
     }
+
+    async fn create_unit_of_work(
+        &self,
+        caller: &Caller,
+        params: WorkPackageParams,
+    ) -> Result<WorkPackageRow, MutationError> {
+        self.create_then(caller, params, None).await
+    }
+}
+
+impl PgMutationStore {
+    /// The production create: one transaction around [`create_in`] and `post_insert`, committed
+    /// only if both succeed. `post_insert` is the statement that runs after the INSERT on the same
+    /// transaction (OpenProject runs `after_create`: ancestors, rescheduling, watcher, and the
+    /// journal in its save callbacks, inside `in_user_context`). Nothing in Rust runs there yet
+    /// (no journal, no watcher); `None` is the production call. It exists so the
+    /// failure-after-insert case can be exercised through the real transaction code.
+    pub async fn create_then(
+        &self,
+        caller: &Caller,
+        params: WorkPackageParams,
+        post_insert: Option<&str>,
+    ) -> Result<WorkPackageRow, MutationError> {
+        let scope = PgCreateScope::begin(&self.pool).await?;
+        let mut out = create_in(&scope, caller, params).await;
+        if let (Ok(_), Some(sql)) = (&out, post_insert) {
+            if let Err(e) = scope.execute(sql).await {
+                out = Err(e.into());
+            }
+        }
+        match out {
+            Ok(row) => {
+                scope.commit().await?;
+                Ok(row)
+            }
+            Err(e) => {
+                scope.rollback().await;
+                Err(e)
+            }
+        }
+    }
+}
+
+fn db_failure(e: sqlx::Error) -> StoreFailure {
+    StoreFailure::from(RepositoryError::from(e))
+}
+
+/// A create's database scope: every read and the insert run on ONE open transaction, so the
+/// authorization facts and the write are isolated together and a failure after the insert leaves
+/// nothing behind. It is only ever built by [`PgMutationStore`]'s `create_unit_of_work`, which
+/// commits or rolls it back.
+///
+/// The queries repeat those of the repositories (`UserRepository::find_by_login`,
+/// `MemberRepository::find_by_project_and_user` + `RoleRepository::get_permissions`,
+/// `TypeRepository::find_by_project`, `StatusRepository::{find_default, find_by_id}`,
+/// `WorkPackageRepository::create`) because those are bound to the pool and cannot join a
+/// transaction.
+pub struct PgCreateScope {
+    tx: tokio::sync::Mutex<sqlx::Transaction<'static, sqlx::Postgres>>,
+}
+
+impl PgCreateScope {
+    pub async fn begin(pool: &PgPool) -> Result<Self, StoreFailure> {
+        let tx = pool.begin().await.map_err(db_failure)?;
+        Ok(Self {
+            tx: tokio::sync::Mutex::new(tx),
+        })
+    }
+
+    pub async fn commit(self) -> Result<(), StoreFailure> {
+        self.tx
+            .into_inner()
+            .commit()
+            .await
+            .map_err(db_failure)
+    }
+
+    /// Roll back. A failed rollback is not reported: the connection is dropped, which makes the
+    /// server discard the transaction anyway.
+    pub async fn rollback(self) {
+        let _ = self.tx.into_inner().rollback().await;
+    }
+
+    /// Run a statement on the open transaction (the place a journal write would go).
+    pub async fn execute(&self, sql: &str) -> Result<(), StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        sqlx::query(sql)
+            .execute(&mut **tx)
+            .await
+            .map(|_| ())
+            .map_err(db_failure)
+    }
+}
+
+impl MutationStore for PgCreateScope {
+    async fn find_wp(&self, _id: Id) -> Result<Option<WorkPackageRow>, StoreFailure> {
+        Err(StoreFailure::Other(
+            "a create scope does not look up work packages".into(),
+        ))
+    }
+
+    async fn project_active(&self, project_id: Id) -> Result<bool, StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        let active: Option<bool> = sqlx::query_scalar("SELECT active FROM projects WHERE id = $1")
+            .bind(project_id)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(db_failure)?;
+        Ok(active.unwrap_or(false))
+    }
+
+    async fn principal(&self, caller: &Caller, project_id: Id) -> Result<Principal, StoreFailure> {
+        let login = match caller {
+            Caller::Anonymous { allowed } => return Ok(Principal::Anonymous { allowed: *allowed }),
+            Caller::Actor { login } => login,
+        };
+        let mut tx = self.tx.lock().await;
+        let user: Option<(i64, bool, i32)> =
+            sqlx::query_as("SELECT id, admin, status FROM users WHERE login = $1")
+                .bind(login)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(db_failure)?;
+        let Some((user_id, admin, status)) = user else {
+            return Ok(Principal::Unprovisioned);
+        };
+        let permissions: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT rp.permission FROM members m \
+             JOIN member_roles mr ON mr.member_id = m.id \
+             JOIN role_permissions rp ON rp.role_id = mr.role_id \
+             WHERE m.project_id = $1 AND m.user_id = $2 AND m.entity_type IS NULL",
+        )
+        .bind(project_id)
+        .bind(user_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(db_failure)?;
+        Ok(Principal::User {
+            admin,
+            active: status == 1,
+            permissions: permissions.into_iter().collect(),
+        })
+    }
+
+    async fn update_wp(
+        &self,
+        _id: Id,
+        _dto: UpdateWorkPackageDto,
+    ) -> Result<WorkPackageRow, StoreFailure> {
+        Err(StoreFailure::Other(
+            "a create scope does not update work packages".into(),
+        ))
+    }
+}
+
+impl CreationStore for PgCreateScope {
+    async fn author_id(&self, caller: &Caller) -> Result<Option<Id>, StoreFailure> {
+        let Caller::Actor { login } = caller else {
+            return Ok(None);
+        };
+        let mut tx = self.tx.lock().await;
+        sqlx::query_scalar("SELECT id FROM users WHERE login = $1")
+            .bind(login)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(db_failure)
+    }
+
+    async fn first_enabled_type(&self, project_id: Id) -> Result<Option<Id>, StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        sqlx::query_scalar(
+            "SELECT t.id FROM types t INNER JOIN projects_types pt ON pt.type_id = t.id \
+             WHERE pt.project_id = $1 ORDER BY t.position ASC LIMIT 1",
+        )
+        .bind(project_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(db_failure)
+    }
+
+    async fn default_status(&self) -> Result<Option<Id>, StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        sqlx::query_scalar("SELECT id FROM statuses WHERE is_default = true LIMIT 1")
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(db_failure)
+    }
+
+    async fn status_is_closed(&self, status_id: Id) -> Result<Option<bool>, StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        sqlx::query_scalar("SELECT is_closed FROM statuses WHERE id = $1")
+            .bind(status_id)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(db_failure)
+    }
+
+    async fn insert_wp(&self, dto: CreateWorkPackageDto) -> Result<WorkPackageRow, StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        sqlx::query_as::<_, WorkPackageRow>(
+            r#"
+            INSERT INTO work_packages (
+                subject, description, project_id, type_id, status_id,
+                priority_id, author_id, assigned_to_id, responsible_id,
+                start_date, due_date, estimated_hours, done_ratio,
+                parent_id, version_id, category_id, lock_version,
+                created_at, updated_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0, NOW(), NOW()
+            )
+            RETURNING id, subject, description, project_id, type_id, status_id,
+                      priority_id, author_id, assigned_to_id, responsible_id,
+                      start_date, due_date, estimated_hours, done_ratio,
+                      parent_id, version_id, category_id, lock_version,
+                      created_at, updated_at
+            "#,
+        )
+        .bind(&dto.subject)
+        .bind(&dto.description)
+        .bind(dto.project_id)
+        .bind(dto.type_id)
+        .bind(dto.status_id)
+        .bind(dto.priority_id)
+        .bind(dto.author_id)
+        .bind(dto.assigned_to_id)
+        .bind(dto.responsible_id)
+        .bind(dto.start_date)
+        .bind(dto.due_date)
+        .bind(dto.estimated_hours)
+        .bind(dto.done_ratio)
+        .bind(dto.parent_id)
+        .bind(dto.version_id)
+        .bind(dto.category_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(db_failure)
+    }
+
+    /// Already inside the unit of work.
+    async fn create_unit_of_work(
+        &self,
+        caller: &Caller,
+        params: WorkPackageParams,
+    ) -> Result<WorkPackageRow, MutationError> {
+        create_in(self, caller, params).await
+    }
 }
 
 #[cfg(test)]
@@ -804,6 +1074,13 @@ mod tests {
             r.author_id = dto.author_id;
             self.inserts.lock().unwrap().push(dto);
             Ok(r)
+        }
+        async fn create_unit_of_work(
+            &self,
+            caller: &Caller,
+            params: WorkPackageParams,
+        ) -> Result<WorkPackageRow, MutationError> {
+            create_in(self, caller, params).await
         }
     }
 
