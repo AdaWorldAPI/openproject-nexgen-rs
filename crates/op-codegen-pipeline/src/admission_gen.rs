@@ -156,6 +156,27 @@ fn contract_model(src: &Path) -> ContractModel {
     m
 }
 
+/// What the [`ExtractionGap::PermissionDeclScan`] line scan found in
+/// `base_contract.rb` and `create_contract.rb`, for consumers other than the
+/// generator (the three-witness reconciliation, [`crate::reconcile`]). It is the same
+/// scan the generator runs, not a second reading of the Ruby.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContractScanFacts {
+    /// The permission literal inside `CreateContract#user_allowed_to_add`.
+    pub add_permission: Option<String>,
+    /// Every `validate :name` in scan order (base contract first).
+    pub validators: Vec<String>,
+}
+
+/// Run the scan over the checkout at `src`.
+pub fn contract_scan_facts(src: &Path) -> ContractScanFacts {
+    let m = contract_model(src);
+    ContractScanFacts {
+        add_permission: m.add_permission,
+        validators: m.validators,
+    }
+}
+
 fn guard_for<'a>(guards: &'a [ContractGuard], canon_attr: &str) -> Option<&'a ContractGuard> {
     let find = |class: &str| {
         guards
