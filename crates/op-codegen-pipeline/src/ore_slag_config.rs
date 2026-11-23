@@ -1459,10 +1459,8 @@ charon_residual_symbol = "a::b"
             SlagReason::RubySideNotHarvested,
         )
         .unwrap()
-        .replace(
-            "missing_fact = \"TODO\"",
-            "missing_fact = \"TODO: fill in\"",
-        );
+        .replace("\"TODO\"", "\"TODO: fill in\"");
+        assert!(!stubbed.contains("\"TODO\""), "fixture: no exact TODO left");
         let cfg = OreSlagConfig::parse(&stubbed).unwrap();
         assert_eq!(cfg.todo_keys(), ["app/Thing/make/admission/m1/e1"]);
     }
