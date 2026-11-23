@@ -310,9 +310,9 @@ Separate denominators. Before means #138 as it was; after means this change.
 | Contract-rule items executed against the oracle (`create_transition_differential`) | 350, 0 mismatches | 350, 0 mismatches (unchanged; the new case is separate) |
 | Lowered guards against the oracle (`guard_differential`) | 84 pairs, 0 mismatches | 84, 0 |
 | `schedule_manually` block differential | not run | 1 discriminating record, 1 mismatch |
-| Callback ledger (`callback_differential`) | 115 / 157 matched, 42 slag | 115 / 157, 42 slag (unchanged) |
-| Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | same |
-| Callback order | 19 groups, 19 definite, 0 differ | same |
+| Callback ledger (`callback_differential`) | 115 / 157 matched, 42 slag (ruff 79ed2ba) | 154 / 157, 3 slag (ruff b3bdfb1, from #140; not this PR) |
+| Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | AssociationNotInCheckout 2, GeneratedUndecided 1 |
+| Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 16 definite, 13 UNKNOWN, 0 differ |
 | Callback bodies executed | 0 | 0 |
 | Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | same; cited by the reconciliation, run separately |
 
@@ -326,8 +326,12 @@ The P3b gaps are reported, not hidden:
 A committed row in that journey is evidence about the Rust paths, not Rails
 persistence parity.
 
-The 154/157 callback figure measured on #158's unmerged branch is not claimed here.
-It counts only after it passes the unchanged ledger once #158 is rebased.
+The callback rows in the right column come from #140 (ruff #158 at `b3bdfb1`),
+merged into this branch's base; this PR does not change them. They passed the
+unchanged ledger after the rebase. The 13 UNKNOWN order groups are the
+WorkPackage chains through `acts_as_customizable`: a module whose include-time
+body has a conditional is order-unknown, because ruff does not say whether the
+skipped branch was read in full.
 
 ## 11. Negative controls
 
