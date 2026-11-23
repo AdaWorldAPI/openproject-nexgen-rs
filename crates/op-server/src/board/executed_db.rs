@@ -452,7 +452,10 @@ async fn journey(db_url: String) -> Tally {
             .fetch_one(&verify)
             .await
             .expect("the journal data row carries a priority (NOT NULL)");
-    assert_eq!(data_priority, PRIORITY_DEFAULT, "the snapshot carries the default priority");
+    assert_eq!(
+        data_priority, PRIORITY_DEFAULT,
+        "the snapshot carries the default priority"
+    );
     // Reading the journals back decodes `priority_id` as a non-null i64; a NULL would panic here.
     let read_back = op_db::journals::JournalRepository::new(verify.clone())
         .find_work_package_journals_with_data(id, op_db::repository::Pagination::default())
