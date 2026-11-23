@@ -132,8 +132,7 @@ fn settle(ctx: &mut Ctx, slot: usize, rec: &Record, action: Option<Action>) {
 /// triggers. A record without an id is equal only to itself.
 fn dispatch_commits(ctx: &mut Ctx) -> Result<(), Halt> {
     let pending = std::mem::take(&mut ctx.pending_commit);
-    let mut claimed: std::collections::BTreeSet<(&'static str, i64)> =
-        std::collections::BTreeSet::new();
+    let mut claimed: std::collections::BTreeSet<(&'static str, i64)> = std::collections::BTreeSet::new();
     for mut p in pending {
         let Some(did) = p.action else { continue };
         if let Some(id) = p.record.id()
@@ -216,10 +215,7 @@ pub fn run_chain(
                 if !only_if_fk_missing_or_changed || rec.get(fk).is_nil() || rec.changed(fk) {
                     let v = belongs_to_cached(ctx, rec, assoc, fk, target)?;
                     if v.blank() {
-                        ctx.errors.push(crate::validations::ValidationError {
-                            attr: assoc,
-                            kind: "blank",
-                        });
+                        ctx.errors.push(crate::validations::ValidationError { attr: assoc, kind: "blank" });
                     }
                 }
             }
@@ -230,11 +226,7 @@ pub fn run_chain(
 }
 
 /// `Model.new(attrs)`: defaults, then the assignments, then `after_initialize`.
-pub fn build(
-    ctx: &mut Ctx,
-    model: &'static ModelSpec,
-    attrs: &[(&str, Value)],
-) -> Result<Record, Halt> {
+pub fn build(ctx: &mut Ctx, model: &'static ModelSpec, attrs: &[(&str, Value)]) -> Result<Record, Halt> {
     let mut rec = Record::new(model.table);
     for (name, v) in attrs {
         if !rec.set_named(name, v.clone()) {
@@ -244,26 +236,14 @@ pub fn build(
             )));
         }
     }
-    run_chain(
-        ctx,
-        model,
-        &[Phase::AfterInitialize],
-        Action::Create,
-        &mut rec,
-    )?;
+    run_chain(ctx, model, &[Phase::AfterInitialize], Action::Create, &mut rec)?;
     Ok(rec)
 }
 
 /// A record coming out of the store: `after_find`, then `after_initialize`.
 fn instantiate(ctx: &mut Ctx, model: &'static ModelSpec, mut rec: Record) -> Result<Record, Halt> {
     run_chain(ctx, model, &[Phase::AfterFind], Action::Update, &mut rec)?;
-    run_chain(
-        ctx,
-        model,
-        &[Phase::AfterInitialize],
-        Action::Update,
-        &mut rec,
-    )?;
+    run_chain(ctx, model, &[Phase::AfterInitialize], Action::Update, &mut rec)?;
     Ok(rec)
 }
 
@@ -276,11 +256,7 @@ pub fn find(ctx: &mut Ctx, model: &'static ModelSpec, id: i64) -> Result<Option<
 }
 
 /// `Model.find_by(col: v, …)`.
-pub fn find_by(
-    ctx: &mut Ctx,
-    model: &'static ModelSpec,
-    preds: &[(usize, Value)],
-) -> Result<Option<Record>, Halt> {
+pub fn find_by(ctx: &mut Ctx, model: &'static ModelSpec, preds: &[(usize, Value)]) -> Result<Option<Record>, Halt> {
     match ctx.store.find_by(model.table, preds)? {
         Some(rec) => instantiate(ctx, model, rec).map(Some),
         None => Ok(None),
@@ -288,23 +264,13 @@ pub fn find_by(
 }
 
 /// `Model.where(col: v, …).to_a`, primary-key order.
-pub fn where_eq(
-    ctx: &mut Ctx,
-    model: &'static ModelSpec,
-    preds: &[(usize, Value)],
-) -> Result<Vec<Record>, Halt> {
+pub fn where_eq(ctx: &mut Ctx, model: &'static ModelSpec, preds: &[(usize, Value)]) -> Result<Vec<Record>, Halt> {
     let rows = ctx.store.where_eq(model.table, preds)?;
-    rows.into_iter()
-        .map(|r| instantiate(ctx, model, r))
-        .collect()
+    rows.into_iter().map(|r| instantiate(ctx, model, r)).collect()
 }
 
 /// `record.reload`.
-pub fn reload(
-    ctx: &mut Ctx,
-    model: &'static ModelSpec,
-    rec: &Record,
-) -> Result<Option<Record>, Halt> {
+pub fn reload(ctx: &mut Ctx, model: &'static ModelSpec, rec: &Record) -> Result<Option<Record>, Halt> {
     match rec.id() {
         Some(id) => find(ctx, model, id),
         None => Ok(None),
@@ -327,11 +293,7 @@ fn set_time(rec: &mut Record, col: &str, now: i64) {
 
 /// `record.save`.
 pub fn save(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Result<Saved, Halt> {
-    let action = if rec.new_record() {
-        Action::Create
-    } else {
-        Action::Update
-    };
+    let action = if rec.new_record() { Action::Create } else { Action::Update };
     let snapshot = ctx.store.begin();
     let record_state = rec.transaction_state();
     let outer = ctx.txn_depth == 0;
@@ -398,22 +360,12 @@ fn save_in_transaction(
     })();
     let errors = std::mem::replace(&mut ctx.errors, outer_errors);
     match validated {
-        Err(Halt::Abort) => {
-            return Ok(Saved {
-                ok: false,
-                errors,
-                aborted: true,
-            });
-        }
+        Err(Halt::Abort) => return Ok(Saved { ok: false, errors, aborted: true }),
         Err(e) => return Err(e),
         Ok(()) => {}
     }
     if !errors.is_empty() {
-        return Ok(Saved {
-            ok: false,
-            errors,
-            aborted: false,
-        });
+        return Ok(Saved { ok: false, errors, aborted: false });
     }
 
     // Callbacks: run_callbacks(:save) { run_callbacks(:create|:update) { write } }
@@ -460,21 +412,9 @@ fn save_in_transaction(
         run_chain(ctx, model, &[Phase::AfterSave], action, rec)
     })();
     match body {
-        Ok(()) if refused_destroyed => Ok(Saved {
-            ok: false,
-            errors,
-            aborted: false,
-        }),
-        Ok(()) => Ok(Saved {
-            ok: true,
-            errors,
-            aborted: false,
-        }),
-        Err(Halt::Abort) => Ok(Saved {
-            ok: false,
-            errors,
-            aborted: true,
-        }),
+        Ok(()) if refused_destroyed => Ok(Saved { ok: false, errors, aborted: false }),
+        Ok(()) => Ok(Saved { ok: true, errors, aborted: false }),
+        Err(Halt::Abort) => Ok(Saved { ok: false, errors, aborted: true }),
         Err(e) => Err(e),
     }
 }
@@ -485,10 +425,7 @@ pub fn save_bang(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> 
     if saved.ok {
         Ok(())
     } else if saved.aborted {
-        Err(Halt::Raise(format!(
-            "ActiveRecord::RecordNotSaved: Failed to save the record ({})",
-            model.name
-        )))
+        Err(Halt::Raise(format!("ActiveRecord::RecordNotSaved: Failed to save the record ({})", model.name)))
     } else {
         Err(Halt::Raise(format!(
             "ActiveRecord::RecordInvalid: {}",
@@ -591,29 +528,20 @@ fn destroy_in_transaction(
 
 /// `record.destroy!` — an aborted destroy is `RecordNotDestroyed`
 /// (persistence.rb:469-471, 981-987).
-pub fn destroy_bang(
-    ctx: &mut Ctx,
-    model: &'static ModelSpec,
-    rec: &mut Record,
-) -> Result<(), Halt> {
+pub fn destroy_bang(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Result<(), Halt> {
     if destroy(ctx, model, rec)? {
         Ok(())
     } else {
         Err(Halt::Raise(format!(
             "ActiveRecord::RecordNotDestroyed: Failed to destroy {} with id={}",
             model.name,
-            rec.id()
-                .map_or_else(|| "nil".to_string(), |id| id.to_string())
+            rec.id().map_or_else(|| "nil".to_string(), |id| id.to_string())
         )))
     }
 }
 
 /// `Model.create!(attrs)`.
-pub fn create_bang(
-    ctx: &mut Ctx,
-    model: &'static ModelSpec,
-    attrs: &[(&str, Value)],
-) -> Result<Record, Halt> {
+pub fn create_bang(ctx: &mut Ctx, model: &'static ModelSpec, attrs: &[(&str, Value)]) -> Result<Record, Halt> {
     let mut rec = build(ctx, model, attrs)?;
     save_bang(ctx, model, &mut rec)?;
     Ok(rec)
@@ -628,10 +556,7 @@ pub fn update_bang(
 ) -> Result<(), Halt> {
     for (name, v) in attrs {
         if !rec.set_named(name, v.clone()) {
-            return Err(Halt::Raise(format!(
-                "unknown attribute '{name}' for {}",
-                model.name
-            )));
+            return Err(Halt::Raise(format!("unknown attribute '{name}' for {}", model.name)));
         }
     }
     save_bang(ctx, model, rec)
@@ -673,11 +598,7 @@ pub fn belongs_to_cached(
 }
 
 /// `Model.find_by(...)` as a Ruby value: the record, or `nil`.
-pub fn find_by_value(
-    ctx: &mut Ctx,
-    model: &'static ModelSpec,
-    preds: &[(usize, Value)],
-) -> Result<Value, Halt> {
+pub fn find_by_value(ctx: &mut Ctx, model: &'static ModelSpec, preds: &[(usize, Value)]) -> Result<Value, Halt> {
     Ok(find_by(ctx, model, preds)?.map_or(Value::Nil, |r| Value::Rec(Box::new(r))))
 }
 
@@ -726,18 +647,9 @@ mod tests {
 
     #[test]
     fn dates_order_by_day_including_before_the_epoch() {
-        assert_eq!(
-            cmp_values(&Value::Date(-3), &Value::Date(2)),
-            Ordering::Less
-        );
-        assert_eq!(
-            cmp_values(&Value::Date(7), &Value::Date(7)),
-            Ordering::Equal
-        );
-        assert_eq!(
-            cmp_values(&Value::Date(9), &Value::Date(-9)),
-            Ordering::Greater
-        );
+        assert_eq!(cmp_values(&Value::Date(-3), &Value::Date(2)), Ordering::Less);
+        assert_eq!(cmp_values(&Value::Date(7), &Value::Date(7)), Ordering::Equal);
+        assert_eq!(cmp_values(&Value::Date(9), &Value::Date(-9)), Ordering::Greater);
     }
 
     use crate::callbacks::On;
@@ -746,13 +658,7 @@ mod tests {
     use crate::store::StoreError;
 
     const fn col(name: &'static str, ty: ColumnType, null: bool, default: ColDefault) -> Column {
-        Column {
-            name,
-            ty,
-            null,
-            default,
-            limit: None,
-        }
+        Column { name, ty, null, default, limit: None }
     }
 
     static LOCKED: TableSpec = TableSpec {
@@ -760,12 +666,7 @@ mod tests {
         columns: &[
             col("id", ColumnType::Integer, false, ColDefault::None),
             col("name", ColumnType::String, true, ColDefault::None),
-            col(
-                "lock_version",
-                ColumnType::Integer,
-                false,
-                ColDefault::Int(0),
-            ),
+            col("lock_version", ColumnType::Integer, false, ColDefault::Int(0)),
         ],
     };
 
@@ -802,14 +703,7 @@ mod tests {
     }
 
     const fn cb(phase: Phase, name: &'static str, on: On, f: crate::callbacks::BodyFn) -> Callback {
-        Callback {
-            phase,
-            name,
-            on,
-            conds: &[],
-            target: Target::Lowered(f),
-            provenance: "test",
-        }
+        Callback { phase, name, on, conds: &[], target: Target::Lowered(f), provenance: "test" }
     }
 
     static ORDERED: ModelSpec = ModelSpec {
@@ -862,10 +756,7 @@ mod tests {
     }
 
     fn seeded(ctx: &mut Ctx, model: &'static ModelSpec) -> Record {
-        let id = ctx
-            .store
-            .seed(model.table, &[("name", Value::str("a"))])
-            .unwrap();
+        let id = ctx.store.seed(model.table, &[("name", Value::str("a"))]).unwrap();
         find(ctx, model, id).unwrap().unwrap()
     }
 
@@ -876,25 +767,12 @@ mod tests {
         assert_eq!(destroy(&mut ctx, &ORDERED, &mut rec), Ok(true));
         assert_eq!(
             phases(&ctx),
-            [
-                Phase::BeforeDestroy,
-                Phase::AroundDestroy,
-                Phase::AfterDestroy,
-                Phase::AfterCommit
-            ],
+            [Phase::BeforeDestroy, Phase::AroundDestroy, Phase::AfterDestroy, Phase::AfterCommit],
             "only the on: :destroy commit callback fires"
         );
         assert_eq!(ctx.journal[3].name, "commit_destroy");
-        assert_eq!(
-            ctx.settings["rows_before"],
-            Value::Int(1),
-            "before_destroy sees the row"
-        );
-        assert_eq!(
-            ctx.settings["rows_after"],
-            Value::Int(0),
-            "after_destroy sees it gone"
-        );
+        assert_eq!(ctx.settings["rows_before"], Value::Int(1), "before_destroy sees the row");
+        assert_eq!(ctx.settings["rows_after"], Value::Int(0), "after_destroy sees it gone");
         assert!(rec.destroyed() && !rec.persisted());
         assert_eq!(ctx.store.count(&LOCKED), 0);
     }
@@ -906,11 +784,7 @@ mod tests {
         assert_eq!(destroy(&mut ctx, &HALTING, &mut rec), Ok(false));
         assert_eq!(ctx.store.count(&LOCKED), 1, "the row is still there");
         assert!(!rec.destroyed() && rec.persisted());
-        assert_eq!(
-            phases(&ctx),
-            [Phase::BeforeDestroy],
-            "no after_destroy after the veto"
-        );
+        assert_eq!(phases(&ctx), [Phase::BeforeDestroy], "no after_destroy after the veto");
         let err = destroy_bang(&mut ctx, &HALTING, &mut rec).unwrap_err();
         assert!(
             matches!(&err, Halt::Raise(m) if m.starts_with("ActiveRecord::RecordNotDestroyed: Failed to destroy Halting with id=1")),
@@ -923,19 +797,11 @@ mod tests {
     fn a_stale_destroy_raises_after_rolling_back_and_deletes_nothing() {
         let mut ctx = ctx_with(&LOCKED);
         let mut stale_copy = seeded(&mut ctx, &ORDERED);
-        let mut writer = find(&mut ctx, &ORDERED, stale_copy.id().unwrap())
-            .unwrap()
-            .unwrap();
+        let mut writer = find(&mut ctx, &ORDERED, stale_copy.id().unwrap()).unwrap().unwrap();
         writer.set_named("name", Value::str("b"));
         assert!(save(&mut ctx, &ORDERED, &mut writer).unwrap().ok);
         let err = destroy(&mut ctx, &ORDERED, &mut stale_copy).unwrap_err();
-        assert_eq!(
-            err,
-            Halt::Store(StoreError::StaleObject {
-                table: "locked",
-                id: 1
-            })
-        );
+        assert_eq!(err, Halt::Store(StoreError::StaleObject { table: "locked", id: 1 }));
         assert_eq!(ctx.store.count(&LOCKED), 1);
         assert!(!stale_copy.destroyed(), "a failed destroy is not destroyed");
         // The current record destroys fine.
@@ -947,15 +813,9 @@ mod tests {
     fn an_exception_after_the_delete_rolls_the_row_and_destroyed_back() {
         let mut ctx = ctx_with(&LOCKED);
         let mut rec = seeded(&mut ctx, &EXPLODING);
-        assert_eq!(
-            destroy(&mut ctx, &EXPLODING, &mut rec),
-            Err(Halt::Raise("boom".into()))
-        );
+        assert_eq!(destroy(&mut ctx, &EXPLODING, &mut rec), Err(Halt::Raise("boom".into())));
         assert_eq!(ctx.store.count(&LOCKED), 1, "the delete was rolled back");
-        assert!(
-            !rec.destroyed() && rec.persisted(),
-            "@destroyed is restored"
-        );
+        assert!(!rec.destroyed() && rec.persisted(), "@destroyed is restored");
     }
 
     /// ActiveRecord 8.1.4.1, run against SQLite (oracle/lock_rollback.rb): an
@@ -969,28 +829,16 @@ mod tests {
         let mut ctx = ctx_with(&LOCKED);
         let mut rec = seeded(&mut ctx, &EXPLODING_SAVE);
         rec.set(1, Value::str("b"));
-        assert_eq!(
-            save(&mut ctx, &EXPLODING_SAVE, &mut rec),
-            Err(Halt::Raise("boom".into()))
-        );
+        assert_eq!(save(&mut ctx, &EXPLODING_SAVE, &mut rec), Err(Halt::Raise("boom".into())));
         let stored = find(&mut ctx, &ORDERED, 1).unwrap().unwrap();
-        assert_eq!(
-            (rec.get(2), stored.get(2)),
-            (&Value::Int(1), &Value::Int(0))
-        );
+        assert_eq!((rec.get(2), stored.get(2)), (&Value::Int(1), &Value::Int(0)));
         assert_eq!(stored.get(1), &Value::str("a"), "the row is rolled back");
         // Rails: changed == ["subject", "lock_version"] (baseline restored,
         // current values kept).
         assert_eq!(rec.changed_columns(), [1, 2]);
         rec.set(1, Value::str("c"));
         let err = save(&mut ctx, &ORDERED, &mut rec).unwrap_err();
-        assert_eq!(
-            err,
-            Halt::Store(StoreError::StaleObject {
-                table: "locked",
-                id: 1
-            })
-        );
+        assert_eq!(err, Halt::Store(StoreError::StaleObject { table: "locked", id: 1 }));
     }
 
     fn save_then_abort(ctx: &mut Ctx, rec: &mut Record) -> Result<Value, Halt> {
@@ -998,21 +846,12 @@ mod tests {
         Err(Halt::Abort)
     }
 
-    static PLAIN_MODEL: ModelSpec = ModelSpec {
-        name: "Plain",
-        table: &PLAIN,
-        callbacks: &[],
-    };
+    static PLAIN_MODEL: ModelSpec = ModelSpec { name: "Plain", table: &PLAIN, callbacks: &[] };
 
     static SAVE_THEN_ABORT: ModelSpec = ModelSpec {
         name: "SaveThenAbort",
         table: &PLAIN,
-        callbacks: &[cb(
-            Phase::BeforeDestroy,
-            "save_then_abort",
-            On::ANY,
-            save_then_abort,
-        )],
+        callbacks: &[cb(Phase::BeforeDestroy, "save_then_abort", On::ANY, save_then_abort)],
     };
 
     /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, second scenario): a
@@ -1025,23 +864,13 @@ mod tests {
         rec.set(1, Value::str("b"));
         assert_eq!(destroy(&mut ctx, &SAVE_THEN_ABORT, &mut rec), Ok(false));
         let stored = find(&mut ctx, &PLAIN_MODEL, 1).unwrap().unwrap();
-        assert_eq!(
-            stored.get(1),
-            &Value::str("a"),
-            "the nested save is rolled back"
-        );
+        assert_eq!(stored.get(1), &Value::str("a"), "the nested save is rolled back");
         assert_eq!(rec.get(1), &Value::str("b"));
         assert_eq!(rec.changed_columns(), [1], "b is pending again");
         assert!(!rec.destroyed());
         // So the retry persists it.
-        assert_eq!(
-            save(&mut ctx, &PLAIN_MODEL, &mut rec).map(|s| s.ok),
-            Ok(true)
-        );
-        assert_eq!(
-            find(&mut ctx, &PLAIN_MODEL, 1).unwrap().unwrap().get(1),
-            &Value::str("b")
-        );
+        assert_eq!(save(&mut ctx, &PLAIN_MODEL, &mut rec).map(|s| s.ok), Ok(true));
+        assert_eq!(find(&mut ctx, &PLAIN_MODEL, 1).unwrap().unwrap().get(1), &Value::str("b"));
     }
 
     static OUTERS: TableSpec = TableSpec {
@@ -1061,42 +890,26 @@ mod tests {
     fn destroy_first_parent(ctx: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
         let mut parent = find(ctx, &PARENT, 1)?.expect("parent row");
         let destroyed = destroy(ctx, &PARENT, &mut parent)?;
-        ctx.settings
-            .insert("parent_destroyed".into(), Value::Bool(destroyed));
+        ctx.settings.insert("parent_destroyed".into(), Value::Bool(destroyed));
         Ok(Value::Nil)
     }
 
     static CHILD: ModelSpec = ModelSpec {
         name: "Child",
         table: &PLAIN,
-        callbacks: &[cb(
-            Phase::AfterCommit,
-            "child_commit_destroy",
-            On::DESTROY,
-            noop,
-        )],
+        callbacks: &[cb(Phase::AfterCommit, "child_commit_destroy", On::DESTROY, noop)],
     };
 
     static PARENT: ModelSpec = ModelSpec {
         name: "Parent",
         table: &LOCKED,
-        callbacks: &[cb(
-            Phase::BeforeDestroy,
-            "destroy_child_then_abort",
-            On::ANY,
-            destroy_first_child_then_abort,
-        )],
+        callbacks: &[cb(Phase::BeforeDestroy, "destroy_child_then_abort", On::ANY, destroy_first_child_then_abort)],
     };
 
     static OUTER: ModelSpec = ModelSpec {
         name: "Outer",
         table: &OUTERS,
-        callbacks: &[cb(
-            Phase::AfterSave,
-            "destroy_parent",
-            On::ANY,
-            destroy_first_parent,
-        )],
+        callbacks: &[cb(Phase::AfterSave, "destroy_parent", On::ANY, destroy_first_parent)],
     };
 
     /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, nested scenario): a
@@ -1109,32 +922,17 @@ mod tests {
         let mut ctx = ctx_with(&PLAIN);
         ctx.store.register(&LOCKED);
         ctx.store.register(&OUTERS);
-        ctx.store
-            .seed(&PLAIN, &[("name", Value::str("c"))])
-            .unwrap();
-        ctx.store
-            .seed(&LOCKED, &[("name", Value::str("p"))])
-            .unwrap();
+        ctx.store.seed(&PLAIN, &[("name", Value::str("c"))]).unwrap();
+        ctx.store.seed(&LOCKED, &[("name", Value::str("p"))]).unwrap();
         let mut outer = build(&mut ctx, &OUTER, &[("name", Value::str("o"))]).unwrap();
         assert_eq!(save(&mut ctx, &OUTER, &mut outer).map(|s| s.ok), Ok(true));
+        assert_eq!(ctx.settings.get("parent_destroyed"), Some(&Value::Bool(false)));
         assert_eq!(
-            ctx.settings.get("parent_destroyed"),
-            Some(&Value::Bool(false))
-        );
-        assert_eq!(
-            (
-                ctx.store.count(&PLAIN),
-                ctx.store.count(&LOCKED),
-                ctx.store.count(&OUTERS)
-            ),
+            (ctx.store.count(&PLAIN), ctx.store.count(&LOCKED), ctx.store.count(&OUTERS)),
             (0, 1, 1),
             "children=0 parents=1 outers=1"
         );
-        let child_commits = ctx
-            .journal
-            .iter()
-            .filter(|e| e.name == "child_commit_destroy")
-            .count();
+        let child_commits = ctx.journal.iter().filter(|e| e.name == "child_commit_destroy").count();
         assert_eq!(child_commits, 1, "the child's after_commit runs");
     }
 
@@ -1159,22 +957,13 @@ mod tests {
         name: "Mom",
         table: &LOCKED,
         callbacks: &[
-            cb(
-                Phase::BeforeDestroy,
-                "destroy_kid_rescuing",
-                On::ANY,
-                destroy_kid_rescuing,
-            ),
+            cb(Phase::BeforeDestroy, "destroy_kid_rescuing", On::ANY, destroy_kid_rescuing),
             cb(Phase::AfterCommit, "mom_commit_destroy", On::DESTROY, noop),
         ],
     };
 
     fn commits(ctx: &Ctx) -> Vec<&'static str> {
-        ctx.journal
-            .iter()
-            .filter(|e| e.phase == Phase::AfterCommit)
-            .map(|e| e.name)
-            .collect()
+        ctx.journal.iter().filter(|e| e.phase == Phase::AfterCommit).map(|e| e.name).collect()
     }
 
     /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, rescued-raise
@@ -1185,9 +974,7 @@ mod tests {
     fn a_nested_destroy_that_deleted_keeps_its_commit_callback_after_a_rescued_raise() {
         let mut ctx = ctx_with(&PLAIN);
         ctx.store.register(&LOCKED);
-        ctx.store
-            .seed(&PLAIN, &[("name", Value::str("k"))])
-            .unwrap();
+        ctx.store.seed(&PLAIN, &[("name", Value::str("k"))]).unwrap();
         let mut mom = seeded(&mut ctx, &MOM);
         assert_eq!(destroy(&mut ctx, &MOM, &mut mom), Ok(true));
         assert_eq!((ctx.store.count(&PLAIN), ctx.store.count(&LOCKED)), (0, 0));
@@ -1204,12 +991,7 @@ mod tests {
         name: "Solo",
         table: &PLAIN,
         callbacks: &[
-            cb(
-                Phase::BeforeDestroy,
-                "rename_and_save",
-                On::ANY,
-                rename_and_save,
-            ),
+            cb(Phase::BeforeDestroy, "rename_and_save", On::ANY, rename_and_save),
             cb(Phase::AfterCommit, "commit_update", On::UPDATE, noop),
             cb(Phase::AfterCommit, "commit_destroy", On::DESTROY, noop),
             cb(Phase::AfterCommit, "commit_any", On::ANY, noop),
@@ -1241,23 +1023,13 @@ mod tests {
     static TOT: ModelSpec = ModelSpec {
         name: "Tot",
         table: &PLAIN,
-        callbacks: &[cb(
-            Phase::AfterCommit,
-            "tot_commit_destroy",
-            On::DESTROY,
-            noop,
-        )],
+        callbacks: &[cb(Phase::AfterCommit, "tot_commit_destroy", On::DESTROY, noop)],
     };
 
     static HOLDER: ModelSpec = ModelSpec {
         name: "Holder",
         table: &OUTERS,
-        callbacks: &[cb(
-            Phase::AfterSave,
-            "destroy_tot_twice",
-            On::ANY,
-            destroy_tot_twice,
-        )],
+        callbacks: &[cb(Phase::AfterSave, "destroy_tot_twice", On::ANY, destroy_tot_twice)],
     };
 
     /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, destroyed-twice
@@ -1268,9 +1040,7 @@ mod tests {
     fn destroying_a_record_twice_keeps_its_destroy_commit() {
         let mut ctx = ctx_with(&PLAIN);
         ctx.store.register(&OUTERS);
-        ctx.store
-            .seed(&PLAIN, &[("name", Value::str("t"))])
-            .unwrap();
+        ctx.store.seed(&PLAIN, &[("name", Value::str("t"))]).unwrap();
         let mut holder = build(&mut ctx, &HOLDER, &[("name", Value::str("h"))]).unwrap();
         assert_eq!(save(&mut ctx, &HOLDER, &mut holder).map(|s| s.ok), Ok(true));
         assert_eq!(ctx.store.count(&PLAIN), 0);
@@ -1320,12 +1090,7 @@ mod tests {
     static LOOPER: ModelSpec = ModelSpec {
         name: "Looper",
         table: &OUTERS,
-        callbacks: &[cb(
-            Phase::AfterSave,
-            "destroy_two_tots_in_a_loop",
-            On::ANY,
-            destroy_two_tots_in_a_loop,
-        )],
+        callbacks: &[cb(Phase::AfterSave, "destroy_two_tots_in_a_loop", On::ANY, destroy_two_tots_in_a_loop)],
     };
 
     /// Two records loaded one after the other into the same local are two
@@ -1334,12 +1099,8 @@ mod tests {
     fn records_loaded_into_the_same_local_stay_separate_participants() {
         let mut ctx = ctx_with(&PLAIN);
         ctx.store.register(&OUTERS);
-        ctx.store
-            .seed(&PLAIN, &[("name", Value::str("t1"))])
-            .unwrap();
-        ctx.store
-            .seed(&PLAIN, &[("name", Value::str("t2"))])
-            .unwrap();
+        ctx.store.seed(&PLAIN, &[("name", Value::str("t1"))]).unwrap();
+        ctx.store.seed(&PLAIN, &[("name", Value::str("t2"))]).unwrap();
         let mut looper = build(&mut ctx, &LOOPER, &[("name", Value::str("l"))]).unwrap();
         assert_eq!(save(&mut ctx, &LOOPER, &mut looper).map(|s| s.ok), Ok(true));
         assert_eq!(ctx.store.count(&PLAIN), 0);
@@ -1347,20 +1108,14 @@ mod tests {
     }
 
     fn kit_commit_seen(ctx: &mut Ctx, rec: &mut Record) -> Result<Value, Halt> {
-        ctx.settings
-            .insert("kit_commit_seen".into(), rec.get(1).clone());
+        ctx.settings.insert("kit_commit_seen".into(), rec.get(1).clone());
         Ok(Value::Nil)
     }
 
     static KIT: ModelSpec = ModelSpec {
         name: "Kit",
         table: &PLAIN,
-        callbacks: &[cb(
-            Phase::AfterCommit,
-            "kit_commit",
-            On::ANY,
-            kit_commit_seen,
-        )],
+        callbacks: &[cb(Phase::AfterCommit, "kit_commit", On::ANY, kit_commit_seen)],
     };
 
     fn save_one_row_through_two_instances(ctx: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
@@ -1376,12 +1131,7 @@ mod tests {
     static SHELF: ModelSpec = ModelSpec {
         name: "Shelf",
         table: &OUTERS,
-        callbacks: &[cb(
-            Phase::AfterSave,
-            "save_one_row_through_two_instances",
-            On::ANY,
-            save_one_row_through_two_instances,
-        )],
+        callbacks: &[cb(Phase::AfterSave, "save_one_row_through_two_instances", On::ANY, save_one_row_through_two_instances)],
     };
 
     /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, same-row scenario):
@@ -1393,9 +1143,7 @@ mod tests {
     fn two_instances_of_one_row_run_after_commit_once_on_the_first() {
         let mut ctx = ctx_with(&PLAIN);
         ctx.store.register(&OUTERS);
-        ctx.store
-            .seed(&PLAIN, &[("name", Value::str("k0"))])
-            .unwrap();
+        ctx.store.seed(&PLAIN, &[("name", Value::str("k0"))]).unwrap();
         let mut shelf = build(&mut ctx, &SHELF, &[("name", Value::str("s"))]).unwrap();
         assert_eq!(save(&mut ctx, &SHELF, &mut shelf).map(|s| s.ok), Ok(true));
         assert_eq!(commits(&ctx), ["kit_commit"]);
@@ -1422,12 +1170,7 @@ mod tests {
     static DEN: ModelSpec = ModelSpec {
         name: "Den",
         table: &OUTERS,
-        callbacks: &[cb(
-            Phase::AfterSave,
-            "create_cub_rescuing",
-            On::ANY,
-            create_cub_rescuing,
-        )],
+        callbacks: &[cb(Phase::AfterSave, "create_cub_rescuing", On::ANY, create_cub_rescuing)],
     };
 
     /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, rescued-save
@@ -1454,23 +1197,13 @@ mod tests {
     static PUP: ModelSpec = ModelSpec {
         name: "Pup",
         table: &PLAIN,
-        callbacks: &[cb(
-            Phase::AfterCommit,
-            "pup_commit_create",
-            On::CREATE,
-            noop,
-        )],
+        callbacks: &[cb(Phase::AfterCommit, "pup_commit_create", On::CREATE, noop)],
     };
 
     static LITTER: ModelSpec = ModelSpec {
         name: "Litter",
         table: &OUTERS,
-        callbacks: &[cb(
-            Phase::AfterSave,
-            "create_two_pups",
-            On::ANY,
-            create_two_pups,
-        )],
+        callbacks: &[cb(Phase::AfterSave, "create_two_pups", On::ANY, create_two_pups)],
     };
 
     /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, loop-creates
@@ -1492,17 +1225,10 @@ mod tests {
     fn a_rolled_back_create_is_new_again_without_an_id() {
         let mut ctx = ctx_with(&LOCKED);
         let mut rec = build(&mut ctx, &EXPLODING_SAVE, &[("name", Value::str("n"))]).unwrap();
-        assert_eq!(
-            save(&mut ctx, &EXPLODING_SAVE, &mut rec),
-            Err(Halt::Raise("boom".into()))
-        );
+        assert_eq!(save(&mut ctx, &EXPLODING_SAVE, &mut rec), Err(Halt::Raise("boom".into())));
         assert_eq!(ctx.store.count(&LOCKED), 0);
         assert!(rec.new_record());
-        assert_eq!(
-            rec.get(0),
-            &Value::Nil,
-            "the assigned id is restored to nil"
-        );
+        assert_eq!(rec.get(0), &Value::Nil, "the assigned id is restored to nil");
         assert_eq!(save(&mut ctx, &ORDERED, &mut rec).map(|s| s.ok), Ok(true));
         assert_eq!(ctx.store.count(&LOCKED), 1);
     }
@@ -1514,30 +1240,12 @@ mod tests {
         ctx.store.delete(&PLAIN, rec.id().unwrap()).unwrap();
         assert_eq!(destroy(&mut ctx, &WATCHED_PLAIN, &mut rec), Ok(true));
         assert!(rec.destroyed());
-        assert!(
-            phases(&ctx).is_empty(),
-            "destroy_row > 0 was false: {:?}",
-            ctx.journal
-        );
+        assert!(phases(&ctx).is_empty(), "destroy_row > 0 was false: {:?}", ctx.journal);
         // The control: a real delete does fire it.
         let mut live = seeded(&mut ctx, &WATCHED_PLAIN);
         assert_eq!(destroy(&mut ctx, &WATCHED_PLAIN, &mut live), Ok(true));
         assert_eq!(phases(&ctx), [Phase::AfterCommit]);
     }
-
-    static GONE: ModelSpec = ModelSpec {
-        name: "Gone",
-        table: &LOCKED,
-        callbacks: &[
-            cb(Phase::BeforeValidation, "before_validation", On::ANY, noop),
-            cb(Phase::BeforeSave, "before_save", On::ANY, noop),
-            cb(Phase::AfterSave, "after_save", On::ANY, noop),
-            cb(Phase::AfterCreate, "after_create", On::ANY, noop),
-            cb(Phase::AfterUpdate, "after_update", On::ANY, noop),
-            cb(Phase::AfterCommit, "after_commit", On::ANY, noop),
-            cb(Phase::AfterRollback, "after_rollback", On::ANY, noop),
-        ],
-    };
 
     static WROTE_THEN_RAISED: ModelSpec = ModelSpec {
         name: "WroteThenRaised",
@@ -1555,13 +1263,23 @@ mod tests {
         let mut ctx = ctx_with(&LOCKED);
         let mut rec = build(&mut ctx, &WROTE_THEN_RAISED, &[("name", Value::str("w"))]).unwrap();
         assert!(save(&mut ctx, &WROTE_THEN_RAISED, &mut rec).is_err());
-        assert!(
-            phases(&ctx).contains(&Phase::AfterRollback),
-            "{:?}",
-            phases(&ctx)
-        );
+        assert!(phases(&ctx).contains(&Phase::AfterRollback), "{:?}", phases(&ctx));
         assert_eq!(ctx.store.count(&LOCKED), 0, "the insert was rolled back");
     }
+
+    static GONE: ModelSpec = ModelSpec {
+        name: "Gone",
+        table: &LOCKED,
+        callbacks: &[
+            cb(Phase::BeforeValidation, "before_validation", On::ANY, noop),
+            cb(Phase::BeforeSave, "before_save", On::ANY, noop),
+            cb(Phase::AfterSave, "after_save", On::ANY, noop),
+            cb(Phase::AfterCreate, "after_create", On::ANY, noop),
+            cb(Phase::AfterUpdate, "after_update", On::ANY, noop),
+            cb(Phase::AfterCommit, "after_commit", On::ANY, noop),
+            cb(Phase::AfterRollback, "after_rollback", On::ANY, noop),
+        ],
+    };
 
     /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, destroyed-save scenario):
     /// saving a destroyed record, new or persisted, returns false, writes
@@ -1593,9 +1311,6 @@ mod tests {
         let mut rec = build(&mut ctx, &ORDERED, &[("name", Value::str("n"))]).unwrap();
         assert_eq!(destroy(&mut ctx, &ORDERED, &mut rec), Ok(true));
         assert!(rec.destroyed() && rec.new_record());
-        assert!(
-            phases(&ctx).contains(&Phase::BeforeDestroy),
-            "callbacks still run"
-        );
+        assert!(phases(&ctx).contains(&Phase::BeforeDestroy), "callbacks still run");
     }
 }

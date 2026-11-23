@@ -41,10 +41,7 @@ impl Validator {
         match *self {
             Self::Presence { column, attr } => {
                 if rec.get(column).blank() {
-                    errors.push(ValidationError {
-                        attr,
-                        kind: "blank",
-                    });
+                    errors.push(ValidationError { attr, kind: "blank" });
                 }
             }
             Self::Length {

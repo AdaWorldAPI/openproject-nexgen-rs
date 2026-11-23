@@ -115,9 +115,7 @@ impl Record {
 
     #[must_use]
     pub fn id(&self) -> Option<i64> {
-        self.table
-            .index_of("id")
-            .and_then(|i| self.values[i].as_int())
+        self.table.index_of("id").and_then(|i| self.values[i].as_int())
     }
 
     #[must_use]
@@ -174,9 +172,7 @@ impl Record {
 
     #[must_use]
     pub fn changed_columns(&self) -> Vec<usize> {
-        (0..self.values.len())
-            .filter(|&c| self.changed(c))
-            .collect()
+        (0..self.values.len()).filter(|&c| self.changed(c)).collect()
     }
 
     /// `saved_change_to_attribute?` after the last save.

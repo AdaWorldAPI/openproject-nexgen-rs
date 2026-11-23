@@ -91,8 +91,7 @@ impl Column {
         // Floor, as ActiveModel does. Only near `i64::MIN` is the floored
         // multiple not representable; there it is cut toward zero instead (far
         // outside PostgreSQL's timestamp range, so never real data).
-        us.checked_sub(us.rem_euclid(step))
-            .unwrap_or(us / step * step)
+        us.checked_sub(us.rem_euclid(step)).unwrap_or(us / step * step)
     }
 }
 

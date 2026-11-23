@@ -49,13 +49,7 @@ pub trait Host {
         args: &[Value],
     ) -> Result<Value, Halt>;
 
-    fn callback(
-        &mut self,
-        _model: &'static str,
-        _phase: Phase,
-        _name: &'static str,
-        _rec: &Record,
-    ) -> Result<(), Halt> {
+    fn callback(&mut self, _model: &'static str, _phase: Phase, _name: &'static str, _rec: &Record) -> Result<(), Halt> {
         Ok(())
     }
 }
@@ -65,13 +59,7 @@ pub trait Host {
 pub struct NoHost;
 
 impl Host for NoHost {
-    fn call(
-        &mut self,
-        _: &Store,
-        target: &str,
-        _: Option<&Record>,
-        _: &[Value],
-    ) -> Result<Value, Halt> {
+    fn call(&mut self, _: &Store, target: &str, _: Option<&Record>, _: &[Value]) -> Result<Value, Halt> {
         Err(Halt::Residual(format!("no host for {target}")))
     }
 }
@@ -135,12 +123,7 @@ impl Ctx {
         self.settings.get(key).cloned().unwrap_or(Value::Nil)
     }
 
-    pub fn host_call(
-        &mut self,
-        target: &str,
-        recv: Option<&Record>,
-        args: &[Value],
-    ) -> Result<Value, Halt> {
+    pub fn host_call(&mut self, target: &str, recv: Option<&Record>, args: &[Value]) -> Result<Value, Halt> {
         self.boundary_log.push(boundary_spelling(target, args));
         self.host.call(&self.store, target, recv, args)
     }
