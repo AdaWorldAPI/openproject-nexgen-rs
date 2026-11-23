@@ -204,13 +204,19 @@ pub fn is_writable<U: UserContext + ?Sized>(
 
 /// `CreateContract#user_allowed_to_add`, ported by hand:
 /// `(model.project && !allowed_in_project?(perm, project)) || !allowed_in_any_project?(perm)`.
+///
+/// A grant in the model's project is a grant in some project, so it satisfies
+/// `allowed_in_any_project?` without asking: the second query only decides the
+/// case without a project.
 fn user_allowed_to_add<U: UserContext + ?Sized>(user: &U, project: Option<Id>) -> bool {
     let perm = table::ADD_PERMISSION;
-    let in_project = match project {
-        Some(id) => user.is_admin() || user.allowed_in_project(perm, id),
-        None => true,
-    };
-    in_project && (user.is_admin() || user.allowed_in_any_project(perm))
+    if user.is_admin() {
+        return true;
+    }
+    match project {
+        Some(id) => user.allowed_in_project(perm, id),
+        None => user.allowed_in_any_project(perm),
+    }
 }
 
 /// Admission of a create that submits `submitted` attributes (names, as the API
@@ -300,6 +306,38 @@ mod tests {
         admin: false,
         held: &["add_work_packages"],
     };
+
+    /// Holds `add_work_packages` in project 5 only: no global grant, and an
+    /// `allowed_in_any_project` that falls back to the global answer.
+    struct ProjectOnly;
+
+    impl UserContext for ProjectOnly {
+        fn id(&self) -> Id {
+            2
+        }
+        fn is_admin(&self) -> bool {
+            false
+        }
+        fn is_anonymous(&self) -> bool {
+            false
+        }
+        fn allowed_in_project(&self, permission: &str, project_id: Id) -> bool {
+            project_id == 5 && permission == "add_work_packages"
+        }
+        fn allowed_globally(&self, _permission: &str) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn a_grant_in_the_model_project_admits_without_a_global_grant() {
+        assert!(!ProjectOnly.allowed_in_any_project("add_work_packages"));
+        assert!(user_allowed_to_add(&ProjectOnly, Some(5)));
+        // Another project still refuses, and no project falls back to the
+        // any-project query, which this user does not answer yes to.
+        assert!(!user_allowed_to_add(&ProjectOnly, Some(6)));
+        assert!(!user_allowed_to_add(&ProjectOnly, None));
+    }
 
     #[test]
     fn a_member_with_the_permission_is_admitted() {
