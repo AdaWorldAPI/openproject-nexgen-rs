@@ -1466,10 +1466,15 @@ mod review_fixes {
 
     // ── finding 1: a hiding scope is never definite ─────────────────────
 
-    const CONCERN: &str = "module Concern\n  extend ActiveSupport::Concern\n  included do\n    if cond\n      after_save :a\n      send(:before_save, :b)\n    end\n  end\nend\n";
+    /// The branch holds a callback ruff names and a `send` whose method is not
+    /// a literal: ruff did not read the branch in full.
+    const CONCERN: &str = "module Concern\n  extend ActiveSupport::Concern\n  included do\n    if cond\n      after_save :a\n      send(kind, :b)\n    end\n  end\nend\n";
+
+    /// The same conditional with only statements ruff reads: complete.
+    const CONCERN_COMPLETE: &str = "module Concern\n  extend ActiveSupport::Concern\n  included do\n    if cond\n      after_save :a\n      send(:before_save, :b)\n    end\n  end\nend\n";
 
     #[test]
-    fn a_scope_with_a_nameable_conditional_stays_order_unknown() {
+    fn a_scope_with_an_incomplete_conditional_stays_order_unknown() {
         let tree = Tree::new(
             "unknown",
             &[
@@ -1499,10 +1504,57 @@ mod review_fixes {
             "fixture: ruff names the callback inside the branch"
         );
         assert!(
+            !u.hidden_complete(),
+            "fixture: the dynamic `send` leaves the branch unread: {:?}",
+            u.hidden_unread
+        );
+        assert!(
             ctx.order_unknown_scopes.contains("Concern"),
-            "a scope that hides a registration must not be definite, though ruff named {:?}",
+            "a scope with an incomplete conditional must not be definite, though ruff named {:?}",
             u.hidden.len()
         );
+    }
+
+    #[test]
+    fn a_complete_conditional_does_not_make_the_scope_order_unknown() {
+        let tree = Tree::new(
+            "complete",
+            &[
+                ("app/host.rb", "class Host\n  include Concern\nend\n"),
+                ("app/concern.rb", CONCERN_COMPLETE),
+            ],
+        );
+        let mut h = harvest(&tree);
+        let models: BTreeSet<String> = ["Host".to_string()].into();
+        let (ctxs, _) = contexts(&mut h, &models, &PatchIntake::default());
+        let ctx = &ctxs["Host"];
+        let anc: Vec<Ancestor> = h.linearize("Host");
+        let concern = anc.iter().find(|a| a.name == "Concern").expect("Concern");
+        let u = concern
+            .ore
+            .unharvested
+            .iter()
+            .find(|u| u.reason == UnharvestedReason::ControlFlow)
+            .expect("the conditional is listed unharvested");
+        assert!(u.hidden_complete(), "fixture: {:?}", u.hidden_unread);
+        assert_eq!(u.hidden.len(), 2, "fixture: ruff names both callbacks");
+        assert!(
+            !ctx.order_unknown_scopes.contains("Concern"),
+            "a conditional ruff read in full names everything it could register: {:?}",
+            ctx.order_unknown_scopes
+        );
+        // Its registrations are what demote OTHER groups.
+        let names: BTreeSet<(&str, &str)> = ctx
+            .order_hidden
+            .iter()
+            .map(|d| (d.kind.as_str(), d.origin.as_str()))
+            .collect();
+        assert_eq!(
+            ctx.order_hidden.len(),
+            2,
+            "both skipped callbacks reach order_hidden: {names:?}"
+        );
+        assert!(ctx.order_hidden.iter().all(|d| d.origin == "Concern"));
     }
 
     #[test]
