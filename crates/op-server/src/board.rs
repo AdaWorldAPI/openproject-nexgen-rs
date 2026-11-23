@@ -2008,12 +2008,6 @@ fn page_shell(title: &str, body_html: &str) -> String {
     page_shell_with(title, body_html, &layout::default_region_mask())
 }
 
-/// [`page_shell`] with an explicit region mask. Layer-0 region composition:
-/// which chrome regions render is a masked ClassView (crate::layout). The
-/// center zone is always `body_html`; the header, side menu, right menu, and
-/// footer are gated by the mask. Zones use the shared `a2ui-layout`
-/// vocabulary: op `header` = `TopBar`, `left_menu` = `LeftNav`, `main` =
-/// `Center`, `right_menu` = `RightPanel`, `footer` = `BottomBar`.
 /// Theme rules on top of the shared `a2ui-layout` grid. Pages use
 /// [`LayoutMode::MainWide`] (210px nav | center | 70px quick menu; at 1920px
 /// the center is 2 x 820). The shared grid only covers widths that fit the
@@ -2032,11 +2026,17 @@ fn body_grid_css(regions: &WideFieldMask) -> String {
     }
     css.push_str(
         "  @media (max-width: 640px) { .a2-body, .a2-body.mode-main-wide { grid-template-columns: minmax(0, 1fr); } \
-         aside.sidemenu-region { display: none; } }\n",
+         aside.sidemenu-region { display: none; } nav.topnav { flex-wrap: wrap; } }\n",
     );
     css
 }
 
+/// [`page_shell`] with an explicit region mask. Layer-0 region composition:
+/// which chrome regions render is a masked ClassView (crate::layout). The
+/// center zone is always `body_html`; the header, side menu, right menu, and
+/// footer are gated by the mask. Zones use the shared `a2ui-layout`
+/// vocabulary: op `header` = `TopBar`, `left_menu` = `LeftNav`, `main` =
+/// `Center`, `right_menu` = `RightPanel`, `footer` = `BottomBar`.
 fn page_shell_with(title: &str, body_html: &str, regions: &WideFieldMask) -> String {
     let header_region = if layout::region_on(regions, "header") {
         format!(
@@ -2262,7 +2262,7 @@ mod tests {
     #[test]
     fn a_phone_width_page_is_one_column_and_the_override_follows_the_shared_grid() {
         let html = page_shell("t", "<p>x</p>");
-        let phone = "@media (max-width: 640px) { .a2-body, .a2-body.mode-main-wide { grid-template-columns: minmax(0, 1fr); } aside.sidemenu-region { display: none; } }";
+        let phone = "@media (max-width: 640px) { .a2-body, .a2-body.mode-main-wide { grid-template-columns: minmax(0, 1fr); } aside.sidemenu-region { display: none; } nav.topnav { flex-wrap: wrap; } }";
         assert!(html.contains(phone), "{html}");
         let zones = html.find(ZONES_CSS).expect("shared grid present");
         let ours = html.find(phone).expect("phone rule present");
