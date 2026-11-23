@@ -16,6 +16,6 @@ crates/op-services/src/users/update.rs	75816c72afc3c2fd
 crates/op-services/src/work_packages/create.rs	44c63d375568bd96
 crates/op-services/src/work_packages/delete.rs	ff942dcfd67ea83e
 crates/op-services/src/work_packages/mod.rs	f123d4a0e10e3e09
-crates/op-services/src/work_packages/mutation.rs	e4d1683336343940
+crates/op-services/src/work_packages/mutation.rs	e6e083b0aaba0240
 crates/op-services/src/work_packages/set_attributes.rs	f8db219053828871
 crates/op-services/src/work_packages/update.rs	c7032ab5fa87aebd
