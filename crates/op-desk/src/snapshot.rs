@@ -13,7 +13,7 @@
 //! ```
 //!
 //! Cells by column type: integers and booleans as JSON numbers and booleans, a
-//! `DateTime` as its milliseconds since the epoch, a `Date` as `YYYY-MM-DD`, a
+//! `DateTime` as its microseconds since the epoch (`Value::Time`), a `Date` as `YYYY-MM-DD`, a
 //! `Float`/`Decimal` as a JSON number (`NaN`, `Infinity` and `-Infinity` as
 //! those strings), text and JSON documents as strings, `nil` as `null`.
 
@@ -81,7 +81,7 @@ pub fn cell_value(cell: &J, ty: ColumnType) -> Result<Value, SnapshotError> {
         ),
         (ColumnType::DateTime, J::Number(n)) => Value::Time(
             n.as_i64()
-                .ok_or_else(|| err(format!("{n} is not a whole number of milliseconds")))?,
+                .ok_or_else(|| err(format!("{n} is not a whole number of microseconds")))?,
         ),
         (ColumnType::Date, J::String(s)) => {
             Value::Date(parse_date(s).ok_or_else(|| err(format!("{s:?} is not a date")))?)

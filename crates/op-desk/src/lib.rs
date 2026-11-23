@@ -13,8 +13,10 @@
 //! - [`snapshot`] writes a polyfill [`rails_polyfill::Store`] down as plain
 //!   data and reads it back.
 //!
-//! Nothing here is wired into the server yet.
+//! [`desk::Desk`] holds the polyfill store and a Quack catalog over the same
+//! rows. Nothing here is wired into the server yet.
 
+pub mod desk;
 #[rustfmt::skip]
 pub mod generated;
 pub mod snapshot;
@@ -43,3 +45,14 @@ pub const JOURNEY_TABLES: &[&str] = &[
     "work_package_journals",
     "work_packages",
 ];
+
+/// Tables the desk serves to reads only (list pages), beyond the journey:
+/// `time_entries` backs the BillableWorkEntry pages (OGAR `billable_work_entry`,
+/// OpenProject `TimeEntry` in modules/costs).
+pub const READ_TABLES: &[&str] = &["time_entries"];
+
+/// Whether `table` is in the generated slice: a journey table or a read table.
+#[must_use]
+pub fn is_slice_table(table: &str) -> bool {
+    JOURNEY_TABLES.contains(&table) || READ_TABLES.contains(&table)
+}
