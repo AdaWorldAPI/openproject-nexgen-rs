@@ -248,7 +248,7 @@ exactly the scanned permission and refuses with every other oracle permission (2
 Its Ruby input is still the permission line scan, not parsed ORE. Once a ruff
 permission lowering feeds the generator, the same witness can verify it.
 
-**Retained unknown: `attribute :schedule_manually do validate_has_predecessors_or_children end`.**
+**Closed: `attribute :schedule_manually do validate_has_predecessors_or_children end` (claim 9).**
 
 - The source is `app/contracts/work_packages/create_contract.rb:46-48`, with the
   validator defined at line 68: `if model.schedule_automatically?`, then `errors.add(:schedule_manually,
@@ -256,8 +256,12 @@ permission lowering feeds the generator, the same witness can verify it.
   the record has children. `BaseContract.attribute` registers the block with
   `validate(attribute, &block)` (`app/contracts/base_contract.rb:89`), so it runs on
   every validation, whether or not `schedule_manually` was submitted.
-- Ruby side: not harvested. The permission scan reads the `attribute` line and skips
-  the block; ruff lowers only `writable:`.
+- Ruby side: harvested. The permission scan still skips the block, but ruff's
+  `extract_attribute_blocks` (ruff #160, `180cf4f`) reads it: class
+  `WorkPackages::CreateContract`, attribute `schedule_manually`, call
+  `validate_has_predecessors_or_children` at `create_contract.rb:47`, condition
+  `model.schedule_automatically?` lowered to `Fact`. The claim's Ruby fact exists only
+  when all of those hold.
 - Rust side, before the validator was ported: `admit_create` had no edge to such a
   validator, `NOT_EVALUATED_VALIDATORS` did not list it, and no crate contained the
   string `cannot_be_automatically_scheduled`: a silent omission. Now `admit_create`
@@ -282,34 +286,38 @@ permission lowering feeds the generator, the same witness can verify it.
   - The 5 records where both are silent are not counted as agreements.
   - Compared: 1 discriminating record, 0 mismatches: **ExecutedAgreement** on the
     error key. It is not added to the 350 contract-rule items.
-- Structural verdict: `Slag(RubySideNotHarvested)`. Status: **OPEN**, owner
-  `ContractHarvest`.
-- Proposal: a ruff contract-arm rule that harvests validator calls inside attribute
-  blocks, keeping their condition. If supplied, the claim becomes `RubyOnly`. The
-  negative control: a harvest that drops the condition would predict the error on
-  `leaf_manual`, where the oracle records none.
+- Structural verdict: `Agreement` (before: `Slag(RubySideNotHarvested)`). The row has
+  no residual. The comparison is of the call: Charon sees `admit_create ->
+  validate_has_predecessors_or_children` as `CALLS_RESOLVED`, and the Rust call is
+  unconditional, with the condition evaluated inside the validator through
+  `FACT_SCHEDULE_MANUALLY`. The structural verdict does not compare the condition;
+  the differential above witnesses it.
+- Negative controls (`ore_slag_negative_controls`, control 9): a different call name,
+  a missing block, a call with its condition dropped and a call under another
+  condition each leave the Ruby side unharvested, so the same Rust edge yields
+  `Slag(RubySideNotHarvested)`; a renamed Rust callee yields `RubyOnly`.
 - The validator is implemented in `admit_create`; its differential case is the one
   above, kept apart from the 350. The ledger and report are regenerated from a Charon
   extraction that includes the changed Rust files: until then the stored ledger still
   shows the earlier numbers.
 
-## 10. Scorecard (this branch; ruff `79ed2ba`, OpenProject `2725194`, store from nexgen `8d38cd3`, crates op-contracts, op-services, op-api)
+## 10. Scorecard (this branch; ruff `180cf4f`, OpenProject `2725194`, store from nexgen `8d38cd3`, crates op-contracts, op-services, op-api)
 
 Separate denominators. Before means #138 as it was; after means this change.
 
 | Measure | Before | After |
 |---|---|---|
 | Claims | 21 | 21 |
-| Ruby side inspected (fact or inspected absence) | 18 / 21 | 18 / 21 |
-| of those from a parser-backed extractor (ruff) | 9 / 18 | 9 / 18 |
+| Ruby side inspected (fact or inspected absence) | 18 / 21 | 19 / 21 |
+| of those from a parser-backed extractor (ruff) | 9 / 18 | 10 / 19 |
 | Rust counterpart inspectable in the store | 18 / 21 | 18 / 21 |
-| Structural: Agreement / Disagreement | 4 / 0 | 4 / 0 |
+| Structural: Agreement / Disagreement | 4 / 0 | 5 / 0 |
 | Structural: RubyOnly / CharonOnly / NotComparable | 0 / 1 / 1 | 0 / 1 / 1 |
-| Slag rows | 15 | 15 (verdicts unchanged) |
-| Residuals open, by reason | not typed | RubySideNotHarvested 2, RustBodyNotStructured 3, RepresentedAsData 1 (op-api is in the store; claim 12 is now `RustBodyNotStructured`) |
-| Residuals open, by owner | not typed | ContractHarvest 2, RustExtraction 3, DataWitness 1 |
+| Slag rows | 15 | 14 (claim 9 is now Agreement) |
+| Residuals open, by reason | not typed | RubySideNotHarvested 1, RustBodyNotStructured 3, RepresentedAsData 1 (op-api is in the store; claim 12 is now `RustBodyNotStructured`) |
+| Residuals open, by owner | not typed | ContractHarvest 1, RustExtraction 3, DataWitness 1 |
 | Resolved by extraction / data witness / semantic rule | 0 / 0 / 0 | 0 / 9 / 0 |
-| Lifecycle | none | RESOLVED(DataWitness) 9, EVIDENCED 1, OPEN 5 |
+| Lifecycle | none | RESOLVED(DataWitness) 9, EVIDENCED 1, OPEN 4 |
 | Runtime verdicts over the 21 claims | 10 executed (0 mismatches), 3 cited, 8 none | ExecutedAgreement 11, ExecutedDisagreement 0, Unverified 3, NotExecuted 7 |
 | Contract-rule items executed against the oracle (`create_transition_differential`) | 350, 0 mismatches | 350, 0 mismatches (unchanged; the new case is separate) |
 | Lowered guards against the oracle (`guard_differential`) | 84 pairs, 0 mismatches | 84, 0 |
