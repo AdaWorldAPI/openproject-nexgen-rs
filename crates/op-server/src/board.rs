@@ -1315,7 +1315,7 @@ pub async fn work_package_update(
 }
 
 /// Core of [`work_package_update`], generic over the store so every guard is testable without a
-/// DB. `store.update_wp` is reached only after all of them pass.
+/// DB. `store.update_unit_of_work` is reached only after all of them pass.
 async fn update_core<S: WpStore>(
     store: &S,
     id: i64,
@@ -2818,6 +2818,7 @@ mod write_path_tests {
     use crate::write_guard::EDIT_WORK_PACKAGES;
     use chrono::Utc;
     use http_body_util::BodyExt;
+    use op_services::work_packages::mutation::Caller;
     use std::collections::HashSet;
     use std::sync::Mutex;
 
@@ -2924,13 +2925,14 @@ mod write_path_tests {
         async fn edit_options(&self) -> EditOptions {
             EditOptions::default()
         }
-        async fn update_wp(
+        async fn update_unit_of_work(
             &self,
+            _caller: &Caller,
             id: i64,
             dto: UpdateWorkPackageDto,
-        ) -> Result<op_db::work_packages::WorkPackageRow, StoreError> {
+        ) -> Result<op_db::work_packages::WorkPackageRow, MutationError> {
             if self.update_fails {
-                return Err(StoreError("db down".into()));
+                return Err(MutationError::Store("db down".into()));
             }
             self.updates.lock().unwrap().push((id, dto));
             Ok(wp())

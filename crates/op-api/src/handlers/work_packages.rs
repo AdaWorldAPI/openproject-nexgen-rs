@@ -465,11 +465,12 @@ mod tests {
                 },
             })
         }
-        async fn update_wp(
+        async fn update_unit_of_work(
             &self,
+            _caller: &Caller,
             id: Id,
             dto: op_db::UpdateWorkPackageDto,
-        ) -> Result<WorkPackageRow, StoreFailure> {
+        ) -> Result<WorkPackageRow, MutationError> {
             self.updates.lock().unwrap().push((id, dto));
             Ok(row(id, MEMBER_PROJECT))
         }

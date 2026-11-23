@@ -45,6 +45,11 @@ pub const ADD_WORK_PACKAGES: &str = "add_work_packages";
 pub const EDIT_WORK_PACKAGES: &str = "edit_work_packages";
 /// The permission that gates a work-package delete.
 pub const DELETE_WORK_PACKAGES: &str = "delete_work_packages";
+/// `Setting.journal_aggregation_time_minutes`, at its OpenProject default: `journal_aggregation_time_minutes:
+/// { default: 5, allowed: 0..120 }` (`config/constants/settings/definition.rb:770-773`). This
+/// schema has no settings table, so the default is the setting; `0` would switch aggregation off
+/// (`Journals::CreateService#aggregation_active?`, `create_service.rb:603-605`).
+pub const JOURNAL_AGGREGATION_TIME_MINUTES: i64 = 5;
 
 // ── who is asking ────────────────────────────────────────────────────
 
@@ -179,11 +184,22 @@ pub trait MutationStore {
     async fn project_active(&self, project_id: Id) -> Result<bool, StoreFailure>;
     /// The caller's principal against `project_id`.
     async fn principal(&self, caller: &Caller, project_id: Id) -> Result<Principal, StoreFailure>;
-    async fn update_wp(
+    /// Run the whole update (the lookup, the authorization reads, the UPDATE and the journal) as
+    /// ONE unit of work: committed when it returns `Ok`, rolled back when it returns an error.
+    /// OpenProject's `WorkPackages::UpdateService` runs inside
+    /// `Shared::ServiceContext#in_mutex_context`: an advisory lock on the work package inside
+    /// `ActiveRecord::Base.transaction`, rolled back (`raise ActiveRecord::Rollback`) when the
+    /// result is a failure (`app/services/shared/service_context.rb:34-49`).
+    ///
+    /// The caller is the person acting: the journal records them, and aggregation compares them
+    /// with the user of the last journal. A store with no transaction (a test fake) just
+    /// updates; [`PgMutationStore`] opens a real transaction.
+    async fn update_unit_of_work(
         &self,
+        caller: &Caller,
         id: Id,
         dto: UpdateWorkPackageDto,
-    ) -> Result<WorkPackageRow, StoreFailure>;
+    ) -> Result<WorkPackageRow, MutationError>;
 }
 
 /// What a delete additionally needs.
@@ -245,11 +261,12 @@ async fn authorize<S: MutationStore>(
     })
 }
 
-/// Proof that the caller may edit this record. The only way to reach [`MutationStore::update_wp`]
-/// from this module; it cannot be built outside it.
+/// Proof that the caller may edit this record. The only way to reach
+/// [`MutationStore::update_unit_of_work`] from this module; it cannot be built outside it.
 #[derive(Debug)]
 pub struct AuthorizedUpdate {
     existing: WorkPackageRow,
+    caller: Caller,
 }
 
 impl AuthorizedUpdate {
@@ -264,7 +281,9 @@ impl AuthorizedUpdate {
         store: &S,
         dto: UpdateWorkPackageDto,
     ) -> Result<WorkPackageRow, MutationError> {
-        Ok(store.update_wp(self.existing.id, dto).await?)
+        store
+            .update_unit_of_work(&self.caller, self.existing.id, dto)
+            .await
     }
 }
 
@@ -306,7 +325,10 @@ pub async fn authorize_update<S: MutationStore>(
     id: Id,
 ) -> Result<AuthorizedUpdate, MutationError> {
     let existing = authorize_record(store, caller, id, EDIT_WORK_PACKAGES).await?;
-    Ok(AuthorizedUpdate { existing })
+    Ok(AuthorizedUpdate {
+        existing,
+        caller: caller.clone(),
+    })
 }
 
 /// Decide whether `caller` may delete work package `id` (`delete_work_packages` in the record's
@@ -624,14 +646,13 @@ impl MutationStore for PgMutationStore {
         load_principal(&self.pool, caller, project_id).await
     }
 
-    async fn update_wp(
+    async fn update_unit_of_work(
         &self,
+        caller: &Caller,
         id: Id,
         dto: UpdateWorkPackageDto,
-    ) -> Result<WorkPackageRow, StoreFailure> {
-        Ok(WorkPackageRepository::new(self.pool.clone())
-            .update(id, dto)
-            .await?)
+    ) -> Result<WorkPackageRow, MutationError> {
+        self.update_then(caller, id, dto, None).await
     }
 }
 
@@ -744,14 +765,61 @@ impl PgMutationStore {
     }
 }
 
+impl PgMutationStore {
+    /// The production update: one transaction around the advisory lock, the authorization reads,
+    /// the UPDATE and the journal, committed only if all succeed (OpenProject:
+    /// `WorkPackages::UpdateService < BaseServices::Update`, run by `in_mutex_context`,
+    /// `app/services/shared/service_context.rb:34-49`). `post_update` is a statement that runs on
+    /// the same transaction after the journal (`None` is the production call); it exists so the
+    /// failure-after-the-journal case can be exercised through the real transaction code.
+    pub async fn update_then(
+        &self,
+        caller: &Caller,
+        id: Id,
+        dto: UpdateWorkPackageDto,
+        post_update: Option<&str>,
+    ) -> Result<WorkPackageRow, MutationError> {
+        let scope = PgCreateScope::begin(&self.pool).await?;
+        let mut out = scope
+            .update_in(caller, id, dto, JOURNAL_AGGREGATION_TIME_MINUTES)
+            .await;
+        if let (Ok(_), Some(sql)) = (&out, post_update) {
+            if let Err(e) = scope.execute(sql).await {
+                out = Err(e.into());
+            }
+        }
+        match out {
+            Ok(row) => {
+                scope.commit().await?;
+                Ok(row)
+            }
+            Err(e) => {
+                scope.rollback().await;
+                Err(e)
+            }
+        }
+    }
+}
+
+/// What an update wrote to the journals ([`PgCreateScope::write_update_journal`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateJournal {
+    /// No journaled column differs from the last journal: nothing was written.
+    Unchanged,
+    /// The last journal was rewritten in place (same user within the aggregation window).
+    Aggregated,
+    /// A new journal of this version was added and its predecessor's validity period closed.
+    Created { version: i32 },
+}
+
 fn db_failure(e: sqlx::Error) -> StoreFailure {
     StoreFailure::from(RepositoryError::from(e))
 }
 
-/// A create's database scope: every read and the insert run on ONE open transaction, so the
-/// authorization facts and the write are isolated together and a failure after the insert leaves
-/// nothing behind. It is only ever built by [`PgMutationStore`]'s `create_unit_of_work`, which
-/// commits or rolls it back.
+/// A create's or update's database scope: every read and the write run on ONE open transaction,
+/// so the authorization facts and the write are isolated together and a failure after the write
+/// leaves nothing behind. It is only ever built by [`PgMutationStore`]'s `create_then` and
+/// `update_then`, which commit or roll it back.
 ///
 /// The queries repeat those of the repositories (`UserRepository::find_by_login`,
 /// `MemberRepository::find_by_project_and_user` + `RoleRepository::get_permissions`,
@@ -862,6 +930,348 @@ impl PgCreateScope {
         Ok(())
     }
 
+    /// The whole update on the open transaction, in OpenProject's order: the advisory lock
+    /// (`OpenProject::Mutex.with_advisory_lock_transaction`, `lib/open_project/mutex.rs`'s Ruby
+    /// original, `lib/open_project/mutex.rb:58-65`, lock name `mutex_on_WorkPackage_<id>`), then
+    /// the lookup and authorization, then the UPDATE (`BaseServices::Write#persist`,
+    /// `app/services/base_services/write.rb:35-43`), then the journal.
+    ///
+    /// The lock is Postgres's `pg_advisory_xact_lock` on a hash of the same lock name; it
+    /// serialises writers of this program, it does not interlock with Ruby's `with_advisory_lock`
+    /// gem (another hash function).
+    pub async fn update_in(
+        &self,
+        caller: &Caller,
+        id: Id,
+        dto: UpdateWorkPackageDto,
+        aggregation_minutes: i64,
+    ) -> Result<WorkPackageRow, MutationError> {
+        self.lock_work_package(id).await?;
+        authorize_record(self, caller, id, EDIT_WORK_PACKAGES).await?;
+        let user_id = self.acting_user_id(caller).await?;
+        let row = self.update_row(id, dto).await?;
+        self.write_update_journal(id, user_id, aggregation_minutes)
+            .await?;
+        Ok(row)
+    }
+
+    async fn lock_work_package(&self, id: Id) -> Result<(), StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("mutex_on_WorkPackage_{id}"))
+            .execute(&mut **tx)
+            .await
+            .map(|_| ())
+            .map_err(db_failure)
+    }
+
+    /// `users.id` of the person the update is journaled for: `User.current` in the Ruby service
+    /// (`User.execute_as user`, `service_context.rb:66-70`). A verified actor is their `users`
+    /// row; the demo posture's anonymous caller is OpenProject's `AnonymousUser` row.
+    async fn acting_user_id(&self, caller: &Caller) -> Result<Id, StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        let found: Option<Id> = match caller {
+            Caller::Actor { login } => sqlx::query_scalar("SELECT id FROM users WHERE login = $1")
+                .bind(login)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(db_failure)?,
+            Caller::Anonymous { .. } => sqlx::query_scalar(
+                "SELECT id FROM users WHERE type = 'AnonymousUser' ORDER BY id LIMIT 1",
+            )
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(db_failure)?,
+        };
+        found.ok_or_else(|| {
+            StoreFailure::Other("no users row to attribute the journal of this update to".into())
+        })
+    }
+
+    /// The UPDATE of `WorkPackageRepository::update`, on the open transaction. A stale
+    /// `lock_version` matches no row: `Conflict`, as the repository answers it.
+    async fn update_row(
+        &self,
+        id: Id,
+        dto: UpdateWorkPackageDto,
+    ) -> Result<WorkPackageRow, StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        sqlx::query_as::<_, WorkPackageRow>(
+            r#"
+            UPDATE work_packages SET
+                subject = COALESCE($1, subject),
+                description = COALESCE($2, description),
+                type_id = COALESCE($3, type_id),
+                status_id = COALESCE($4, status_id),
+                priority_id = COALESCE($5, priority_id),
+                assigned_to_id = $6,
+                responsible_id = $7,
+                start_date = $8,
+                due_date = $9,
+                estimated_hours = $10,
+                done_ratio = COALESCE($11, done_ratio),
+                parent_id = $12,
+                version_id = $13,
+                category_id = $14,
+                lock_version = lock_version + 1,
+                updated_at = NOW()
+            WHERE id = $15 AND lock_version = $16
+            RETURNING id, subject, description, project_id, type_id, status_id,
+                      priority_id, author_id, assigned_to_id, responsible_id,
+                      start_date, due_date, estimated_hours, done_ratio,
+                      parent_id, version_id, category_id, lock_version,
+                      created_at, updated_at
+            "#,
+        )
+        .bind(&dto.subject)
+        .bind(&dto.description)
+        .bind(dto.type_id)
+        .bind(dto.status_id)
+        .bind(dto.priority_id)
+        .bind(dto.assigned_to_id)
+        .bind(dto.responsible_id)
+        .bind(dto.start_date)
+        .bind(dto.due_date)
+        .bind(dto.estimated_hours)
+        .bind(dto.done_ratio)
+        .bind(dto.parent_id)
+        .bind(dto.version_id)
+        .bind(dto.category_id)
+        .bind(id)
+        .bind(dto.lock_version)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(db_failure)?
+        .ok_or_else(|| StoreFailure::Conflict("Work package was modified by another user".into()))
+    }
+
+    /// The journal of an update, written on the open transaction after the UPDATE.
+    ///
+    /// OpenProject: `after_save :save_journals`
+    /// (`lib_static/plugins/acts_as_journalized/lib/acts/journalized/save_hooks.rb:55,61-80`) runs
+    /// `Journals::CreateService.new(self, User.current).call(notes: "", internal: false,
+    /// cause: NoCause, skip_aggregation: nil)`. With a journal already present that service does
+    /// (`app/services/journals/create_service.rb`):
+    ///
+    /// * **Nothing changed.** The `changes` CTE (`select_changed_sql` / `changes_data_sql` /
+    ///   `data_changes_condition_sql`, :425-427, :509-532, :534-551) compares every journaled
+    ///   column of the work package with the last journal's data row (`IS DISTINCT FROM`; text
+    ///   columns, here `description`, compare after newline normalisation and `COALESCE(.., '')`).
+    ///   With no difference, and no note or cause (`only_on_changed_or_forced_condition_sql`,
+    ///   `create_service/helpers.rb:54-60`), every later CTE is a no-op: no journal, no data row.
+    ///   The `lock_version` and `updated_at` of the work package are not journaled columns.
+    /// * **Aggregation** (`aggregatable_predecessor` / `aggregatable?`, :82-90, :595-601): the
+    ///   last journal is *rewritten* instead of a new version being added when aggregation is
+    ///   active (minutes > 0), its `updated_at` is within the window, it is the same user's, its
+    ///   cause is empty (`only_one_or_same_cause?`: `NoCause` merges into nothing), it has no
+    ///   note (`only_one_note?`, the new notes are `""`) and it has the same `restricted` flag.
+    ///   Then (`cleanup_predecessor_data_sql`, `update_journal_sql`, :118-120, :437-461) the
+    ///   predecessor's `work_package_journals` row is deleted, a new data row is inserted, and the
+    ///   journal keeps its `id`, `version`, `created_at` and `validity_period` and gets the new
+    ///   `data_id`, `updated_at = fetch_time` and `cause = {}`.
+    /// * **A new version** otherwise (`insert_journal_sql`, :465-507): version
+    ///   `COALESCE(max, 0) + 1`, the acting user, `created_at = updated_at = fetch_time`,
+    ///   `validity_period = tstzrange(fetch_time, NULL)`, and the predecessor's validity period is
+    ///   closed (`update_predecessor_sql`, :410-425): `tstzrange(lower(validity_period),
+    ///   fetch_time, '[)')`.
+    /// * `fetch_time` (`touch_journable_sql`, `fetch_time_sql`, `after_latest_journal_sql`,
+    ///   :331-392): the work package's `updated_at`, forced to be at least one microsecond after
+    ///   the last journal's `updated_at`; if the work package's own `updated_at` is not newer than
+    ///   that journal it is touched to this value.
+    /// * No journal at all yet (a work package that predates journalling) is a version-1 journal
+    ///   with nothing to close: the `changes` comparison finds every column different.
+    ///
+    /// Not ported: the association rows (`attachable_journals`, `customizable_journals`,
+    /// `label_journals`, `work_package_version_journals`, file links, project phases), the
+    /// `JOURNAL_CREATED` notification, notes, internal/restricted notes and causes (an edit has
+    /// none), and `skip_aggregation`.
+    pub async fn write_update_journal(
+        &self,
+        work_package_id: Id,
+        user_id: Id,
+        aggregation_minutes: i64,
+    ) -> Result<UpdateJournal, StoreFailure> {
+        let mut tx = self.tx.lock().await;
+
+        // `max_journals`: the last journal, if any (`journable.last_journal` in Ruby).
+        let last: Option<(Id, i32, Id, Id, Option<String>, bool, serde_json::Value, bool)> =
+            sqlx::query_as(
+                "SELECT id, version, data_id, user_id, notes, restricted, cause, \
+                        updated_at >= clock_timestamp() - make_interval(mins => $2::int) \
+                 FROM journals WHERE journable_id = $1 AND journable_type = 'WorkPackage' \
+                 ORDER BY version DESC LIMIT 1",
+            )
+            .bind(work_package_id)
+            .bind(i32::try_from(aggregation_minutes.max(0)).unwrap_or(i32::MAX))
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(db_failure)?;
+        let last_id = last.as_ref().map_or(0, |l| l.0);
+        let last_data_id = last.as_ref().map_or(0, |l| l.2);
+
+        // `changes`.
+        let changed: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM work_packages w
+                LEFT JOIN work_package_journals d ON d.id = $2
+                WHERE w.id = $1 AND (
+                    w.type_id IS DISTINCT FROM d.type_id
+                    OR w.project_id IS DISTINCT FROM d.project_id
+                    OR w.subject IS DISTINCT FROM d.subject
+                    OR w.due_date IS DISTINCT FROM d.due_date
+                    OR w.category_id IS DISTINCT FROM d.category_id
+                    OR w.status_id IS DISTINCT FROM d.status_id
+                    OR w.assigned_to_id IS DISTINCT FROM d.assigned_to_id
+                    OR w.priority_id IS DISTINCT FROM d.priority_id
+                    OR w.version_id IS DISTINCT FROM d.version_id
+                    OR w.author_id IS DISTINCT FROM d.author_id
+                    OR w.done_ratio IS DISTINCT FROM d.done_ratio
+                    OR w.estimated_hours IS DISTINCT FROM d.estimated_hours
+                    OR w.start_date IS DISTINCT FROM d.start_date
+                    OR w.parent_id IS DISTINCT FROM d.parent_id
+                    OR w.responsible_id IS DISTINCT FROM d.responsible_id
+                    OR w.schedule_manually IS DISTINCT FROM d.schedule_manually
+                    OR w.duration IS DISTINCT FROM d.duration
+                    OR w.remaining_hours IS DISTINCT FROM d.remaining_hours
+                    OR w.story_points IS DISTINCT FROM d.story_points
+                    OR REGEXP_REPLACE(COALESCE(w.description, ''), '\r\n', E'\n', 'g')
+                       != REGEXP_REPLACE(COALESCE(d.description, ''), '\r\n', E'\n', 'g')
+                )
+            )
+            "#,
+        )
+        .bind(work_package_id)
+        .bind(last_data_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(db_failure)?;
+        if !changed {
+            return Ok(UpdateJournal::Unchanged);
+        }
+
+        // `aggregatable?` for notes `""`, internal false, `NoCause`.
+        let aggregate = last.as_ref().is_some_and(
+            |(_, _, _, last_user, notes, restricted, cause, within)| {
+                aggregation_minutes > 0
+                    && *within
+                    && *last_user == user_id
+                    && cause.as_object().is_none_or(|c| c.is_empty())
+                    && notes.as_deref().is_none_or(str::is_empty)
+                    && !*restricted
+            },
+        );
+
+        // `cleanup_predecessor_data`.
+        if aggregate {
+            sqlx::query("DELETE FROM work_package_journals WHERE id = $1")
+                .bind(last_data_id)
+                .execute(&mut **tx)
+                .await
+                .map_err(db_failure)?;
+        }
+
+        // `touch_journable` (only when the work package is not already newer than the last
+        // journal; with no journal the comparison is NULL and nothing is touched).
+        sqlx::query(
+            "UPDATE work_packages SET updated_at = GREATEST(statement_timestamp(), \
+                 (SELECT updated_at FROM journals WHERE id = $2) + interval '1 microsecond') \
+             WHERE id = $1 AND NOT updated_at > (SELECT updated_at FROM journals WHERE id = $2)",
+        )
+        .bind(work_package_id)
+        .bind(last_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(db_failure)?;
+
+        // `fetch_time`.
+        let fetch_time: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
+            "SELECT GREATEST((SELECT updated_at FROM work_packages WHERE id = $1), \
+                 (SELECT updated_at FROM journals WHERE id = $2) + interval '1 microsecond')",
+        )
+        .bind(work_package_id)
+        .bind(last_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(db_failure)?;
+
+        // `insert_data`.
+        let data_id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO work_package_journals (
+                type_id, project_id, subject, description, due_date, category_id, status_id,
+                assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
+                start_date, parent_id, responsible_id, schedule_manually, duration,
+                remaining_hours, story_points
+            )
+            SELECT
+                type_id, project_id, subject,
+                REGEXP_REPLACE(COALESCE(description, ''), '\r\n', E'\n', 'g'),
+                due_date, category_id, status_id,
+                assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
+                start_date, parent_id, responsible_id, schedule_manually, duration,
+                remaining_hours, story_points
+            FROM work_packages WHERE id = $1
+            RETURNING id
+            "#,
+        )
+        .bind(work_package_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(db_failure)?;
+
+        if aggregate {
+            // `update_journal_sql`: the predecessor is rewritten in place.
+            sqlx::query(
+                "UPDATE journals SET updated_at = $2, data_id = $3, cause = '{}'::jsonb \
+                 WHERE id = $1",
+            )
+            .bind(last_id)
+            .bind(fetch_time)
+            .bind(data_id)
+            .execute(&mut **tx)
+            .await
+            .map_err(db_failure)?;
+            return Ok(UpdateJournal::Aggregated);
+        }
+
+        // `update_predecessor`: close the last journal's validity period.
+        sqlx::query(
+            "UPDATE journals SET validity_period = tstzrange(lower(validity_period), $2, '[)') \
+             WHERE id = $1",
+        )
+        .bind(last_id)
+        .bind(fetch_time)
+        .execute(&mut **tx)
+        .await
+        .map_err(db_failure)?;
+        // `insert_journal_sql`.
+        let next_version = last.as_ref().map_or(0, |l| l.1) + 1;
+        sqlx::query(
+            r#"
+            INSERT INTO journals (
+                journable_id, journable_type, version, user_id, notes, restricted,
+                created_at, updated_at, data_id, data_type, cause, validity_period
+            ) VALUES (
+                $1, 'WorkPackage', $2, $3, '', false,
+                $4, $4, $5, 'Journal::WorkPackageJournal', '{}'::jsonb,
+                tstzrange($4, NULL)
+            )
+            "#,
+        )
+        .bind(work_package_id)
+        .bind(next_version)
+        .bind(user_id)
+        .bind(fetch_time)
+        .bind(data_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(db_failure)?;
+        Ok(UpdateJournal::Created {
+            version: next_version,
+        })
+    }
+
     /// Run a statement on the open transaction (the hook after the insert and the journal).
     pub async fn execute(&self, sql: &str) -> Result<(), StoreFailure> {
         let mut tx = self.tx.lock().await;
@@ -874,10 +1284,23 @@ impl PgCreateScope {
 }
 
 impl MutationStore for PgCreateScope {
-    async fn find_wp(&self, _id: Id) -> Result<Option<WorkPackageRow>, StoreFailure> {
-        Err(StoreFailure::Other(
-            "a create scope does not look up work packages".into(),
-        ))
+    async fn find_wp(&self, id: Id) -> Result<Option<WorkPackageRow>, StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        sqlx::query_as::<_, WorkPackageRow>(
+            r#"
+            SELECT id, subject, description, project_id, type_id, status_id,
+                   priority_id, author_id, assigned_to_id, responsible_id,
+                   start_date, due_date, estimated_hours, done_ratio,
+                   parent_id, version_id, category_id, lock_version,
+                   created_at, updated_at
+            FROM work_packages
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(db_failure)
     }
 
     async fn project_active(&self, project_id: Id) -> Result<bool, StoreFailure> {
@@ -923,14 +1346,15 @@ impl MutationStore for PgCreateScope {
         })
     }
 
-    async fn update_wp(
+    /// Already inside the unit of work.
+    async fn update_unit_of_work(
         &self,
-        _id: Id,
-        _dto: UpdateWorkPackageDto,
-    ) -> Result<WorkPackageRow, StoreFailure> {
-        Err(StoreFailure::Other(
-            "a create scope does not update work packages".into(),
-        ))
+        caller: &Caller,
+        id: Id,
+        dto: UpdateWorkPackageDto,
+    ) -> Result<WorkPackageRow, MutationError> {
+        self.update_in(caller, id, dto, JOURNAL_AGGREGATION_TIME_MINUTES)
+            .await
     }
 }
 
@@ -1157,11 +1581,12 @@ mod tests {
                 },
             })
         }
-        async fn update_wp(
+        async fn update_unit_of_work(
             &self,
+            _caller: &Caller,
             id: Id,
             dto: UpdateWorkPackageDto,
-        ) -> Result<WorkPackageRow, StoreFailure> {
+        ) -> Result<WorkPackageRow, MutationError> {
             self.updates.lock().unwrap().push((id, dto));
             Ok(self.wps[&id].clone())
         }

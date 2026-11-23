@@ -725,15 +725,16 @@ impl MutationStore for FailAfterInsert {
         .principal(caller, project_id)
         .await
     }
-    async fn update_wp(
+    async fn update_unit_of_work(
         &self,
+        caller: &Caller,
         id: i64,
         dto: op_db::UpdateWorkPackageDto,
-    ) -> Result<op_db::work_packages::WorkPackageRow, StoreFailure> {
+    ) -> Result<op_db::work_packages::WorkPackageRow, MutationError> {
         PgMutationStore {
             pool: self.pool.clone(),
         }
-        .update_wp(id, dto)
+        .update_unit_of_work(caller, id, dto)
         .await
     }
 }
