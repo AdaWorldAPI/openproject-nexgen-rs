@@ -51,49 +51,25 @@ use serde_json::Value;
 /// trace at OpenProject 2725194, as `(with vendor/bundle, without it)`. The
 /// harvest reads the gems the intake names (the Rails framework, acts_as_list,
 /// closure_tree) only where `vendor/bundle` holds them; CI unpacks them with
-/// `scripts/fetch-oracle-gems.sh`.
-///
-/// Pinned ruff: 91 before ruff PR #156, 115 after it. 117
-/// with the Rails framework roots (the two
-/// `normalize_changed_in_place_attributes` entries come from
-/// `ActiveModel::Attributes::Normalization`).
-#[cfg(not(feature = "ruff-macros"))]
-const MATCHED_FLOOR: (usize, usize) = (117, 115);
-/// With class-level macros read from their `def` and `has_and_belongs_to_many`
-/// middle associations decided from the host class (feature `ruff-macros`,
-/// against a ruff that has `macro_ore_from` and `derive_in`). Without
-/// `vendor/bundle` only the in-tree plugin macros (`lib_static`) are read.
-#[cfg(feature = "ruff-macros")]
+/// `scripts/fetch-oracle-gems.sh`. Class-level macros are read from their own
+/// `def` and `has_and_belongs_to_many` middle associations are decided from the
+/// host class, so these hold at ruff b3bdfb1. Without `vendor/bundle` only the
+/// in-tree plugin macros (`lib_static`) are read.
 const MATCHED_FLOOR: (usize, usize) = (154, 132);
 
-/// Of those, entries that match only through a generated callback (67 before
-/// #156), as `(with vendor/bundle, without it)`.
-#[cfg(not(feature = "ruff-macros"))]
-const MATCHED_GENERATED_FLOOR: (usize, usize) = (89, 89);
-#[cfg(feature = "ruff-macros")]
+/// Of those, entries that match only through a generated callback, as `(with
+/// vendor/bundle, without it)`.
 const MATCHED_GENERATED_FLOOR: (usize, usize) = (112, 99);
 
-/// Typed slag per reason as measured, and no more: a reason may fall, never
-/// grow. Only checked where `vendor/bundle` is installed. The first table is
-/// the pinned ruff (framework roots only), the second ruff with class-level
-/// macros and host-aware `has_and_belongs_to_many`.
-#[cfg(not(feature = "ruff-macros"))]
-const SLAG_CEILINGS: &[(Slag, usize)] = &[
-    (Slag::AssociationFromPlugin, 3),
-    (Slag::AssociationNotInCheckout, 15),
-    (Slag::DefinedInPlugin, 7),
-    (Slag::FromGem, 6),
-    (Slag::ModelWithoutClassFile, 3),
-    (Slag::ChainFileNotHarvested, 2),
-    (Slag::GeneratedUndecided, 4),
-];
+/// Typed slag per reason as measured at ruff b3bdfb1, and no more: a reason may
+/// fall, never grow. Only checked where `vendor/bundle` is installed.
+///
 /// Left: paper_trail's `has_many :paper_trail_audits`, named by a config value
 /// (`config/initializers/paper_trail.rb:31-35`, `has_paper_trail_defaults`
 /// `versions: { name: :paper_trail_audits }`) the macro merges at runtime, not
 /// by source the harvest reads; and the journals validation, whose `validate:`
 /// may come from `**has_many_journals_options`, a method's computed hash
 /// (`lib_static/plugins/acts_as_journalized/lib/acts_as_journalized.rb:82`).
-#[cfg(feature = "ruff-macros")]
 const SLAG_CEILINGS: &[(Slag, usize)] = &[
     (Slag::AssociationNotInCheckout, 2),
     (Slag::GeneratedUndecided, 1),
@@ -103,9 +79,6 @@ const SLAG_CEILINGS: &[(Slag, usize)] = &[
 /// `(with vendor/bundle, without it)`. A group is UNKNOWN only when a skipped
 /// branch could register one of its entries, or a scope hides registrations
 /// that cannot be named (`ModelCtx::order_unknown_scopes`, `order_hidden`).
-#[cfg(not(feature = "ruff-macros"))]
-const ORDER_DEFINITE_FLOOR: (usize, usize) = (19, 19);
-#[cfg(feature = "ruff-macros")]
 const ORDER_DEFINITE_FLOOR: (usize, usize) = (29, 19);
 
 /// Order groups that must stay DEFINITE and agree on the harvest WITHOUT
@@ -118,9 +91,6 @@ const ORDER_GROUPS_WITHOUT_MACROS_FLOOR: usize = 19;
 /// run, an `on:` they do not take, a condition that is not evaluated); an
 /// unexplained one fails the test on its own. A rise means a rule predicts
 /// more than it did when measured.
-#[cfg(not(feature = "ruff-macros"))]
-const EXTRA_PREDICTIONS_CEILING: (usize, usize) = (0, 0);
-#[cfg(feature = "ruff-macros")]
 const EXTRA_PREDICTIONS_CEILING: (usize, usize) = (16, 5);
 
 /// Distinct patch modules the intake applies to `WorkPackage` (include only),
@@ -668,7 +638,6 @@ fn fired_callbacks_are_matched_or_named_slag() {
     }
     // Every macro rule runs on the traced models, and no rule or hand-over
     // names a file the checkout does not have.
-    #[cfg(feature = "ruff-macros")]
     if vendor {
         for rule in &cfg.macros.rules {
             assert!(

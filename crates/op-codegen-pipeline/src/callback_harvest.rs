@@ -9,14 +9,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-#[cfg(feature = "ruff-macros")]
 use ruff_ruby_spo::events::{macro_ore_from, macro_ore_local_from, MacroStep};
 use ruff_ruby_spo::events::{
     source_ore_from, ClassOre, DeclOrigin, OreKind, RailsEvent, Symbols, UnharvestedReason,
 };
-#[cfg(not(feature = "ruff-macros"))]
-use ruff_ruby_spo::rails_generated::derive;
-#[cfg(feature = "ruff-macros")]
 use ruff_ruby_spo::rails_generated::derive_in;
 use ruff_ruby_spo::rails_generated::{
     Chain as GenChain, Filter as GenFilter, Generated, Kind as GenKind, RailsDefaults,
@@ -398,7 +394,6 @@ impl Harvest {
             push(i.kind, &i.module);
         }
         let superclass = ore.superclass.clone();
-        #[cfg(feature = "ruff-macros")]
         let macro_runs: Vec<MacroRun> = self.macro_runs_of(&ore);
         out.push(Ancestor {
             name: name.to_string(),
@@ -412,7 +407,6 @@ impl Harvest {
                 None => self.unresolved.push((name.to_string(), m)),
             }
         }
-        #[cfg(feature = "ruff-macros")]
         for run in macro_runs {
             self.visit_run(run, &host, seen, out);
         }
@@ -426,7 +420,6 @@ impl Harvest {
 
     /// An expanded macro body is a module-like ancestor of its host: record it
     /// and follow the modules it includes.
-    #[cfg(feature = "ruff-macros")]
     fn visit_run(
         &mut self,
         run: MacroRun,
@@ -1332,9 +1325,8 @@ pub fn generated_of(origin: &str, ore: &ClassOre) -> GeneratedOf {
 }
 
 /// [`generated_of`] for a body whose macros run in the class `host`. Needed to
-/// name the middle association of a `has_and_belongs_to_many`; without the
-/// `ruff-macros` feature the host is not read (the pinned ruff has no use for
-/// it) and that rule stays undecided.
+/// name the middle association of a `has_and_belongs_to_many`; with no host the
+/// rule stays undecided.
 pub fn generated_in(host: Option<&str>, origin: &str, ore: &ClassOre) -> GeneratedOf {
     generated_from(host, origin, &ore.declarations)
 }
@@ -1346,13 +1338,7 @@ pub fn generated_from(host: Option<&str>, origin: &str, events: &[RailsEvent]) -
         callbacks: Vec::new(),
         undecided: Vec::new(),
     };
-    #[cfg(feature = "ruff-macros")]
     let derived = derive_in(host, events, OP_RAILS_DEFAULTS);
-    #[cfg(not(feature = "ruff-macros"))]
-    let derived = {
-        let _ = host;
-        derive(events, OP_RAILS_DEFAULTS)
-    };
     for g in derived {
         match g {
             Generated::Callback(cb) => {
@@ -1562,7 +1548,6 @@ fn literal_pairs(text: &str) -> Option<Vec<(String, String)>> {
 }
 
 /// An expanded macro body, ready to be walked like a module body.
-#[cfg(feature = "ruff-macros")]
 pub struct MacroRun {
     /// The module or class whose `def` this is: the lexical scope its
     /// constants resolve in.
@@ -1572,10 +1557,8 @@ pub struct MacroRun {
 }
 
 /// How many macro bodies may call each other before the walk stops.
-#[cfg(feature = "ruff-macros")]
 const MACRO_DEPTH: usize = 4;
 
-#[cfg(feature = "ruff-macros")]
 impl Harvest {
     /// The macros the class-body declarations of `ore` call, expanded, for the
     /// statements that run in the including class.
@@ -1960,7 +1943,6 @@ impl Harvest {
             }
             // A class-level macro registers where it is called, after
             // whatever the call itself declared.
-            #[cfg(feature = "ruff-macros")]
             for run in self.macro_runs_of_decl(&e.decl) {
                 self.eff_body(&run.owner, &run.ore, false, st);
             }
@@ -2325,33 +2307,25 @@ pub fn hidden_registrations(
     scope: &str,
     host: &str,
 ) -> Option<Vec<Declared>> {
-    #[cfg(feature = "ruff-macros")]
-    {
-        if u.reason != UnharvestedReason::ControlFlow || u.hidden.is_empty() {
-            return None;
-        }
-        let nameable = u.hidden.iter().all(|e| {
-            matches!(
-                e.decl,
-                Declaration::Association(_) | Declaration::Callback(_) | Declaration::Validation(_)
-            )
-        });
-        if !nameable {
-            return None;
-        }
-        let g = generated_from(Some(host), scope, &u.hidden);
-        if !g.undecided.is_empty() {
-            return None;
-        }
-        let mut out = declared_of(scope, &u.hidden);
-        out.extend(g.callbacks.into_iter().map(|(_, d)| d));
-        Some(out)
+    if u.reason != UnharvestedReason::ControlFlow || u.hidden.is_empty() {
+        return None;
     }
-    #[cfg(not(feature = "ruff-macros"))]
-    {
-        let _ = (u, scope, host);
-        None
+    let nameable = u.hidden.iter().all(|e| {
+        matches!(
+            e.decl,
+            Declaration::Association(_) | Declaration::Callback(_) | Declaration::Validation(_)
+        )
+    });
+    if !nameable {
+        return None;
     }
+    let g = generated_from(Some(host), scope, &u.hidden);
+    if !g.undecided.is_empty() {
+        return None;
+    }
+    let mut out = declared_of(scope, &u.hidden);
+    out.extend(g.callbacks.into_iter().map(|(_, d)| d));
+    Some(out)
 }
 
 /// How much of one module's include-time bodies was read.
@@ -2637,7 +2611,6 @@ pub fn contexts(
     // A class no file defines may be defined by a macro another model calls
     // (closure_tree's `<Model>Hierarchy`): build its context from the macro's
     // body and its superclass chain.
-    #[cfg(feature = "ruff-macros")]
     for m in models {
         if out[m].has_file || !h.macros_enabled {
             continue;
@@ -2673,8 +2646,6 @@ pub fn contexts(
             break;
         }
     }
-    #[cfg(not(feature = "ruff-macros"))]
-    let _ = &called;
     (out, h.unresolved.clone())
 }
 
