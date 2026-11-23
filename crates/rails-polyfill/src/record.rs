@@ -38,6 +38,10 @@ pub struct Record {
     /// `attr_accessor` instance state: not columns, not persisted, `nil`
     /// until assigned.
     virtuals: Vec<(&'static str, Value)>,
+    /// Transaction participant token: this object's identity in the current
+    /// transaction (ActiveRecord tracks participating objects, not rows).
+    /// Set when the object joins; a freshly built or loaded record has none.
+    participant: Option<u64>,
 }
 
 /// Two records are the same Ruby value when they are the same row: same
@@ -67,6 +71,7 @@ impl Record {
             saved: Vec::new(),
             assoc_cache: Vec::new(),
             virtuals: Vec::new(),
+            participant: None,
         }
     }
 
@@ -82,6 +87,7 @@ impl Record {
             saved: Vec::new(),
             assoc_cache: Vec::new(),
             virtuals: Vec::new(),
+            participant: None,
         }
     }
 
@@ -203,6 +209,14 @@ impl Record {
     pub fn cache_assoc(&mut self, assoc: &'static str, fk: Value, target: Option<Record>) {
         self.assoc_cache.retain(|(a, _, _)| *a != assoc);
         self.assoc_cache.push((assoc, fk, target.map(Box::new)));
+    }
+
+    pub(crate) fn participant(&self) -> Option<u64> {
+        self.participant
+    }
+
+    pub(crate) fn set_participant(&mut self, token: u64) {
+        self.participant = Some(token);
     }
 
     /// `remember_transaction_record_state` (transactions.rb:467-476).

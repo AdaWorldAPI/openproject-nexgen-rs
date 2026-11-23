@@ -78,10 +78,8 @@ pub struct ModelSpec {
 pub(crate) struct PendingCommit {
     model: &'static ModelSpec,
     record: Record,
-    /// Address of the record object that joined. A callback that receives
-    /// the same object (an after_create that destroys `self`) is the same
-    /// participant even before it has an id.
-    addr: usize,
+    /// The joining object's participant token.
+    token: u64,
     /// `@_new_record_before_last_commit`: new when it joined.
     created: bool,
     /// What it did that triggers after_commit, if anything yet
@@ -90,28 +88,22 @@ pub(crate) struct PendingCommit {
 }
 
 /// The record's slot in the transaction, joining it if it is not in yet.
-fn join_transaction(ctx: &mut Ctx, model: &'static ModelSpec, rec: &Record) -> usize {
-    let addr = std::ptr::from_ref(rec) as usize;
-    // The same object, unless the ids say otherwise: a loop that loads one
-    // record after another into the same local reuses its address.
-    let same_object = |p: &PendingCommit| {
-        p.addr == addr
-            && std::ptr::eq(p.record.table, rec.table)
-            && (p.record.id().is_none() || rec.id().is_none() || p.record.id() == rec.id())
-    };
-    if let Some(i) = ctx.pending_commit.iter().position(same_object) {
+/// Identity is the object (its participant token), as in ActiveRecord: the
+/// same object in a nested call is the same participant; another object for
+/// the same row, or a newly built one, is another.
+fn join_transaction(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> usize {
+    if let Some(token) = rec.participant()
+        && let Some(i) = ctx.pending_commit.iter().position(|p| p.token == token)
+    {
         return i;
     }
-    if let Some(id) = rec.id() {
-        let same = |p: &PendingCommit| std::ptr::eq(p.record.table, rec.table) && p.record.id() == Some(id);
-        if let Some(i) = ctx.pending_commit.iter().position(same) {
-            return i;
-        }
-    }
+    let token = ctx.next_participant;
+    ctx.next_participant += 1;
+    rec.set_participant(token);
     ctx.pending_commit.push(PendingCommit {
         model,
         record: rec.clone(),
-        addr,
+        token,
         created: rec.new_record(),
         action: None,
     });
@@ -293,8 +285,9 @@ pub fn save(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Resul
     let record_state = rec.transaction_state();
     let outer = ctx.txn_depth == 0;
     let slot = join_transaction(ctx, model, rec);
+    let mut row_written = false;
     ctx.txn_depth += 1;
-    let result = save_in_transaction(ctx, model, rec, action);
+    let result = save_in_transaction(ctx, model, rec, action, &mut row_written);
     ctx.txn_depth -= 1;
 
     let committed = matches!(&result, Ok(s) if s.ok);
@@ -303,8 +296,13 @@ pub fn save(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Resul
             // A nested record transaction joins the outer one (no savepoint,
             // `requires_new: false`): its `ActiveRecord::Rollback` is swallowed
             // and nothing is rolled back here; only the outermost transaction
-            // rolls back (oracle/lock_rollback.rb, nested scenario).
+            // rolls back (oracle/lock_rollback.rb, nested scenario). A row
+            // already written stays, and its after_commit runs if the outer
+            // transaction commits, even when a later callback raised.
             ctx.store.release(snapshot);
+            if row_written {
+                settle(ctx, slot, rec, Some(action));
+            }
             return result;
         }
         ctx.store.rollback(snapshot);
@@ -329,6 +327,7 @@ fn save_in_transaction(
     model: &'static ModelSpec,
     rec: &mut Record,
     action: Action,
+    row_written: &mut bool,
 ) -> Result<Saved, Halt> {
     // Validations#save → valid?
     let outer_errors = std::mem::take(&mut ctx.errors);
@@ -360,6 +359,7 @@ fn save_in_transaction(
                     }
                 }
                 ctx.store.insert(rec)?;
+                *row_written = true;
                 run_chain(ctx, model, &[Phase::AfterCreate], action, rec)?;
             }
             Action::Update => {
@@ -372,7 +372,7 @@ fn save_in_transaction(
                 {
                     rec.set(c, Value::time_ms(ctx.now));
                 }
-                ctx.store.update(rec)?;
+                *row_written |= ctx.store.update(rec)?;
                 run_chain(ctx, model, &[Phase::AfterUpdate], action, rec)?;
             }
             Action::Destroy => {}
@@ -1072,6 +1072,75 @@ mod tests {
         assert_eq!(save(&mut ctx, &LOOPER, &mut looper).map(|s| s.ok), Ok(true));
         assert_eq!(ctx.store.count(&PLAIN), 0);
         assert_eq!(commits(&ctx), ["tot_commit_destroy", "tot_commit_destroy"]);
+    }
+
+    fn create_cub_rescuing(ctx: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
+        let mut cub = build(ctx, &CUB, &[("name", Value::str("c"))])?;
+        match save(ctx, &CUB, &mut cub) {
+            Err(Halt::Raise(_)) => Ok(Value::Nil),
+            other => other.map(|_| Value::Nil),
+        }
+    }
+
+    static CUB: ModelSpec = ModelSpec {
+        name: "Cub",
+        table: &PLAIN,
+        callbacks: &[
+            cb(Phase::AfterSave, "cub_boom", On::ANY, boom),
+            cb(Phase::AfterCommit, "cub_commit", On::ANY, noop),
+        ],
+    };
+
+    static DEN: ModelSpec = ModelSpec {
+        name: "Den",
+        table: &OUTERS,
+        callbacks: &[cb(Phase::AfterSave, "create_cub_rescuing", On::ANY, create_cub_rescuing)],
+    };
+
+    /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, rescued-save
+    /// scenario): a nested create whose after_save raises, rescued by the
+    /// outer callback, keeps its row and its after_commit runs.
+    #[test]
+    fn a_nested_save_that_wrote_keeps_its_commit_callback_after_a_rescued_raise() {
+        let mut ctx = ctx_with(&PLAIN);
+        ctx.store.register(&OUTERS);
+        let mut den = build(&mut ctx, &DEN, &[("name", Value::str("d"))]).unwrap();
+        assert_eq!(save(&mut ctx, &DEN, &mut den).map(|s| s.ok), Ok(true));
+        assert_eq!(ctx.store.count(&PLAIN), 1);
+        assert_eq!(commits(&ctx), ["cub_commit"]);
+    }
+
+    fn create_two_pups(ctx: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
+        for name in ["p1", "p2"] {
+            let mut pup = build(ctx, &PUP, &[("name", Value::str(name))])?;
+            save(ctx, &PUP, &mut pup)?;
+        }
+        Ok(Value::Nil)
+    }
+
+    static PUP: ModelSpec = ModelSpec {
+        name: "Pup",
+        table: &PLAIN,
+        callbacks: &[cb(Phase::AfterCommit, "pup_commit_create", On::CREATE, noop)],
+    };
+
+    static LITTER: ModelSpec = ModelSpec {
+        name: "Litter",
+        table: &OUTERS,
+        callbacks: &[cb(Phase::AfterSave, "create_two_pups", On::ANY, create_two_pups)],
+    };
+
+    /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, loop-creates
+    /// scenario): two records built one after the other in the same local
+    /// are two participants, each with its after_commit.
+    #[test]
+    fn records_built_in_a_loop_are_separate_participants() {
+        let mut ctx = ctx_with(&PLAIN);
+        ctx.store.register(&OUTERS);
+        let mut litter = build(&mut ctx, &LITTER, &[("name", Value::str("l"))]).unwrap();
+        assert_eq!(save(&mut ctx, &LITTER, &mut litter).map(|s| s.ok), Ok(true));
+        assert_eq!(ctx.store.count(&PLAIN), 2);
+        assert_eq!(commits(&ctx), ["pup_commit_create", "pup_commit_create"]);
     }
 
     /// A rolled-back create restores the pre-save id and `new_record?`
