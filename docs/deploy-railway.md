@@ -11,12 +11,12 @@ On start the server connects to PostgreSQL and applies the schema migrations in
 `crates/op-db/migrations`. It then serves the board at `/`, the rendered work package
 and project pages, and the OpenProject `/api/v3` JSON API.
 
-> **Interim storage.** PostgreSQL through SQLx is how the server persists today, and
-> what this guide deploys. It is not the target. The target is the zammad-rs layout:
-> state in memory, reads through lance-graph's Quack, and writes kept as a snapshot
-> plus one record per committed write in a state directory on a Railway volume, with
-> PostgreSQL kept only as the parity oracle. When that migration lands, this guide
-> changes: the PostgreSQL plugin is replaced by a volume.
+> **Interim storage.** This guide deploys the server as it is today, to see the
+> current status before the migration. Today it persists through SQLx to
+> PostgreSQL. That is not the target: SQLx/PostgreSQL is to be the oracle only.
+> The target maps the models onto the Rails polyfill and reads them through Quack
+> in lance-graph, the same way zammad-rs does (`rails-polyfill`, `quack-shadow`).
+> When that lands, this guide changes.
 
 ## 1. Create the project
 
