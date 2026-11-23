@@ -92,12 +92,16 @@ impl Ctx<'_> {
                     if s.recv.is_some() || s.method_name != "enum" {
                         continue;
                     }
-                    let Some(Node::Sym(name)) = s.args.first() else { continue };
+                    let Some(Node::Sym(name)) = s.args.first() else {
+                        continue;
+                    };
                     let name = bytes(&name.name);
                     if plural != format!("{name}es") && plural != format!("{name}s") {
                         continue;
                     }
-                    let Some(Node::Hash(map)) = s.args.get(1) else { continue };
+                    let Some(Node::Hash(map)) = s.args.get(1) else {
+                        continue;
+                    };
                     for p in &map.pairs {
                         let Node::Pair(p) = p else { continue };
                         if sym(&p.key).as_deref() == Some(key) {
@@ -172,7 +176,9 @@ impl Ctx<'_> {
             return Some(l);
         }
         let Node::Index(ix) = n else { return None };
-        let Node::Send(s) = &*ix.recv else { return None };
+        let Node::Send(s) = &*ix.recv else {
+            return None;
+        };
         if !s.args.is_empty() {
             return None;
         }
@@ -203,8 +209,12 @@ impl Ctx<'_> {
                     match p {
                         Node::Str(s) => text.push_str(&bytes(&s.value)),
                         Node::Begin(b) => {
-                            let [Node::Send(s)] = &b.statements[..] else { return None };
-                            let Some(Node::Const(c)) = s.recv.as_deref() else { return None };
+                            let [Node::Send(s)] = &b.statements[..] else {
+                                return None;
+                            };
+                            let Some(Node::Const(c)) = s.recv.as_deref() else {
+                                return None;
+                            };
                             if s.method_name != "table_name" || c.scope.is_some() {
                                 return None;
                             }
@@ -240,7 +250,8 @@ impl Ctx<'_> {
                     Some(_) => return None,
                     None => col,
                 };
-                let ok = !col.is_empty() && col.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+                let ok =
+                    !col.is_empty() && col.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
                 ok.then(|| (col.to_string(), asc))
             })
             .collect()
@@ -250,7 +261,8 @@ impl Ctx<'_> {
     fn lower(&self, body: &Node, src: &str, out: &mut Lowered, depth: usize) {
         let ruby = src_text(src, body);
         let Some(links) = chain(body) else {
-            out.unlowered.push((ruby, "not a method chain on self".into()));
+            out.unlowered
+                .push((ruby, "not a method chain on self".into()));
             return;
         };
         // A bare class-method call inlines that method's body.
@@ -301,7 +313,8 @@ impl Ctx<'_> {
                         &l.args
                     };
                     let Some(pairs) = hash_pairs(args) else {
-                        out.unlowered.push((ruby, "where argument is not a hash".into()));
+                        out.unlowered
+                            .push((ruby, "where argument is not a hash".into()));
                         return;
                     };
                     for (k, v) in pairs {
@@ -344,8 +357,17 @@ pub fn lower(h: &Harvest, models: &[(String, String)]) -> Vec<Lowered> {
             }
             i += 1;
         }
-        let ctx = Ctx { h, ancestry: ancestry.clone(), table, tables: &tables };
-        let mut l = Lowered { model: model.clone(), table: table.clone(), ..Lowered::default() };
+        let ctx = Ctx {
+            h,
+            ancestry: ancestry.clone(),
+            table,
+            tables: &tables,
+        };
+        let mut l = Lowered {
+            model: model.clone(),
+            table: table.clone(),
+            ..Lowered::default()
+        };
         // Farthest ancestor first, then source order within a class.
         let mut ordered = scopes;
         ordered.sort_by_key(|s| {
@@ -372,7 +394,7 @@ pub fn emit(lowered: &[Lowered], header: &str) -> String {
     let mut s = String::new();
     s.push_str(header);
     s.push_str("//! The lowered `default_scope`s of the slice models (`op_desk::scopes`).\n\n");
-    s.push_str("use crate::scopes::{DefaultScope, Dir, Filter, Lit, Op, Order, Unlowered};\n\n");
+    s.push_str("// Glob: which of these the data names depends on OpenProject's source.\nuse crate::scopes::*;\n\n");
     s.push_str("/// Every slice model that declares (or inherits) a default scope.\n");
     s.push_str("pub static DEFAULT_SCOPES: &[DefaultScope] = &[\n");
     for l in lowered {
@@ -381,11 +403,19 @@ pub fn emit(lowered: &[Lowered], header: &str) -> String {
         let _ = writeln!(s, "        table: {:?},", l.table);
         s.push_str("        order: &[");
         for (c, asc) in &l.order {
-            let _ = write!(s, "Order {{ col: {c:?}, dir: Dir::{} }}, ", if *asc { "Asc" } else { "Desc" });
+            let _ = write!(
+                s,
+                "Order {{ col: {c:?}, dir: Dir::{} }}, ",
+                if *asc { "Asc" } else { "Desc" }
+            );
         }
         s.push_str("],\n        filters: &[");
         for (c, neg, lit) in &l.filters {
-            let _ = write!(s, "Filter {{ col: {c:?}, op: Op::{}, lit: {lit} }}, ", if *neg { "Ne" } else { "Eq" });
+            let _ = write!(
+                s,
+                "Filter {{ col: {c:?}, op: Op::{}, lit: {lit} }}, ",
+                if *neg { "Ne" } else { "Eq" }
+            );
         }
         s.push_str("],\n        no_row_effect: &[");
         for r in &l.no_row_effect {

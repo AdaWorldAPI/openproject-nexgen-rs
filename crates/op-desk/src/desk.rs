@@ -201,33 +201,26 @@ impl Desk {
         })
     }
 
-    /// Every row of `table`, by id.
+    /// Every row of `table`, in its default-scope order (then id), within its
+    /// default-scope filters.
     pub fn read_all(&self, table: &str) -> Result<Rows, DeskError> {
-        self.rows_call(&json!({
-            "table": table, "terminal": "rows", "where": null,
-            "select": "*",
-            "order": [{"table": table, "col": "id", "dir": "asc"}],
-            "limit": null, "offset": null,
-            "joins": 0, "group": 0, "having": 0, "distinct": false, "from": 0, "lock": 0,
-        }))
+        self.rows_call(&rows_call(table, None)?)
     }
 
-    /// The rows of `table` whose `column` equals `value`, by id.
+    /// The rows of `table` whose `column` equals `value` (`IS NULL` for
+    /// `null`), in its default-scope order (then id), within its default-scope
+    /// filters.
     pub fn read(&self, table: &str, column: &str, value: J) -> Result<Rows, DeskError> {
-        self.rows_call(&json!({
-            "table": table, "terminal": "rows",
-            "where": {"table": table, "col": column, "op": "eq", "value": value},
-            "select": "*",
-            "order": [{"table": table, "col": "id", "dir": "asc"}],
-            "limit": null, "offset": null,
-            "joins": 0, "group": 0, "having": 0, "distinct": false, "from": 0, "lock": 0,
-        }))
+        self.rows_call(&rows_call(
+            table,
+            Some(json!({"table": table, "col": column, "op": "eq", "value": value})),
+        )?)
     }
 
     /// How many rows `table` holds, answered by the catalog.
     pub fn count(&self, table: &str) -> Result<i64, DeskError> {
         let call = json!({
-            "table": table, "terminal": "count", "where": null,
+            "table": table, "terminal": "count", "where": scoped_where(table, None)?,
             "select": null, "order": [], "limit": null, "offset": null,
             "joins": 0, "group": 0, "having": 0, "distinct": false, "from": 0, "lock": 0,
         });
@@ -240,4 +233,78 @@ impl Desk {
             Err(r) => Err(DeskError::Refused(format!("{r:?}"))),
         }
     }
+}
+
+/// The default scope of `table`, refused when part of it was not lowered.
+fn scope_of(table: &str) -> Result<Option<&'static crate::scopes::DefaultScope>, DeskError> {
+    let scope = crate::scopes::of_table(table);
+    if let Some(u) = scope.and_then(|s| s.unlowered.first()) {
+        return Err(DeskError::Refused(format!(
+            "{table}: default scope `{}` is not lowered ({})",
+            u.ruby, u.reason
+        )));
+    }
+    Ok(scope)
+}
+
+/// The JSON value of a scope literal.
+fn lit_json(l: crate::scopes::Lit) -> J {
+    use crate::scopes::Lit;
+    match l {
+        Lit::Int(i) => json!(i),
+        Lit::Str(s) => json!(s),
+        Lit::Bool(b) => json!(b),
+        Lit::Nil => J::Null,
+    }
+}
+
+/// The read's own filter ANDed with the default-scope filters of `table`.
+pub(crate) fn scoped_where(table: &str, own: Option<J>) -> Result<J, DeskError> {
+    use crate::scopes::Op;
+    let mut parts: Vec<J> = scope_of(table)?
+        .map(|s| s.filters)
+        .unwrap_or_default()
+        .iter()
+        .map(|f| {
+            let op = match f.op {
+                Op::Eq => "eq",
+                Op::Ne => "ne",
+            };
+            json!({"table": table, "col": f.col, "op": op, "value": lit_json(f.lit)})
+        })
+        .collect();
+    parts.extend(own);
+    Ok(match parts.len() {
+        0 => J::Null,
+        1 => parts.remove(0),
+        _ => json!({"op": "and", "args": parts}),
+    })
+}
+
+/// `ORDER BY` of a read of `table`: the default-scope order, then `id`.
+pub(crate) fn scoped_order(table: &str) -> Result<Vec<(&'static str, bool)>, DeskError> {
+    use crate::scopes::Dir;
+    let mut keys: Vec<(&'static str, bool)> = scope_of(table)?
+        .map(|s| s.order)
+        .unwrap_or_default()
+        .iter()
+        .map(|o| (o.col, o.dir == Dir::Asc))
+        .collect();
+    if !keys.iter().any(|(c, _)| *c == "id") {
+        keys.push(("id", true));
+    }
+    Ok(keys)
+}
+
+fn rows_call(table: &str, own: Option<J>) -> Result<J, DeskError> {
+    let order: Vec<J> = scoped_order(table)?
+        .into_iter()
+        .map(|(col, asc)| json!({"table": table, "col": col, "dir": if asc { "asc" } else { "desc" }}))
+        .collect();
+    Ok(json!({
+        "table": table, "terminal": "rows", "where": scoped_where(table, own)?,
+        "select": "*", "order": order,
+        "limit": null, "offset": null,
+        "joins": 0, "group": 0, "having": 0, "distinct": false, "from": 0, "lock": 0,
+    }))
 }

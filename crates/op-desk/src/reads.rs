@@ -1,7 +1,8 @@
 //! The reads the desk answers, named once so the Quack side and the
 //! PostgreSQL oracle answer exactly the same list.
 //!
-//! A read is one of three shapes, each ordered by `id` where it returns rows:
+//! A read is one of three shapes, each within the table's default scope
+//! (`crate::scopes`) and ordered by it, then by `id`, where it returns rows:
 //! every row of a table, the rows whose column equals a value, and a table's
 //! row count. They are the shapes `Desk::read_all`, `Desk::read` and
 //! `Desk::count` send to Quack.
@@ -13,9 +14,9 @@ use crate::desk::{Desk, DeskError, Rows};
 /// One read.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Read {
-    /// Every row of the table, by id.
+    /// Every row of the table, by its default-scope order, then id.
     All(&'static str),
-    /// The rows whose column equals the value, by id.
+    /// The rows whose column equals the value, by its default-scope order, then id.
     Eq(&'static str, &'static str, J),
     /// The table's row count.
     Count(&'static str),
@@ -107,6 +108,9 @@ pub fn demo_reads() -> Vec<Read> {
         Read::Eq("users", "login", json!("alice")),
         // Text equality is case-sensitive on both sides.
         Read::Eq("users", "login", json!("Alice")),
+        // A deleted user: Principal's default scope hides it from every read.
+        Read::Eq("users", "login", json!("frank")),
+        Read::Eq("users", "status", json!(5)),
         // `where(assigned_to_id: nil)`: IS NULL, not `= NULL`.
         Read::Eq("work_packages", "assigned_to_id", J::Null),
     ]);

@@ -3,7 +3,8 @@
 // (openproject.toml; rails-compiler's emitter, then op_desk::types post-mapping for date/float)
 //! The lowered `default_scope`s of the slice models (`op_desk::scopes`).
 
-use crate::scopes::{DefaultScope, Dir, Filter, Lit, Op, Order, Unlowered};
+// Glob: which of these the data names depends on OpenProject's source.
+use crate::scopes::*;
 
 /// Every slice model that declares (or inherits) a default scope.
 pub static DEFAULT_SCOPES: &[DefaultScope] = &[
