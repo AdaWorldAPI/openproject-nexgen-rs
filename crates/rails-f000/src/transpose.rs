@@ -791,7 +791,12 @@ pub fn transpose(basis: &mut OgarBasis, cat: &ScopeCatalog, req: &Request<'_>) -
         mask = Some(m);
         result = r;
         let tmp = if n > 1 {
-            basis.append_output(&class, &format!("{method}:tmp"), "mask").map(|(m, _)| m)
+            // A second term needs its own scratch mask; reusing the
+            // accumulator would overwrite the first term's result.
+            let Some((t, _)) = basis.append_output(&class, &format!("{method}:tmp"), "mask") else {
+                return refuse(RefuseReason::UnsupportedType { field: method.clone(), type_name: "basis full".into() });
+            };
+            Some(t)
         } else {
             None
         };
@@ -975,6 +980,29 @@ mod tests {
         let mut b = basis();
         let cat = ScopeCatalog::from_class_source("State", STATE);
         transpose(&mut b, &cat, &Request { receiver: Receiver::Class("State"), scope: Some(scope), terminal })
+    }
+
+    /// With room for the result pair but not for the scratch mask, a
+    /// two-term scope is refused. It used to reuse the accumulator as the
+    /// scratch mask, so the second `IntEqual` overwrote the first term and
+    /// the count ignored it.
+    #[test]
+    fn a_two_term_scope_without_room_for_its_scratch_mask_is_refused() {
+        let mut b = basis();
+        let mut i = 0;
+        while b.class("State").unwrap().fields.len() + 2 <= 254 {
+            b.append_output("State", &format!("filler{i}"), "count").expect("room");
+            i += 1;
+        }
+        let len = b.class("State").unwrap().fields.len();
+        assert!(len == 253 || len == 254, "{len}");
+        let cat = ScopeCatalog::from_class_source("State", STATE);
+        let req = Request { receiver: Receiver::Class("State"), scope: Some("create_active"), terminal: Terminal::Count };
+        let t = transpose(&mut b, &cat, &req);
+        assert_eq!(
+            t.verdict,
+            Verdict::Refuse(RefuseReason::UnsupportedType { field: "create_active".into(), type_name: "basis full".into() })
+        );
     }
 
     #[test]

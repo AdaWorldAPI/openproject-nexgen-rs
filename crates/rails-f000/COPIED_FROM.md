@@ -23,3 +23,12 @@ Not carried:
 
 Note: `src/matrix.rs` and `src/effects.rs` carry zammad-rs's own names and
 oracle-file strings in text and match arms; they are carried as is.
+
+## Changes made here since the copy
+
+- `transpose`: a scope with two or more terms is refused ("basis full") when
+  the scratch mask for its second term cannot be allocated. zammad-rs reuses
+  the accumulator instead, so the second term overwrites the first and the
+  count ignores it (Codex, nexgen #166). Test:
+  `a_two_term_scope_without_room_for_its_scratch_mask_is_refused`. Not in
+  zammad-rs.
