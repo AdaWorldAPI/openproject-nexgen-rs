@@ -9,14 +9,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use ruff_ruby_spo::events::{macro_ore_from, macro_ore_local_from, MacroStep};
 use ruff_ruby_spo::events::{
     source_ore_from, ClassOre, DeclOrigin, OreKind, RailsEvent, Symbols, UnharvestedReason,
 };
+use ruff_ruby_spo::rails_generated::derive_in;
 use ruff_ruby_spo::rails_generated::{
-    derive, Chain as GenChain, Filter as GenFilter, Generated, Kind as GenKind, RailsDefaults,
+    Chain as GenChain, Filter as GenFilter, Generated, Kind as GenKind, RailsDefaults,
 };
 use ruff_ruby_spo::Declaration;
-use ruff_spo_triplet::{AssocKind, ConcernKind, ValidationKind};
+use ruff_spo_triplet::{AssocDecl, AssocKind, ConcernKind, OptionSplat, ValidationKind};
 use serde::Deserialize;
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -196,6 +198,9 @@ pub struct Ancestor {
     pub name: String,
     pub file: String,
     pub ore: ClassOre,
+    /// The class the unit's macros run in: the class itself for a class, the
+    /// class that includes it for a module or an expanded macro body.
+    pub host: String,
 }
 
 pub struct Harvest {
@@ -209,6 +214,21 @@ pub struct Harvest {
     pub unresolved: Vec<(String, String)>,
     /// `(underscore(constant), file segment)` pairs from `roots.inflections`.
     pub inflections: Vec<(String, String)>,
+    /// Directories whose files are found by the constants they define
+    /// (`roots.indexed`), expanded.
+    pub indexed_dirs: Vec<String>,
+    /// Constant -> file, built from `indexed_dirs` on first use.
+    index: Option<BTreeMap<String, String>>,
+    /// Class-level macros (`macros.rules` in `oracle/intake.json`).
+    pub macros: Vec<MacroRule>,
+    /// Classes macros create (`macros.defines`).
+    pub macro_defines: Vec<MacroDefine>,
+    /// What each macro expansion read and what it could not: one line per
+    /// expansion step, for the report.
+    pub macro_log: Vec<String>,
+    /// Whether class-level macros are expanded. On by default; the test turns
+    /// it off to measure what the harvest gives without them.
+    pub macros_enabled: bool,
 }
 
 impl Harvest {
@@ -217,6 +237,12 @@ impl Harvest {
             src: src.to_path_buf(),
             roots,
             inflections: Vec::new(),
+            indexed_dirs: Vec::new(),
+            index: None,
+            macros: Vec::new(),
+            macro_defines: Vec::new(),
+            macro_log: Vec::new(),
+            macros_enabled: true,
             cache: BTreeMap::new(),
             unresolved: Vec::new(),
         }
@@ -226,7 +252,14 @@ impl Harvest {
         if !self.cache.contains_key(rel) {
             let text = std::fs::read_to_string(self.src.join(rel)).unwrap_or_default();
             let mut syms = Symbols::default();
-            let units = source_ore_from(rel, &text, "op", &mut syms);
+            let mut units = source_ore_from(rel, &text, "op", &mut syms);
+            // `source_ore_from` leaves `ClassOre::file` empty; the macro
+            // intake re-reads a call's source from it.
+            for u in &mut units {
+                if u.file.is_empty() {
+                    u.file = rel.to_string();
+                }
+            }
             self.cache.insert(rel.to_string(), units);
         }
         &self.cache[rel]
@@ -248,7 +281,52 @@ impl Harvest {
                 }
             }
         }
-        None
+        // A unit nested in its parent's file (`module A; module B; module C`
+        // all in a/b.rb): `A::B::C` has no file of its own, but loading `A::B`
+        // defines it. Look in the file of each enclosing constant, nearest
+        // first.
+        let mut parent = name;
+        while let Some((outer, _)) = parent.rsplit_once("::") {
+            parent = outer;
+            let mut ppath = underscore(parent);
+            for (from, to) in &self.inflections {
+                ppath = ppath.replace(from.as_str(), to);
+            }
+            for root in self.roots.clone() {
+                let rel = format!("{root}/{ppath}.rb");
+                if self.src.join(&rel).is_file() {
+                    let hit = self.load(&rel).iter().find(|o| o.name == name).cloned();
+                    if let Some(ore) = hit {
+                        return Some((rel, ore));
+                    }
+                }
+            }
+        }
+        // Files loaded by `require`, not by their constant's name: found by
+        // what they define.
+        let file = self.index().get(name).cloned()?;
+        let ore = self.load(&file).iter().find(|o| o.name == name).cloned()?;
+        Some((file, ore))
+    }
+
+    /// Constant -> file for every `.rb` under `indexed_dirs` (test and spec
+    /// trees skipped), the first definition winning.
+    fn index(&mut self) -> &BTreeMap<String, String> {
+        if self.index.is_none() {
+            let mut files = Vec::new();
+            for dir in self.indexed_dirs.clone() {
+                rb_files(&self.src, &dir, &mut files);
+            }
+            let mut map = BTreeMap::new();
+            for file in files {
+                let names: Vec<String> = self.load(&file).iter().map(|o| o.name.clone()).collect();
+                for n in names {
+                    map.entry(n).or_insert_with(|| file.clone());
+                }
+            }
+            self.index = Some(map);
+        }
+        self.index.as_ref().expect("index was just built")
     }
 
     /// Resolve `module` as written inside `from`: innermost enclosing namespace first.
@@ -271,18 +349,37 @@ impl Harvest {
     /// The class, its included/prepended concerns and its superclass chain, in
     /// the order the walk meets them. Cycle-safe.
     pub fn linearize(&mut self, root: &str) -> Vec<Ancestor> {
+        self.linearize_in(root, root)
+    }
+
+    /// [`Harvest::linearize`] for a unit whose macros run in `host` (an engine
+    /// patch module runs in the class it patches).
+    pub fn linearize_in(&mut self, root: &str, host: &str) -> Vec<Ancestor> {
         let mut out = Vec::new();
         let mut seen = BTreeSet::new();
-        self.visit(root, &mut seen, &mut out);
+        self.visit(root, host, &mut seen, &mut out);
         out
     }
 
-    pub fn visit(&mut self, name: &str, seen: &mut BTreeSet<String>, out: &mut Vec<Ancestor>) {
+    pub fn visit(
+        &mut self,
+        name: &str,
+        host: &str,
+        seen: &mut BTreeSet<String>,
+        out: &mut Vec<Ancestor>,
+    ) {
         if !seen.insert(name.to_string()) {
             return;
         }
         let Some((file, ore)) = self.find(name) else {
             return;
+        };
+        // A class body runs its macros in the class; a module, in the class
+        // that includes it.
+        let host = if ore.kind == OreKind::Class {
+            name.to_string()
+        } else {
+            host.to_string()
         };
         // A class's own include/prepend are `Concern` declarations; a module
         // lists them in `includes` (and keeps the markers too, so dedupe).
@@ -304,21 +401,61 @@ impl Harvest {
             push(i.kind, &i.module);
         }
         let superclass = ore.superclass.clone();
+        let macro_runs: Vec<MacroRun> = self.macro_runs_of(&ore);
         out.push(Ancestor {
             name: name.to_string(),
             file,
             ore,
+            host: host.clone(),
         });
         for m in includes {
             match self.resolve(name, &m) {
-                Some((resolved, ..)) => self.visit(&resolved, seen, out),
+                Some((resolved, ..)) => self.visit(&resolved, &host, seen, out),
                 None => self.unresolved.push((name.to_string(), m)),
             }
         }
+        for run in macro_runs {
+            self.visit_run(run, &host, seen, out);
+        }
         if let Some(sup) = superclass {
             match self.resolve(name, &sup) {
-                Some((resolved, ..)) => self.visit(&resolved, seen, out),
+                Some((resolved, ..)) => self.visit(&resolved, &host, seen, out),
                 None => self.unresolved.push((name.to_string(), format!("< {sup}"))),
+            }
+        }
+    }
+
+    /// An expanded macro body is a module-like ancestor of its host: record it
+    /// and follow the modules it includes.
+    fn visit_run(
+        &mut self,
+        run: MacroRun,
+        host: &str,
+        seen: &mut BTreeSet<String>,
+        out: &mut Vec<Ancestor>,
+    ) {
+        let mut includes: Vec<String> = Vec::new();
+        for e in &run.ore.declarations {
+            if let Declaration::Concern(c) = &e.decl {
+                if matches!(c.kind, ConcernKind::Include | ConcernKind::Prepend)
+                    && !c.module.is_empty()
+                    && !includes.contains(&c.module)
+                {
+                    includes.push(c.module.clone());
+                }
+            }
+        }
+        let owner = run.owner.clone();
+        out.push(Ancestor {
+            name: run.owner,
+            file: run.file,
+            ore: run.ore,
+            host: host.to_string(),
+        });
+        for m in includes {
+            match self.resolve(&owner, &m) {
+                Some((resolved, ..)) => self.visit(&resolved, host, seen, out),
+                None => self.unresolved.push((owner.clone(), m)),
             }
         }
     }
@@ -345,6 +482,149 @@ pub struct IntakeCfg {
     pub engine_order: EngineOrderCfg,
     pub patch_rules: Vec<PatchRule>,
     pub phase: PhaseCfg,
+    #[serde(default)]
+    pub macros: MacrosCfg,
+}
+
+/// Class-level macros whose registrations are read from the macro's own `def`.
+#[derive(Debug, Default, Deserialize)]
+pub struct MacrosCfg {
+    #[serde(default)]
+    pub rules: Vec<MacroRule>,
+    /// Classes a macro creates at runtime.
+    #[serde(default)]
+    pub defines: Vec<MacroDefine>,
+}
+
+/// A class a macro creates when it is called (`has_closure_tree` makes
+/// `<Model>Hierarchy`): no file defines it, but the macro's body says what it
+/// registers on it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MacroDefine {
+    /// The class name; `{host}` is the class that calls the macro.
+    pub class: String,
+    /// The macro (a [`MacroRule::dsl`]) whose call creates the class.
+    pub by: String,
+    /// The file and `def` that create it, and the local variable that holds
+    /// the new class in that `def` (`local.class_eval do ... end`).
+    pub file: String,
+    #[serde(rename = "def")]
+    pub def_name: String,
+    pub local: String,
+    /// The class it inherits from, as a constant.
+    pub superclass: String,
+    pub cite: String,
+    #[serde(default)]
+    pub verify: Vec<VerifyCite>,
+}
+
+/// One macro: the class-body call that triggers it and where its `def` is.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MacroRule {
+    /// The call as written in a class body (`acts_as_attachable`,
+    /// `has_closure_tree`).
+    pub dsl: String,
+    /// The file that defines it, relative to the checkout; a `*` directory
+    /// segment is one directory.
+    pub file: String,
+    /// The `def` name in that file.
+    #[serde(rename = "def")]
+    pub def_name: String,
+    /// Where the fact that this call runs this `def` is established.
+    pub cite: String,
+    /// Lines of other files the rule relies on, each checked against the
+    /// checkout: `file:line` must contain `contains`.
+    #[serde(default)]
+    pub verify: Vec<VerifyCite>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct VerifyCite {
+    pub file: String,
+    pub line: u32,
+    pub contains: String,
+}
+
+/// The cites in `cfg.macros` that the checkout does not bear out, one message
+/// each. A file with a `*` directory segment is looked up in every match.
+pub fn verify_macro_cites(src: &Path, cfg: &IntakeCfg) -> Vec<String> {
+    let mut bad = Vec::new();
+    for rule in &cfg.macros.rules {
+        let mut checks: Vec<(String, Option<u32>, String)> =
+            vec![(rule.file.clone(), None, format!("def {}", rule.def_name))];
+        checks.extend(
+            rule.verify
+                .iter()
+                .map(|v| (v.file.clone(), Some(v.line), v.contains.clone())),
+        );
+        check_cites(src, &rule.dsl, checks, &mut bad);
+    }
+    for d in &cfg.macros.defines {
+        let mut checks: Vec<(String, Option<u32>, String)> =
+            vec![(d.file.clone(), None, format!("def {}", d.def_name))];
+        checks.extend(
+            d.verify
+                .iter()
+                .map(|v| (v.file.clone(), Some(v.line), v.contains.clone())),
+        );
+        check_cites(src, &d.class, checks, &mut bad);
+    }
+    bad
+}
+
+fn check_cites(
+    src: &Path,
+    what: &str,
+    checks: Vec<(String, Option<u32>, String)>,
+    bad: &mut Vec<String>,
+) {
+    {
+        for (file, line, needle) in checks {
+            let Some(path) = resolve_glob_file(src, &file) else {
+                bad.push(format!("{what}: {file} does not exist"));
+                continue;
+            };
+            let text = std::fs::read_to_string(src.join(&path)).unwrap_or_default();
+            let ok = match line {
+                Some(n) => n
+                    .checked_sub(1)
+                    .and_then(|i| text.lines().nth(i as usize))
+                    .is_some_and(|l| l.contains(&needle)),
+                None => {
+                    has_def(&text, &needle) || has_def(&text, &needle.replace("def ", "def self."))
+                }
+            };
+            if !ok {
+                bad.push(format!(
+                    "{what}: {path}{} does not contain {needle:?}",
+                    line.map_or(String::new(), |n| format!(":{n}"))
+                ));
+            }
+        }
+    }
+}
+
+/// Whether `text` contains `needle` (`def name`) as a whole method name: the
+/// character after it must not continue an identifier, so `def acts_as_list`
+/// does not match `def acts_as_list_item`. A `?`/`!`/`=` suffix is a different
+/// method, so it does not match either.
+fn has_def(text: &str, needle: &str) -> bool {
+    text.match_indices(needle).any(|(i, _)| {
+        text[i + needle.len()..]
+            .chars()
+            .next()
+            .is_none_or(|c| !(c.is_alphanumeric() || matches!(c, '_' | '?' | '!' | '=')))
+    })
+}
+
+/// `path` with its `*` directory segments expanded: the first file that
+/// exists.
+pub fn resolve_glob_file(src: &Path, path: &str) -> Option<String> {
+    let (dir, name) = path.rsplit_once('/')?;
+    expand_dirs(src, dir)
+        .into_iter()
+        .map(|d| join_rel(&d, name))
+        .find(|f| src.join(f).is_file())
 }
 
 #[derive(Debug, Deserialize)]
@@ -354,6 +634,11 @@ pub struct RootsCfg {
     /// `underscore(constant)` (`inflect.acronym "SquashTM"`).
     #[serde(default)]
     pub inflections: Vec<InflectionCfg>,
+    /// Directories whose `.rb` files are loaded by `require`, not by their
+    /// constant's name: a constant is found by what a file defines. `*` is
+    /// one directory.
+    #[serde(default)]
+    pub indexed: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -454,6 +739,28 @@ pub fn files_named(src: &Path, dir: &str, name: &str, out: &mut Vec<String>) {
         if e.path().is_dir() {
             files_named(src, &rel, name, out);
         } else if n == name {
+            out.push(rel);
+        }
+    }
+}
+
+/// Every `.rb` under `dir`, recursively, in name order, skipping `test` and
+/// `spec` directories.
+pub fn rb_files(src: &Path, dir: &str, out: &mut Vec<String>) {
+    let mut entries: Vec<_> = std::fs::read_dir(src.join(dir))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .collect();
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for e in entries {
+        let n = e.file_name().to_string_lossy().to_string();
+        let rel = join_rel(dir, &n);
+        if e.path().is_dir() {
+            if !matches!(n.as_str(), "test" | "spec") {
+                rb_files(src, &rel, out);
+            }
+        } else if n.ends_with(".rb") {
             out.push(rel);
         }
     }
@@ -1034,11 +1341,25 @@ pub struct UndecidedRow {
 }
 
 pub fn generated_of(origin: &str, ore: &ClassOre) -> GeneratedOf {
+    generated_in(None, origin, ore)
+}
+
+/// [`generated_of`] for a body whose macros run in the class `host`. Needed to
+/// name the middle association of a `has_and_belongs_to_many`; with no host the
+/// rule stays undecided.
+pub fn generated_in(host: Option<&str>, origin: &str, ore: &ClassOre) -> GeneratedOf {
+    generated_from(host, origin, &ore.declarations)
+}
+
+/// [`generated_in`] for a list of events that is not a whole body (the
+/// declarations a skipped branch holds).
+pub fn generated_from(host: Option<&str>, origin: &str, events: &[RailsEvent]) -> GeneratedOf {
     let mut out = GeneratedOf {
         callbacks: Vec::new(),
         undecided: Vec::new(),
     };
-    for g in derive(&ore.declarations, OP_RAILS_DEFAULTS) {
+    let derived = derive_in(host, events, OP_RAILS_DEFAULTS);
+    for g in derived {
         match g {
             Generated::Callback(cb) => {
                 let chain = match cb.chain {
@@ -1108,6 +1429,481 @@ pub fn association_names(ancestors: &[Ancestor]) -> BTreeSet<String> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Class-level macros
+// ─────────────────────────────────────────────────────────────────────────
+//
+// `acts_as_attachable order: ...` is a method call in a class body; what it
+// registers is in the body of the method it calls. `macros.rules` in
+// `oracle/intake.json` says which call runs which `def`; ruff reads the `def`
+// as a macro (`events::macro_ore_from`): the declarations it makes, in order,
+// the modules it includes, and the other modules it hands the class to. This
+// code splices those declarations in where the call is. No macro name and no
+// registration is written in Rust, and nothing is evaluated: a statement ruff
+// cannot read is listed as unread, never assumed.
+
+/// The keyword options of a macro call that a `**<param>` splat inside the
+/// macro body passes on, as `(key, rendered value)`.
+pub type CallOptions = [(String, String)];
+
+/// Replace each `**splat` of `assoc` by the options it stands for, when the
+/// splat is the macro's own options parameter (`**options`), possibly merged
+/// with a literal hash (`**options.reverse_merge!(as: :container)`,
+/// `.merge(...)`), and the call's options are known. Any other splat stays:
+/// the association's rules then report it undecided, as before.
+///
+/// The key SET is what the rules read (`validate`, `autosave`, `required`,
+/// `optional`), so a key the macro deletes from its options
+/// (`options.delete(:order)`) is still counted as given. That can only add a
+/// key, never hide one: a rule that sees too many keys is undecided or reads
+/// the caller's literal value, it never skips a validation.
+pub fn resolve_splats(assoc: &mut AssocDecl, param: &str, call: Option<&CallOptions>) {
+    let Some(call) = call else { return };
+    if assoc.option_splats.is_empty() {
+        return;
+    }
+    let original = std::mem::take(&mut assoc.options);
+    let mut splats = std::mem::take(&mut assoc.option_splats);
+    splats.sort_by_key(|s| s.before);
+    let mut options: Vec<(String, String)> = Vec::new();
+    let mut remaining: Vec<OptionSplat> = Vec::new();
+    let mut at = 0usize;
+    for splat in splats {
+        while at < splat.before.min(original.len()) {
+            options.push(original[at].clone());
+            at += 1;
+        }
+        match resolve_splat(&splat.source, param, call) {
+            Some(pairs) => options.extend(pairs),
+            None => remaining.push(OptionSplat {
+                source: splat.source,
+                before: options.len(),
+            }),
+        }
+    }
+    options.extend(original[at..].iter().cloned());
+    assoc.options = options;
+    assoc.option_splats = remaining;
+}
+
+/// `**options`, `**options.reverse_merge!(k: v, ...)`, `**options.merge(k: v)`.
+/// `reverse_merge` keeps the receiver's value where both give a key, `merge`
+/// the argument's; the later pair wins in the result, as in a hash literal.
+fn resolve_splat(source: &str, param: &str, call: &CallOptions) -> Option<Vec<(String, String)>> {
+    let rest = source.trim().strip_prefix("**")?.strip_prefix(param)?;
+    if rest.is_empty() {
+        return Some(call.to_vec());
+    }
+    let (method, inner) = rest.strip_prefix('.')?.split_once('(')?;
+    let inner = inner.strip_suffix(')')?;
+    let extra = literal_pairs(inner)?;
+    match method {
+        "reverse_merge" | "reverse_merge!" => {
+            let mut out = extra;
+            out.extend(call.iter().cloned());
+            Some(out)
+        }
+        "merge" | "merge!" => {
+            let mut out = call.to_vec();
+            out.extend(extra);
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+/// `k: v, k2: v2` (optionally inside braces) as pairs, in order. `None` when
+/// any element is not a `key: value` pair with a plain key.
+fn literal_pairs(text: &str) -> Option<Vec<(String, String)>> {
+    let text = text.trim();
+    let text = text
+        .strip_prefix('{')
+        .and_then(|t| t.strip_suffix('}'))
+        .unwrap_or(text);
+    let mut parts: Vec<String> = Vec::new();
+    let (mut depth, mut cur) = (0i32, String::new());
+    let mut quote: Option<char> = None;
+    for c in text.chars() {
+        match (quote, c) {
+            (Some(q), c) if c == q => {
+                quote = None;
+                cur.push(c);
+            }
+            (Some(_), c) => cur.push(c),
+            (None, '"' | '\'') => {
+                quote = Some(c);
+                cur.push(c);
+            }
+            (None, '(' | '[' | '{') => {
+                depth += 1;
+                cur.push(c);
+            }
+            (None, ')' | ']' | '}') => {
+                depth -= 1;
+                if depth < 0 {
+                    // A closer with no opener: this is not one hash's pairs
+                    // (`as: :a).merge(x: 1`), so it is not read.
+                    return None;
+                }
+                cur.push(c);
+            }
+            (None, ',') if depth == 0 => parts.push(std::mem::take(&mut cur)),
+            (None, c) => cur.push(c),
+        }
+    }
+    if depth != 0 || quote.is_some() {
+        return None;
+    }
+    if !cur.trim().is_empty() {
+        parts.push(cur);
+    }
+    parts
+        .iter()
+        .map(|p| {
+            let (k, v) = p.trim().split_once(':')?;
+            let k = k.trim();
+            (!k.is_empty() && k.chars().all(|c| c.is_alphanumeric() || c == '_'))
+                .then(|| (k.to_string(), v.trim().to_string()))
+        })
+        .collect()
+}
+
+/// The argument text of the call that starts at byte `anchor` of `text`, with
+/// comments removed: the balanced `( ... )` when the name is followed by `(`,
+/// otherwise the rest of the statement (to a `;`, or a newline that does not
+/// continue the argument list with a trailing `,` or `\`). `None` when
+/// `anchor` is not a position in `text` or the parentheses are not closed.
+pub fn call_arg_text(text: &str, anchor: usize) -> Option<String> {
+    let rest = text.get(anchor..)?;
+    let name_len = rest
+        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .unwrap_or(rest.len());
+    let after = &rest[name_len..];
+    let (parens, body) = match after.strip_prefix('(') {
+        Some(body) => (true, body),
+        None => (false, after),
+    };
+    let (mut quote, mut comment) = (None::<char>, false);
+    let mut depth = 1i32;
+    let mut out = String::new();
+    // The last significant character so far, comments excluded: a line that
+    // ends in `,` or `\` continues onto the next one.
+    let mut last = ' ';
+    for c in body.chars() {
+        if comment {
+            if c == '\n' {
+                comment = false;
+            } else {
+                continue;
+            }
+        }
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '#') => {
+                comment = true;
+                continue;
+            }
+            (None, '(' | '[' | '{') if parens => depth += 1,
+            (None, ')' | ']' | '}') if parens => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(out);
+                }
+            }
+            (None, ';') if !parens => return Some(out.trim().to_string()),
+            (None, '\n') if !parens && !matches!(last, ',' | '\\') => {
+                return Some(out.trim().to_string())
+            }
+            _ => {}
+        }
+        if quote.is_some() || !c.is_whitespace() {
+            last = c;
+        }
+        out.push(c);
+    }
+    (!parens).then(|| out.trim().to_string())
+}
+
+/// An expanded macro body, ready to be walked like a module body.
+pub struct MacroRun {
+    /// The module or class whose `def` this is: the lexical scope its
+    /// constants resolve in.
+    pub owner: String,
+    pub file: String,
+    pub ore: ClassOre,
+}
+
+/// How many macro bodies may call each other before the walk stops.
+const MACRO_DEPTH: usize = 4;
+
+impl Harvest {
+    /// The macros the class-body declarations of `ore` call, expanded, for the
+    /// statements that run in the including class.
+    pub fn macro_runs_of(&mut self, ore: &ClassOre) -> Vec<MacroRun> {
+        let mut out = Vec::new();
+        for e in &ore.declarations {
+            if ore.kind == OreKind::Class || matches!(e.origin, DeclOrigin::Included { .. }) {
+                out.extend(self.macro_runs_of_decl(e, &ore.file));
+            }
+        }
+        out
+    }
+
+    /// The keyword options of the `acts_as_*` call `e` (written in `file`) when
+    /// the call's source passes literal `key: value` pairs and nothing else.
+    ///
+    /// `ActsAs::options` is built by ruff's `hash_pairs`, which drops a
+    /// `**splat` and takes the first hash argument only, so `acts_as_x **opts`,
+    /// `acts_as_x(some_hash)` and `acts_as_x a: 1, **more` all look like known
+    /// options. ruff exposes no argument text for `ActsAs`, so the call is
+    /// re-read from `file` at the event's anchor; any unreadable file, anchor
+    /// or argument form is `None` (undecided), never an empty key set.
+    fn acts_as_call_options(&self, e: &RailsEvent, file: &str) -> Option<Vec<(String, String)>> {
+        let text = std::fs::read_to_string(self.src.join(file)).ok()?;
+        literal_pairs(&call_arg_text(&text, e.anchor as usize)?)
+    }
+
+    /// The expansion of one declaration, empty when it is not a call of a
+    /// macro the intake knows.
+    pub fn macro_runs_of_decl(&mut self, e: &RailsEvent, file: &str) -> Vec<MacroRun> {
+        let decl = &e.decl;
+        let (dsl, options): (String, Option<Vec<(String, String)>>) = match decl {
+            Declaration::ActsAs(a) => (
+                format!("acts_as_{}", a.variant),
+                self.acts_as_call_options(e, file),
+            ),
+            Declaration::GemDsl(g) => (underscore(&format!("{:?}", g.gem)), None),
+            Declaration::DslCall(c) => (c.name.clone(), None),
+            _ => return Vec::new(),
+        };
+        if !self.macros_enabled {
+            return Vec::new();
+        }
+        let Some(rule) = self.macros.iter().find(|r| r.dsl == dsl).cloned() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        self.expand_def(
+            &rule.file,
+            &rule.def_name,
+            None,
+            options.as_deref(),
+            0,
+            &mut out,
+        );
+        out
+    }
+
+    /// The body of the `def` that creates a macro-defined class, read through
+    /// the local that holds the new class, as one run.
+    pub fn defined_class_run(&mut self, def: &MacroDefine) -> Option<MacroRun> {
+        let Some(file) = resolve_glob_file(&self.src, &def.file) else {
+            self.macro_log.push(format!(
+                "{}: {} is not in the checkout",
+                def.class, def.file
+            ));
+            return None;
+        };
+        let text = std::fs::read_to_string(self.src.join(&file)).unwrap_or_default();
+        let m = macro_ore_local_from(&file, &text, &def.def_name, &def.local)
+            .into_iter()
+            .next()?;
+        let label = format!("{}#{}", m.owner, m.name);
+        let declarations: Vec<RailsEvent> = m.declarations.clone();
+        let unharvested = m
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                MacroStep::Unread(u) => Some(u.clone()),
+                _ => None,
+            })
+            .collect();
+        Some(MacroRun {
+            owner: label.clone(),
+            file: file.clone(),
+            ore: ClassOre {
+                iri: format!("op:{label}"),
+                name: label,
+                declarations,
+                methods: Vec::new(),
+                kind: OreKind::Module,
+                file,
+                includes: Vec::new(),
+                superclass: None,
+                unharvested,
+            },
+        })
+    }
+
+    /// The registration order of a class a macro defines: its superclass chain,
+    /// then what the macro registers on it.
+    pub fn effective_defined(
+        &mut self,
+        model: &str,
+        superclass: &str,
+        run: &MacroRun,
+    ) -> Vec<Declared> {
+        let mut st = EffState {
+            included: BTreeSet::new(),
+            out: Vec::new(),
+            host: model.to_string(),
+        };
+        let mut guard = BTreeSet::new();
+        self.eff_class(superclass, &mut st, &mut guard);
+        st.host = model.to_string();
+        self.eff_body(&run.owner, &run.ore, false, &mut st);
+        st.out
+    }
+
+    /// Read `def <def_name>` of `file_pattern` as a macro and append what it
+    /// registers, in order: declarations as one run, each hand-over of the
+    /// class (`Module.method(.., self, ..)`) and each call of another method
+    /// of the same file as the runs of that method, in place.
+    fn expand_def(
+        &mut self,
+        file_pattern: &str,
+        def_name: &str,
+        class_arg: Option<usize>,
+        call: Option<&CallOptions>,
+        depth: usize,
+        out: &mut Vec<MacroRun>,
+    ) {
+        let Some(file) = resolve_glob_file(&self.src, file_pattern) else {
+            self.macro_log
+                .push(format!("{def_name}: {file_pattern} is not in the checkout"));
+            return;
+        };
+        let text = std::fs::read_to_string(self.src.join(&file)).unwrap_or_default();
+        let Some(m) = macro_ore_from(&file, &text, def_name, class_arg)
+            .into_iter()
+            .next()
+        else {
+            self.macro_log
+                .push(format!("{def_name}: no `def {def_name}` in {file}"));
+            return;
+        };
+        let param = m.params.first().cloned().unwrap_or_default();
+        let mut chunk: Vec<RailsEvent> = Vec::new();
+        let mut unread = Vec::new();
+        let mut hides = 0usize;
+        let (mut decls, mut delegates, mut calls) = (0usize, 0usize, 0usize);
+        let mut first = true;
+        let flush = |chunk: &mut Vec<RailsEvent>,
+                     unread: &mut Vec<ruff_ruby_spo::events::Unharvested>,
+                     out: &mut Vec<MacroRun>,
+                     force: bool| {
+            if chunk.is_empty() && !(force && !unread.is_empty()) {
+                return;
+            }
+            let declarations: Vec<RailsEvent> = std::mem::take(chunk)
+                .into_iter()
+                .enumerate()
+                .map(|(i, mut e)| {
+                    e.seq = u32::try_from(i).unwrap_or(u32::MAX);
+                    e
+                })
+                .collect();
+            // `Owner#def`: one scope per macro method, so what one method
+            // leaves unread does not make another's order unknown. A constant
+            // resolves from `Owner#def` as from `Owner`: the last segment
+            // matches nothing and is dropped.
+            let label = format!("{}#{}", m.owner, m.name);
+            out.push(MacroRun {
+                owner: label.clone(),
+                file: file.clone(),
+                ore: ClassOre {
+                    iri: format!("op:{label}"),
+                    name: label,
+                    declarations,
+                    methods: Vec::new(),
+                    kind: OreKind::Module,
+                    file: file.clone(),
+                    includes: Vec::new(),
+                    superclass: None,
+                    // The statements this def left unread, once, on its first run.
+                    unharvested: std::mem::take(unread),
+                },
+            });
+        };
+        for step in &m.steps {
+            match step {
+                MacroStep::Decl(i) => {
+                    let mut e = m.declarations[*i as usize].clone();
+                    if let Declaration::DslCall(c) = &e.decl {
+                        // A call of another method of this same file
+                        // (`include_aaj_modules`): its body runs here.
+                        if depth < MACRO_DEPTH
+                            && c.name != def_name
+                            && !macro_ore_from(&file, &text, &c.name, None).is_empty()
+                        {
+                            calls += 1;
+                            flush(&mut chunk, &mut unread, out, first);
+                            first = false;
+                            let name = c.name.clone();
+                            self.expand_def(&file, &name, None, call, depth + 1, out);
+                            continue;
+                        }
+                    }
+                    if let Declaration::Association(a) = &mut e.decl {
+                        resolve_splats(a, &param, call);
+                    }
+                    decls += 1;
+                    chunk.push(e);
+                }
+                MacroStep::Delegate {
+                    receiver,
+                    method,
+                    class_arg,
+                    ..
+                } => {
+                    flush(&mut chunk, &mut unread, out, first);
+                    first = false;
+                    delegates += 1;
+                    match self.resolve(&m.owner, receiver) {
+                        Some((_, target_file, _)) if depth < MACRO_DEPTH => {
+                            let (method, class_arg) = (method.clone(), *class_arg);
+                            self.expand_def(
+                                &target_file,
+                                &method,
+                                Some(class_arg),
+                                None,
+                                depth + 1,
+                                out,
+                            );
+                        }
+                        Some(_) => {}
+                        None => self
+                            .macro_log
+                            .push(format!("{def_name}: {receiver} is not in the roots")),
+                    }
+                }
+                MacroStep::Unread(u) => {
+                    if hides_registration(u.reason) {
+                        hides += 1;
+                    }
+                    unread.push(u.clone());
+                }
+            }
+        }
+        // Forced: after a hand-over or an inner call `first` is false, and the
+        // statements read after it (`Definer.call(self); if opts[:x] ... end`)
+        // would otherwise never reach a run's `unharvested`.
+        flush(&mut chunk, &mut unread, out, true);
+        self.macro_log.push(format!(
+            "{}#{} ({file}:{}): {decls} declarations, {delegates} hand-overs, {calls} inner calls, {} unread ({hides} may hide a registration)",
+            m.owner,
+            m.name,
+            m.line,
+            m.steps
+                .iter()
+                .filter(|s| matches!(s, MacroStep::Unread(_)))
+                .count()
+        ));
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Effective registration order
 // ─────────────────────────────────────────────────────────────────────────
 //
@@ -1145,6 +1941,8 @@ pub fn association_names(ancestors: &[Ancestor]) -> BTreeSet<String> {
 pub struct EffState {
     pub included: BTreeSet<String>,
     pub out: Vec<Declared>,
+    /// The class whose body is being walked; a module's macros run in it.
+    pub host: String,
 }
 
 impl EffState {
@@ -1187,9 +1985,11 @@ impl Harvest {
         let mut st = EffState {
             included: BTreeSet::new(),
             out: Vec::new(),
+            host: model.to_string(),
         };
         let mut guard = BTreeSet::new();
         self.eff_class(model, &mut st, &mut guard);
+        st.host = model.to_string();
         for p in patches.for_model(model).filter(|p| p.how == How::Include) {
             if let Some((_, ore)) = self.find(&p.patch_name) {
                 self.eff_resolved(&p.patch_name, &ore, &mut st);
@@ -1205,18 +2005,22 @@ impl Harvest {
         let Some((_, ore)) = self.find(name) else {
             return;
         };
+        let outer = std::mem::replace(&mut st.host, name.to_string());
         if let Some(sup) = ore.superclass.as_deref() {
             if let Some((resolved, ..)) = self.resolve(name, sup) {
                 self.eff_class(&resolved, st, guard);
             }
         }
+        st.host = name.to_string();
         self.eff_body(name, &ore, false, st);
+        st.host = outer;
     }
 
     /// Walk one body in source order. For a module (`included_only`), only
     /// the `included do` events run on the includer.
     pub fn eff_body(&mut self, name: &str, ore: &ClassOre, included_only: bool, st: &mut EffState) {
-        let generated = generated_of(name, ore);
+        let host = st.host.clone();
+        let generated = generated_in(Some(&host), name, ore);
         for e in &ore.declarations {
             let runs = !included_only || matches!(e.origin, DeclOrigin::Included { .. });
             if !runs {
@@ -1235,6 +2039,11 @@ impl Harvest {
                 if *seq == e.seq {
                     st.push(g.clone());
                 }
+            }
+            // A class-level macro registers where it is called, after
+            // whatever the call itself declared.
+            for run in self.macro_runs_of_decl(e, &ore.file) {
+                self.eff_body(&run.owner, &run.ore, false, st);
             }
         }
     }
@@ -1567,8 +2376,59 @@ pub struct ModelCtx {
     pub modules: Vec<ModuleRead>,
     /// Names of modules whose include-time bodies leave a statement that may
     /// hide a registration ([`hides_registration`]). A callback registered in
-    /// one of them has no definite position in the chain.
+    /// one of them has no definite position in the chain, whether or not the
+    /// statement's branches can be partly named (see `order_hidden`): ruff does
+    /// not say its `hidden` list is exhaustive.
     pub order_unknown_scopes: BTreeSet<String>,
+    /// What the skipped branches of the hiding conditionals could register, as
+    /// far as ruff names it: a conditional whose branches hold only
+    /// associations, callbacks and validations ruff can read
+    /// (`Unharvested::hidden`), derived like any declaration (its generated
+    /// callbacks included). Such a branch can change the order of the compared
+    /// entries by registering, or re-registering (ActiveSupport moves a
+    /// re-registered callback to the end of its chain,
+    /// activesupport-8.1.4.1/lib/active_support/callbacks.rb:645-663), a
+    /// callback the recording shows; a group in a scope that is not in
+    /// `order_unknown_scopes` and none of whose entries one of these names
+    /// stays definite. The list is a lower bound (see `order_unknown_scopes`),
+    /// so it only ever demotes groups. The origin of each is its scope.
+    pub order_hidden: Vec<Declared>,
+}
+
+/// Whether a skipped branch of `ctx` could register the fired callback `f`
+/// (see [`ModelCtx::order_hidden`]).
+pub fn hidden_could_register(ctx: &ModelCtx, f: &Fired) -> bool {
+    ctx.order_hidden.iter().any(|d| declared_matches(d, f))
+}
+
+/// The callbacks a hiding statement could register, or `None` when it cannot
+/// be named: it is not a conditional, it holds a declaration whose callbacks
+/// are not derivable here (an `include`, a macro), or a generated rule for it
+/// is undecided.
+pub fn hidden_registrations(
+    u: &ruff_ruby_spo::events::Unharvested,
+    scope: &str,
+    host: &str,
+) -> Option<Vec<Declared>> {
+    if u.reason != UnharvestedReason::ControlFlow || u.hidden.is_empty() {
+        return None;
+    }
+    let nameable = u.hidden.iter().all(|e| {
+        matches!(
+            e.decl,
+            Declaration::Association(_) | Declaration::Callback(_) | Declaration::Validation(_)
+        )
+    });
+    if !nameable {
+        return None;
+    }
+    let g = generated_from(Some(host), scope, &u.hidden);
+    if !g.undecided.is_empty() {
+        return None;
+    }
+    let mut out = declared_of(scope, &u.hidden);
+    out.extend(g.callbacks.into_iter().map(|(_, d)| d));
+    Some(out)
 }
 
 /// How much of one module's include-time bodies was read.
@@ -1744,6 +2604,24 @@ pub fn has_condition(d: &Declared) -> bool {
     })
 }
 
+/// The chains a model's recorded entries show ran: the chains of its fired
+/// entries, plus `validate` when both `validation` and `save` fired. A `save`
+/// that ran its callbacks passed `perform_validations`
+/// (activerecord-8.1.4.1/lib/active_record/validations.rb:47-48, :90-92), and
+/// a `before_validation` that fired means it was not `validate: false`, so
+/// `valid?` ran `run_validations!`, whose `validation` callbacks wrap the
+/// `validate` chain (activemodel-8.1.4.1/lib/active_model/validations/callbacks.rb:124-126,
+/// `_run_validation_callbacks { super }`; validations.rb:463-466,
+/// `_run_validate_callbacks`). A `validate` chain whose only callbacks were
+/// conditions that held false records nothing, though it ran.
+pub fn exercised_chains(fired: &BTreeSet<String>) -> BTreeSet<String> {
+    let mut out = fired.clone();
+    if fired.contains("validation") && fired.contains("save") {
+        out.insert("validate".to_string());
+    }
+    out
+}
+
 pub fn silent_reason(d: &Declared, fired_chains: &BTreeSet<String>) -> Silent {
     if d.filter == Filter::Block {
         return Silent::BlockOrLambdaFilter;
@@ -1776,6 +2654,14 @@ pub fn harvest_for(src: &Path, cfg: &IntakeCfg) -> Harvest {
         .flat_map(|pat| expand_dirs(src, pat))
         .collect();
     let mut h = Harvest::new(src, roots);
+    h.indexed_dirs = cfg
+        .roots
+        .indexed
+        .iter()
+        .flat_map(|pat| expand_dirs(src, pat))
+        .collect();
+    h.macros = cfg.macros.rules.clone();
+    h.macro_defines = cfg.macros.defines.clone();
     h.inflections = cfg
         .roots
         .inflections
@@ -1792,31 +2678,17 @@ pub fn contexts(
 ) -> (BTreeMap<String, ModelCtx>, Vec<(String, String)>) {
     h.unresolved.clear();
     let mut out = BTreeMap::new();
+    // The class-level macros each model's chain calls, for classes a macro
+    // defines (`macros.defines`).
+    let mut called: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for m in models {
-        let mut ancestors = h.linearize(m);
+        let mut ancestors = h.linearize_in(m, m);
         let has_file = !ancestors.is_empty();
         let mut seen: BTreeSet<String> = ancestors.iter().map(|a| a.name.clone()).collect();
         for p in patches.for_model(m).filter(|p| p.how == How::Include) {
-            for a in h.linearize(&p.patch_name) {
+            for a in h.linearize_in(&p.patch_name, m) {
                 if seen.insert(a.name.clone()) {
                     ancestors.push(a);
-                }
-            }
-        }
-        let mut declared = Vec::new();
-        let mut generated = Vec::new();
-        let mut undecided = Vec::new();
-        let mut habtm = BTreeSet::new();
-        for a in &ancestors {
-            declared.extend(declared_of(&a.name, &a.ore.declarations));
-            let g = generated_of(&a.name, &a.ore);
-            generated.extend(g.callbacks.into_iter().map(|(_, d)| d));
-            undecided.extend(g.undecided);
-            for e in &a.ore.declarations {
-                if let Declaration::Association(assoc) = &e.decl {
-                    if assoc.kind == AssocKind::HasAndBelongsToMany {
-                        habtm.insert(assoc.name.clone());
-                    }
                 }
             }
         }
@@ -1825,53 +2697,165 @@ pub fn contexts(
             .filter(|p| p.how == How::Include)
             .map(|p| p.patch_name.as_str())
             .collect();
-        let mut modules = Vec::new();
-        let mut order_unknown_scopes = BTreeSet::new();
-        for a in ancestors.iter().filter(|a| a.ore.kind == OreKind::Module) {
-            let included_decls = a
-                .ore
-                .declarations
+        called.insert(
+            m.clone(),
+            ancestors
                 .iter()
-                .filter(|d| matches!(d.origin, DeclOrigin::Included { .. }))
-                .count();
-            let unharvested = unharvested_counts(&a.ore);
-            let completeness = match (included_decls > 0, unharvested.is_empty()) {
-                (true, true) => Completeness::Full,
-                (true, false) => Completeness::Partial,
-                (false, false) => Completeness::Unread,
-                (false, true) => Completeness::NoIncludeTimeBody,
-            };
-            if a.ore
-                .unharvested
-                .iter()
-                .any(|u| hides_registration(u.reason))
-            {
-                order_unknown_scopes.insert(a.name.clone());
-            }
-            modules.push(ModuleRead {
-                name: a.name.clone(),
-                file: a.file.clone(),
-                included_decls,
-                unharvested,
-                completeness,
-                is_patch: patch_names.contains(a.name.as_str()),
-            });
-        }
+                .flat_map(|a| a.ore.declarations.iter())
+                .filter_map(|e| macro_dsl_of(&e.decl))
+                .collect(),
+        );
+        let effective = h.effective(m, patches);
         out.insert(
             m.clone(),
-            ModelCtx {
-                modules,
-                order_unknown_scopes,
-                has_file,
-                assocs: association_names(&ancestors),
-                ancestor_files: ancestors.iter().map(|a| a.file.clone()).collect(),
-                declared,
-                generated,
-                undecided,
-                habtm,
-                effective: h.effective(m, patches),
-            },
+            build_ctx(&ancestors, has_file, &patch_names, effective),
         );
     }
+    // A class no file defines may be defined by a macro another model calls
+    // (closure_tree's `<Model>Hierarchy`): build its context from the macro's
+    // body and its superclass chain.
+    for m in models {
+        if out[m].has_file || !h.macros_enabled {
+            continue;
+        }
+        let defines = h.macro_defines.clone();
+        for def in &defines {
+            let Some(host) = models.iter().find(|host| {
+                out[*host].has_file
+                    && called[*host].contains(&def.by)
+                    && fill(&def.class, &[("host", host.as_str())]) == *m
+            }) else {
+                continue;
+            };
+            let Some(run) = h.defined_class_run(def) else {
+                continue;
+            };
+            let mut ancestors = h.linearize_in(&def.superclass, m);
+            let effective = h.effective_defined(m, &def.superclass, &run);
+            ancestors.push(Ancestor {
+                name: run.owner,
+                file: run.file,
+                ore: run.ore,
+                host: m.clone(),
+            });
+            h.macro_log.push(format!(
+                "{m}: defined by `{}` called in {host}; superclass {}",
+                def.by, def.superclass
+            ));
+            out.insert(
+                m.clone(),
+                build_ctx(&ancestors, true, &BTreeSet::new(), effective),
+            );
+            break;
+        }
+    }
     (out, h.unresolved.clone())
+}
+
+/// The class-body call a declaration is, as a macro name (`acts_as_list`,
+/// `has_closure_tree`, a bare `DslCall`), or `None` for any other declaration.
+pub fn macro_dsl_of(decl: &Declaration) -> Option<String> {
+    match decl {
+        Declaration::ActsAs(a) => Some(format!("acts_as_{}", a.variant)),
+        Declaration::GemDsl(g) => Some(underscore(&format!("{:?}", g.gem))),
+        Declaration::DslCall(c) => Some(c.name.clone()),
+        _ => None,
+    }
+}
+
+/// One model's context from its ancestors in visit order and its effective
+/// callback order.
+fn build_ctx(
+    ancestors: &[Ancestor],
+    has_file: bool,
+    patch_names: &BTreeSet<&str>,
+    effective: Vec<Declared>,
+) -> ModelCtx {
+    let mut declared = Vec::new();
+    let mut generated = Vec::new();
+    let mut undecided = Vec::new();
+    let mut habtm = BTreeSet::new();
+    for a in ancestors {
+        declared.extend(declared_of(&a.name, &a.ore.declarations));
+        let g = generated_in(Some(&a.host), &a.name, &a.ore);
+        generated.extend(g.callbacks.into_iter().map(|(_, d)| d));
+        undecided.extend(g.undecided);
+        for e in &a.ore.declarations {
+            if let Declaration::Association(assoc) = &e.decl {
+                if assoc.kind == AssocKind::HasAndBelongsToMany {
+                    habtm.insert(assoc.name.clone());
+                }
+            }
+        }
+    }
+    let mut modules = Vec::new();
+    let mut order_unknown_scopes = BTreeSet::new();
+    let mut order_hidden = Vec::new();
+    for a in ancestors.iter().filter(|a| a.ore.kind == OreKind::Module) {
+        let included_decls = a
+            .ore
+            .declarations
+            .iter()
+            .filter(|d| matches!(d.origin, DeclOrigin::Included { .. }))
+            .count();
+        let unharvested = unharvested_counts(&a.ore);
+        let completeness = match (included_decls > 0, unharvested.is_empty()) {
+            (true, true) => Completeness::Full,
+            (true, false) => Completeness::Partial,
+            (false, false) => Completeness::Unread,
+            (false, true) => Completeness::NoIncludeTimeBody,
+        };
+        // A scope with ANY statement that may hide a registration stays
+        // order-unknown, even when `hidden_registrations` can name what the
+        // statement's branches hold. `Unharvested::hidden` lists only the
+        // declarations ruff recognised; its own doc says "a branch may also
+        // hold statements ruff does not recognise" (ruff
+        // `crates/ruff_ruby_spo/src/events.rs`, `Unharvested::hidden`). So
+        // `included do; if c; after_save :a; send(:before_save, :b); end; end`
+        // lists only `after_save :a`, and treating the list as exhaustive
+        // would make a group holding `b` DEFINITE without evidence.
+        //
+        // MISSING RUFF SIGNAL: an exhaustiveness flag on `Unharvested` (every
+        // statement of the branches was recognised and is in `hidden`). With
+        // it, a scope whose hiding statements are all exhaustive and nameable
+        // can be relaxed back to definite here. Until then the named list only
+        // feeds `order_hidden`, which can make OTHER groups unknown, never a
+        // group in this scope definite.
+        let mut hides_any = false;
+        for u in a
+            .ore
+            .unharvested
+            .iter()
+            .filter(|u| hides_registration(u.reason))
+        {
+            hides_any = true;
+            if let Some(named) = hidden_registrations(u, &a.name, &a.host) {
+                order_hidden.extend(named);
+            }
+        }
+        if hides_any {
+            order_unknown_scopes.insert(a.name.clone());
+        }
+        modules.push(ModuleRead {
+            name: a.name.clone(),
+            file: a.file.clone(),
+            included_decls,
+            unharvested,
+            completeness,
+            is_patch: patch_names.contains(a.name.as_str()),
+        });
+    }
+    ModelCtx {
+        modules,
+        order_unknown_scopes,
+        order_hidden,
+        has_file,
+        assocs: association_names(ancestors),
+        ancestor_files: ancestors.iter().map(|a| a.file.clone()).collect(),
+        declared,
+        generated,
+        undecided,
+        habtm,
+        effective,
+    }
 }

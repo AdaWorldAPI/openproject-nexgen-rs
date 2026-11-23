@@ -15,16 +15,27 @@
       "modules/*/app/controllers",
       "modules/*/app/controllers/concerns",
       "modules/*/app/formatters",
-      "modules/*/app/services"
+      "modules/*/app/services",
+      "lib_static",
+      "vendor/bundle/ruby/*/gems/activerecord-8.1.4.1/lib",
+      "vendor/bundle/ruby/*/gems/activemodel-8.1.4.1/lib",
+      "vendor/bundle/ruby/*/gems/activesupport-8.1.4.1/lib"
     ],
     "list_doc": "The last six were added from PatchFileNotFound slag: the module an `include_module` / `prepend_module` call names lives in one of these directories (20 calls, none found in the model roots). A Rails engine autoloads every app/* subdirectory (railties-8.1.4.1/lib/rails/engine/configuration.rb:77-78: `paths.add \"app\", eager_load: true, glob: \"{*,*/concerns}\"`), so each is a Zeitwerk root, and `app/<dir>/concerns` is one too. Only the directories the slag named are listed, not every app/* directory, so a name stays findable only where the data says it is.",
+    "framework_doc": "The last four roots were added so the harvest reads, instead of a table, what the framework registers itself. `lib_static` is a Zeitwerk root: config/application.rb:140 (`config.autoload_once_paths << Rails.root.join(\"lib_static\")`). `activerecord-8.1.4.1/lib`, `activemodel-8.1.4.1/lib` and `activesupport-8.1.4.1/lib` are the Rails gems at the version Gemfile.lock pins (activerecord :327, activemodel :325; `activemodel (= 8.1.4.1)` requires activesupport at the same version); their files are named after their constants (active_record/base.rb defines ActiveRecord::Base). `ApplicationRecord < ActiveRecord::Base`, so every model's superclass chain ends in `ActiveRecord::Base` and its include-time callbacks (for instance `before_validation :normalize_changed_in_place_attributes`, activemodel-8.1.4.1/lib/active_model/attributes/normalization.rb:14, reached through `ActiveRecord::Attributes`, activerecord-8.1.4.1/lib/active_record/attributes.rb:10) are registered before the model's own. The gem directories exist only where `vendor/bundle` is installed.",
     "inflections": [
       {
         "constant": "SquashTM",
         "file": "squashtm",
         "cite": "modules/squashtm_integration/lib/open_project/squashtm_integration/engine.rb:42 (`inflect.acronym \"SquashTM\"`) and :49 (`part == \"squashtm\" ? \"SquashTM\"`): the file squashtm_cause_rendering.rb defines SquashTMCauseRendering"
       }
-    ]
+    ],
+    "indexed": [
+      "lib_static/plugins/*/lib",
+      "vendor/bundle/ruby/*/gems/acts_as_list-1.2.6/lib",
+      "vendor/bundle/ruby/*/gems/closure_tree-9.8.0/lib"
+    ],
+    "indexed_doc": "Files loaded by `require`, not by their constant's name, found by the constants they define. The core plugins: config/initializers/00-load_plugins.rb:42-44 puts `lib_static/plugins/<name>/lib` on the load path (`$:.unshift lib`) and each init.rb requires its file (`acts_as_attachable/init.rb:30`); the file acts_as_attachable.rb defines Redmine::Acts::Attachable, not ActsAsAttachable. The gems: Gemfile.lock:360 (acts_as_list 1.2.6) and :463 (closure_tree 9.8.0); acts_as_list/active_record/acts/callback_definer.rb defines ActiveRecord::Acts::List::CallbackDefiner."
   },
 
   "engines": {
@@ -78,5 +89,142 @@
   "phase": {
     "doc": "A patch is applied in to_prepare, after the target class body has loaded, so its declarations register after the model's own. `include` runs the module's `included do` block at that moment (ActiveSupport::Concern#append_features, concern.rb:129-140); `prepend` runs only the prepended block (concern.rb:142-152) and registers no callback. A module already in the ancestors is not included again (acts_as_op_engine.rb:111, :368).",
     "applies": "after_class_body"
+  },
+
+  "macros": {
+    "doc": "Class-level macros whose registrations are read from the macro's own `def`, not listed here. `dsl` is the call in a class body, `file`/`def` the method it runs, `cite` why that call runs that method (the module that defines it is included or extended into ActiveRecord::Base). Each `verify` line is checked against the checkout by the test. ruff reads the `def` (events::macro_ore_from): declarations in order, includes, `send :include`, `class_eval` blocks, hand-overs of the class to another module's method (`Definer.call(caller_class, ...)`) and calls of other methods of the same file. A statement it cannot read (a conditional, a call on another receiver) is listed unread; nothing is evaluated.",
+    "rules": [
+      {
+        "dsl": "acts_as_attachable",
+        "file": "lib_static/plugins/acts_as_attachable/lib/acts_as_attachable.rb",
+        "def": "acts_as_attachable",
+        "cite": "lib_static/plugins/acts_as_attachable/init.rb:31 (`ActiveRecord::Base.include Redmine::Acts::Attachable`); acts_as_attachable.rb:35-37 (`included do extend ClassMethods end`) makes `acts_as_attachable` a class method of every model",
+        "verify": [
+          {
+            "file": "lib_static/plugins/acts_as_attachable/init.rb",
+            "line": 31,
+            "contains": "ActiveRecord::Base.include Redmine::Acts::Attachable"
+          },
+          {
+            "file": "lib_static/plugins/acts_as_attachable/lib/acts_as_attachable.rb",
+            "line": 36,
+            "contains": "extend ClassMethods"
+          }
+        ]
+      },
+      {
+        "dsl": "acts_as_customizable",
+        "file": "lib_static/plugins/acts_as_customizable/lib/acts_as_customizable.rb",
+        "def": "acts_as_customizable",
+        "cite": "lib_static/plugins/acts_as_customizable/init.rb:32 (`ActiveRecord::Base.include Redmine::Acts::Customizable`); acts_as_customizable.rb:33-35 (`self.included(base) base.extend ClassMethods`)",
+        "verify": [
+          {
+            "file": "lib_static/plugins/acts_as_customizable/init.rb",
+            "line": 32,
+            "contains": "ActiveRecord::Base.include Redmine::Acts::Customizable"
+          },
+          {
+            "file": "lib_static/plugins/acts_as_customizable/lib/acts_as_customizable.rb",
+            "line": 34,
+            "contains": "base.extend ClassMethods"
+          }
+        ]
+      },
+      {
+        "dsl": "acts_as_watchable",
+        "file": "lib_static/open_project/acts/watchable.rb",
+        "def": "acts_as_watchable",
+        "cite": "app/models/application_record.rb:31 (`include ::OpenProject::Acts::Watchable`); lib_static/open_project/acts/watchable.rb:33-35 (`self.included(base) base.extend ClassMethods`)",
+        "verify": [
+          {
+            "file": "app/models/application_record.rb",
+            "line": 31,
+            "contains": "include ::OpenProject::Acts::Watchable"
+          },
+          {
+            "file": "lib_static/open_project/acts/watchable.rb",
+            "line": 34,
+            "contains": "base.extend ClassMethods"
+          }
+        ]
+      },
+      {
+        "dsl": "acts_as_journalized",
+        "file": "lib_static/plugins/acts_as_journalized/lib/acts_as_journalized.rb",
+        "def": "acts_as_journalized",
+        "cite": "lib_static/plugins/acts_as_journalized/init.rb:31 (`ActiveRecord::Base.include(Acts::Journalized)`); acts_as_journalized.rb:60-63 (`self.included(base) base.extend ClassMethods`)",
+        "verify": [
+          {
+            "file": "lib_static/plugins/acts_as_journalized/init.rb",
+            "line": 31,
+            "contains": "ActiveRecord::Base.include(Acts::Journalized)"
+          },
+          {
+            "file": "lib_static/plugins/acts_as_journalized/lib/acts_as_journalized.rb",
+            "line": 61,
+            "contains": "base.extend ClassMethods"
+          }
+        ]
+      },
+      {
+        "dsl": "acts_as_list",
+        "file": "vendor/bundle/ruby/*/gems/acts_as_list-1.2.6/lib/acts_as_list/active_record/acts/list.rb",
+        "def": "acts_as_list",
+        "cite": "acts_as_list-1.2.6/lib/acts_as_list/active_record/acts/active_record.rb:3-4 (`ActiveSupport.on_load :active_record do extend ActiveRecord::Acts::List::ClassMethods end`)",
+        "verify": [
+          {
+            "file": "vendor/bundle/ruby/*/gems/acts_as_list-1.2.6/lib/acts_as_list/active_record/acts/active_record.rb",
+            "line": 4,
+            "contains": "extend ActiveRecord::Acts::List::ClassMethods"
+          }
+        ]
+      },
+      {
+        "dsl": "has_closure_tree",
+        "file": "vendor/bundle/ruby/*/gems/closure_tree-9.8.0/lib/closure_tree/has_closure_tree.rb",
+        "def": "has_closure_tree",
+        "cite": "closure_tree-9.8.0/lib/closure_tree.rb:26 (`extend ClosureTree::HasClosureTree, ClosureTree::HasClosureTreeRoot` in ActiveRecord::Base)",
+        "verify": [
+          {
+            "file": "vendor/bundle/ruby/*/gems/closure_tree-9.8.0/lib/closure_tree.rb",
+            "line": 26,
+            "contains": "extend ClosureTree::HasClosureTree"
+          }
+        ]
+      }
+    ],
+    "defines": [
+      {
+        "class": "{host}Hierarchy",
+        "by": "has_closure_tree",
+        "file": "vendor/bundle/ruby/*/gems/closure_tree-9.8.0/lib/closure_tree/support.rb",
+        "def": "hierarchy_class_for_model",
+        "local": "hierarchy_class",
+        "superclass": "ApplicationRecord",
+        "cite": "closure_tree-9.8.0/lib/closure_tree/support_attributes.rb:43-45 (`hierarchy_class_name` is `\"#{model_class}Hierarchy\"`); support.rb:61 (`parent_class.const_set(short_hierarchy_class_name, Class.new(abstract_base_class))`) and :63 (`hierarchy_class.class_eval do ... end` registers `belongs_to :ancestor` and `:descendant`); `abstract_base_class` (support.rb:46-58) is the model's first abstract ancestor, which for a model whose superclass is ApplicationRecord is ApplicationRecord (app/models/application_record.rb `self.abstract_class = true`)",
+        "verify": [
+          {
+            "file": "vendor/bundle/ruby/*/gems/closure_tree-9.8.0/lib/closure_tree/support_attributes.rb",
+            "line": 44,
+            "contains": "\"#{model_class}Hierarchy\""
+          },
+          {
+            "file": "vendor/bundle/ruby/*/gems/closure_tree-9.8.0/lib/closure_tree/support.rb",
+            "line": 61,
+            "contains": "const_set(short_hierarchy_class_name, Class.new(abstract_base_class))"
+          },
+          {
+            "file": "vendor/bundle/ruby/*/gems/closure_tree-9.8.0/lib/closure_tree/support.rb",
+            "line": 63,
+            "contains": "hierarchy_class.class_eval do"
+          },
+          {
+            "file": "app/models/application_record.rb",
+            "line": 34,
+            "contains": "self.abstract_class = true"
+          }
+        ]
+      }
+    ]
   }
 }

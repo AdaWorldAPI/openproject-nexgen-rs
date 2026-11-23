@@ -17,5 +17,5 @@ name = "ruff_openproject"
 # `main` — flipped 2026-07-06 (ruff #44 landed the schema stratum +
 # ruff_sqlalchemy_spo on main; convergence branch retired). Cargo.lock
 # still locks a concrete rev for reproducibility.
-ruff_ruby_spo    = { git = "https://github.com/AdaWorldAPI/ruff", rev = "954ed21450cc0766124905643a3d8c54f44191e4" }
-ruff_spo_triplet = { git = "https://github.com/AdaWorldAPI/ruff", rev = "954ed21450cc0766124905643a3d8c54f44191e4" }
+ruff_ruby_spo    = { git = "https://github.com/AdaWorldAPI/ruff", rev = "b3bdfb19c26ccde9c354d22597b4156d24542fc4" }
+ruff_spo_triplet = { git = "https://github.com/AdaWorldAPI/ruff", rev = "b3bdfb19c26ccde9c354d22597b4156d24542fc4" }
