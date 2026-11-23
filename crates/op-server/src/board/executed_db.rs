@@ -53,11 +53,16 @@ const USER_C: i64 = 12;
 const LOGIN_A: &str = "oidc:member-a";
 const LOGIN_B: &str = "oidc:member-b";
 const LOGIN_C: &str = "oidc:member-c";
+/// A member of project 5 whose role may add work packages but not view them.
+const USER_D: i64 = 13;
+const LOGIN_D: &str = "oidc:member-d";
 const TARGET_PROJECT: i64 = 5;
 const FOREIGN_PROJECT: i64 = 1;
 const B_PROJECT: i64 = 7;
 const ROLE_A: i64 = 20;
 const ROLE_B: i64 = 21;
+/// `add_work_packages` without `view_work_packages`.
+const ROLE_ADD_ONLY: i64 = 22;
 /// Enabled in project 5 at position 2.
 const TYPE_TASK: i64 = 30;
 /// Enabled in project 5 at position 1: project 5's first enabled type.
@@ -154,7 +159,8 @@ async fn seed(pool: &PgPool) {
             "INSERT INTO users (id, login, firstname, lastname, mail, admin, status) VALUES \
              ({USER_A}, '{LOGIN_A}', 'Ada', 'Member', 'a@example.test', false, 1), \
              ({USER_B}, '{LOGIN_B}', 'Bo', 'Outsider', 'b@example.test', false, 1), \
-             ({USER_C}, '{LOGIN_C}', 'Cy', 'Colleague', 'c@example.test', false, 1)"
+             ({USER_C}, '{LOGIN_C}', 'Cy', 'Colleague', 'c@example.test', false, 1), \
+             ({USER_D}, '{LOGIN_D}', 'Di', 'Adder', 'd@example.test', false, 1)"
         ),
         format!(
             "INSERT INTO projects (id, name, identifier, active) VALUES \
@@ -164,24 +170,25 @@ async fn seed(pool: &PgPool) {
         ),
         format!(
             "INSERT INTO roles (id, name, position) VALUES \
-             ({ROLE_A}, 'Member', 1), ({ROLE_B}, 'Editor elsewhere', 2)"
+             ({ROLE_A}, 'Member', 1), ({ROLE_B}, 'Editor elsewhere', 2), \
+             ({ROLE_ADD_ONLY}, 'Adder', 3)"
         ),
         format!(
             "INSERT INTO role_permissions (role_id, permission) VALUES \
              ({ROLE_A}, 'view_work_packages'), ({ROLE_A}, 'add_work_packages'), \
              ({ROLE_A}, 'edit_work_packages'), \
              ({ROLE_B}, 'view_work_packages'), ({ROLE_B}, 'add_work_packages'), \
-             ({ROLE_B}, 'edit_work_packages')"
+             ({ROLE_B}, 'edit_work_packages'), ({ROLE_ADD_ONLY}, 'add_work_packages')"
         ),
         // A is a member of project 5 only; B of project 7 only. Nobody is a member of project 1.
         format!(
             "INSERT INTO members (id, user_id, project_id) VALUES \
              (50, {USER_A}, {TARGET_PROJECT}), (51, {USER_B}, {B_PROJECT}), \
-             (52, {USER_C}, {TARGET_PROJECT})"
+             (52, {USER_C}, {TARGET_PROJECT}), (53, {USER_D}, {TARGET_PROJECT})"
         ),
         format!(
             "INSERT INTO member_roles (member_id, role_id) VALUES \
-             (50, {ROLE_A}), (51, {ROLE_B}), (52, {ROLE_A})"
+             (50, {ROLE_A}), (51, {ROLE_B}), (52, {ROLE_A}), (53, {ROLE_ADD_ONLY})"
         ),
         format!(
             "INSERT INTO types (id, name, position) VALUES \
@@ -574,7 +581,14 @@ async fn journey(db_url: String) -> Tally {
         1,
         "one data row for the one journal"
     );
-    t.rows += 3;
+    // `after_create`'s `set_user_as_watcher` (create_service.rb:82): A, who may view work
+    // packages in project 5, watches the work package A created.
+    assert_eq!(
+        watcher_users(&verify, id).await,
+        vec![USER_A],
+        "the creator becomes the one watcher"
+    );
+    t.rows += 4;
     t.steps += 1;
 
     // ── 3. read it back through the page read path ───────────────────
@@ -832,6 +846,16 @@ async fn journey(db_url: String) -> Tally {
         1,
         "a post-insert failure leaves no journal data row"
     );
+    assert_eq!(
+        count(
+            &verify,
+            "SELECT count(*) FROM watchers w WHERE NOT EXISTS \
+             (SELECT 1 FROM work_packages p WHERE p.id = w.watchable_id)"
+        )
+        .await,
+        0,
+        "a post-insert failure leaves no watcher"
+    );
     // Control: the same wrapper without the injected failure commits, so the 0 above is the
     // rollback and not a create that never inserts.
     let control = FailAfterInsert {
@@ -859,12 +883,44 @@ async fn journey(db_url: String) -> Tally {
         1,
         "the control create commits its journal too (so the 1 above is the rollback)"
     );
+    assert_eq!(
+        count(
+            &verify,
+            "SELECT count(*) FROM watchers w JOIN work_packages p ON p.id = w.watchable_id \
+             WHERE p.subject = 'transaction control' AND w.user_id = 10"
+        )
+        .await,
+        1,
+        "and its watcher (so the 0 above is the rollback)"
+    );
     eprintln!(
         "EXECUTED_DB step 7: create is one transaction; a failure after the INSERT left \
          {survivors} rows (control committed {committed})"
     );
-    t.rows += 4;
+    t.rows += 6;
     t.steps += 1;
+
+    // D may add work packages in project 5 but not view them: the create succeeds and D does
+    // not become a watcher (`Watcher#validate_user_allowed_to_watch` fails, and
+    // `set_user_as_watcher` ignores the failure, create_service.rb:118-122).
+    let caller_d = Caller::Actor {
+        login: LOGIN_D.into(),
+    };
+    let mut p = WorkPackageParams::new().with_subject("added by D");
+    p.project_id = Some(TARGET_PROJECT);
+    let by_d = mutation::create(&store, &caller_d, p)
+        .await
+        .expect("D may add work packages in project 5");
+    assert_eq!(
+        journals(&verify, by_d.id).await.len(),
+        1,
+        "D's create is committed and journaled"
+    );
+    assert!(
+        watcher_users(&verify, by_d.id).await.is_empty(),
+        "a creator who may not view the work package does not watch it"
+    );
+    t.rows += 2;
 
     // ── 8. the update journal: other user, closed predecessor, window, cause, rollback ──
     let store_c = PgMutationStore { pool: pool.clone() };
@@ -1272,6 +1328,18 @@ async fn journey(db_url: String) -> Tally {
     verify.close().await;
     db.close().await;
     t
+}
+
+/// The users watching work package `id`, by id.
+async fn watcher_users(verify: &PgPool, id: i64) -> Vec<i64> {
+    sqlx::query_scalar(
+        "SELECT user_id FROM watchers WHERE watchable_type = 'WorkPackage' AND watchable_id = $1 \
+         ORDER BY user_id",
+    )
+    .bind(id)
+    .fetch_all(verify)
+    .await
+    .expect("watchers")
 }
 
 fn pg_store(pool: &PgPool) -> PgMutationStore {

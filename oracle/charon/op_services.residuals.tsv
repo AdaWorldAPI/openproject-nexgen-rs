@@ -33,6 +33,7 @@ BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgMutationStore}::upd
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::begin
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::commit
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::rollback
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::add_creator_as_watcher
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::write_creation_journal
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::update_in
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::lock_work_package
