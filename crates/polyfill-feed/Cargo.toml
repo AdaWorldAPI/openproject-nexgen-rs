@@ -1,0 +1,16 @@
+[package]
+name = "polyfill-feed"
+description = "Renders what a rails-polyfill write commit changed as the change feed the Quack read side accepts (the PostgreSQL feed shape)."
+version.workspace = true
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+rails-polyfill = { path = "../rails-polyfill" }
+serde_json = { workspace = true }
+
+[features]
+# Disable runs: a date cell renders as its bare day count instead of `{"other": "Date", "s": "YYYY-MM-DD"}`, so the date round-trip test must fail.
+disable-date-column = []
+# Disable runs: a microsecond column keeps only milliseconds, so the microsecond round-trip tests must fail.
+disable-usec-precision = ["rails-polyfill/disable-usec-precision"]
