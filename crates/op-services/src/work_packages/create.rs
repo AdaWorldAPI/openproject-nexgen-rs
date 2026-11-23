@@ -88,9 +88,17 @@ impl<'a, U: UserContext> CreateWorkPackageService<'a, U> {
         let names = submitted_attributes(&params);
         let facts: &dyn AdmissionFacts = self.facts.unwrap_or(&NoFacts);
         let admission = self.admit(params.project_id, &names, facts);
+        // `WorkPackage` validates `project` presence (app/models/work_package/
+        // validations.rb:34). The model and contract validations run together,
+        // so a denied request without a project reports both. No project is
+        // ever chosen for the caller: the project admitted is the project used.
+        let missing_project = params.project_id.is_none();
         match &admission.verdict {
             Verdict::Denied => {
                 let mut errors = ValidationErrors::new();
+                if missing_project {
+                    errors.add("project", "blank");
+                }
                 for (key, codes) in &admission.errors {
                     for code in codes {
                         if key == "base" {
@@ -109,13 +117,23 @@ impl<'a, U: UserContext> CreateWorkPackageService<'a, U> {
             }
             Verdict::Admitted => {}
         }
+        let Some(project_id) = params.project_id else {
+            let mut errors = ValidationErrors::new();
+            errors.add("project", "blank");
+            return ServiceResult::failure(errors);
+        };
+        // Without a type, Rails assigns the project's first enabled type
+        // (`SetAttributesService#assign_default_type`). Project types are not
+        // modeled here, so the default is a typed refusal, never a guessed id.
+        let Some(type_id) = params.type_id else {
+            return ServiceResult::failure_with_base_error(
+                "type_default_unresolved: the project's first enabled type is not modeled",
+            );
+        };
 
         // HAND-WRITTEN PATH, only for what the generated table has no rule for: the
         // other contract validators (`not_evaluated_validators()`) and the model
         // validations, as `CreateWorkPackageContract` encodes them by hand.
-        // Create new work package with defaults
-        let project_id = params.project_id.unwrap_or(1);
-        let type_id = params.type_id.unwrap_or(1);
         let work_package = WorkPackageEntity::new(project_id, type_id, self.user.id());
 
         // Set attributes and validate
@@ -353,9 +371,64 @@ mod tests {
 
         let params = WorkPackageParams::new()
             .with_subject("Silent Feature")
-            .with_project_id(1);
+            .with_project_id(1)
+            .with_type_id(1);
 
         let result = service.call(params);
         assert!(result.is_success());
+    }
+
+    fn user_in_project_5_only() -> MockUser {
+        let mut permissions = std::collections::HashMap::new();
+        permissions.insert(5, HashSet::from(["add_work_packages".to_string()]));
+        MockUser {
+            id: 3,
+            admin: false,
+            project_permissions: permissions,
+        }
+    }
+
+    #[test]
+    fn a_create_without_a_project_never_picks_one() {
+        let user = user_in_project_5_only();
+        // The any-project rule admits this user, so only the missing project
+        // can stop the create.
+        assert!(user.allowed_in_any_project("add_work_packages"));
+        let params = WorkPackageParams::new()
+            .with_subject("No project")
+            .with_type_id(1);
+        let result = CreateWorkPackageService::new(&user).call(params);
+        assert!(result.is_failure());
+        assert!(result.result().is_none(), "no entity may be produced");
+        assert!(result.errors().has_error("project"));
+    }
+
+    #[test]
+    fn the_project_admitted_is_the_project_assigned() {
+        let user = user_in_project_5_only();
+        let params = WorkPackageParams::new()
+            .with_subject("In five")
+            .with_project_id(5)
+            .with_type_id(1);
+        let result = CreateWorkPackageService::new(&user).call(params);
+        assert!(result.is_success());
+        assert_eq!(result.result().map(|wp| wp.project_id), Some(5));
+        // Project 1 is not granted, and is never reached by default.
+        let params = WorkPackageParams::new()
+            .with_subject("In one")
+            .with_project_id(1)
+            .with_type_id(1);
+        assert!(CreateWorkPackageService::new(&user).call(params).is_failure());
+    }
+
+    #[test]
+    fn a_missing_type_is_a_typed_refusal_not_type_1() {
+        let user = user_in_project_5_only();
+        let params = WorkPackageParams::new()
+            .with_subject("No type")
+            .with_project_id(5);
+        let result = CreateWorkPackageService::new(&user).call(params);
+        assert!(result.is_failure());
+        assert!(result.result().is_none());
     }
 }
