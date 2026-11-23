@@ -109,6 +109,8 @@ pub const NAV_EDGES: &[ComputeEdge] = &[
         target: 0,
         inputs: &[1],
     },
+    // The three edges below are clicked from the work-package detail's
+    // context line (board::render_wp_detail).
     // ProjectWorkItem.status → ProjectStatus
     ComputeEdge {
         target: 2,

@@ -40,8 +40,10 @@ pub struct DeskView {
     pub detail: &'static [&'static str],
 }
 
-/// Statuses: list per `app/components/statuses/table_component.rb:40-48`,
-/// detail per `lib/api/v3/statuses/status_representer.rb:36-49`.
+/// Statuses: list per `app/components/statuses/table_component.rb:40-48`
+/// (done ratio shown unconditionally, no workflows column, raw values), detail
+/// per `lib/api/v3/statuses/status_representer.rb:36-49` (minus the derived
+/// `is_closed` and `color`).
 pub const STATUSES: DeskView = DeskView {
     concept: "ProjectStatus",
     canonical: "project_status",
@@ -62,8 +64,10 @@ pub const STATUSES: DeskView = DeskView {
     ],
 };
 
-/// Types: list `name, position, is_milestone`; detail per
-/// `lib/api/v3/types/type_representer.rb:39-59`.
+/// Types: OpenProject has no flat types table to follow (its admin index is
+/// the work-package type variants UI), so the list is `name, position,
+/// is_milestone`; detail per `lib/api/v3/types/type_representer.rb:39-59`
+/// (minus `color` and the derived `is_default`).
 pub const TYPES: DeskView = DeskView {
     concept: "ProjectType",
     canonical: "project_type",
@@ -84,8 +88,9 @@ pub const TYPES: DeskView = DeskView {
 };
 
 /// Priorities (`IssuePriority`, an STI subset of `enumerations`): list per
-/// `app/components/enumerations/table_component.rb:47-55`, detail per
-/// `lib/api/v3/priorities/priority_representer.rb:39-46`.
+/// `app/components/enumerations/table_component.rb:47-55` (its "sort" column is
+/// reorder controls; this read-only page shows the `position` it edits, and
+/// drops `color`), detail per `lib/api/v3/priorities/priority_representer.rb:39-46`.
 pub const PRIORITIES: DeskView = DeskView {
     concept: "Priority",
     canonical: "priority",

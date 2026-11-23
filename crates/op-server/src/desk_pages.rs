@@ -1,6 +1,10 @@
 //! The desk the read-only pages read from: a polyfill store plus a Quack
 //! catalog over OpenProject's own schema (`op_desk::desk::Desk`).
 //!
+//! In a deployment whose PostgreSQL is not the kanban seed, `OP_DESK_SEED`
+//! must name a seed holding the same statuses, types and priorities: the
+//! work-package detail links its family-edge ids to these desk pages.
+//!
 //! The pages that also write (`/`, `/projects`, `/work_packages`) still read
 //! PostgreSQL. They move together with desk writes, because a page that reads
 //! the desk while its form writes PostgreSQL would never show an edit
@@ -28,7 +32,8 @@ pub const SEED_VAR: &str = "OP_DESK_SEED";
 /// The desk seeded from the file `OP_DESK_SEED` names, else from the demo seed.
 /// A seed that cannot be read or loaded stops the start.
 pub fn load_desk(env: impl Fn(&str) -> Option<String>) -> Result<Desk, String> {
-    let (origin, text) = match env(SEED_VAR) {
+    // Set but empty counts as unset.
+    let (origin, text) = match env(SEED_VAR).filter(|p| !p.trim().is_empty()) {
         Some(path) => (
             path.clone(),
             std::fs::read_to_string(&path).map_err(|e| format!("{SEED_VAR}={path}: {e}"))?,
@@ -140,6 +145,10 @@ mod tests {
             panic!("an unknown table stops the start");
         };
         assert!(err.contains("no_such_table"), "{err}");
+
+        // Set but empty is unset: the demo seed loads.
+        let empty = load_desk(|k| (k == SEED_VAR).then(String::new)).expect("empty is unset");
+        assert_eq!(empty.count("users"), Ok(6));
 
         let missing = "/nonexistent/seed.json".to_string();
         assert!(load_desk(|k| (k == SEED_VAR).then(|| missing.clone())).is_err());

@@ -115,7 +115,7 @@ fn project_basis() -> Vec<String> {
 /// (`role`) on `class`, IF its target concept has a live route (per
 /// [`nav::route_for`] through [`nav::nav_edges`]) — `None` for a "dead
 /// lane" association (a known, undeferred-but-unrouted target such as
-/// `status`/`type`/`priority`/`author`/`assignee` today). This is the
+/// `author`/`assignee` today). This is the
 /// single source of truth [`kind_for`] also consults, so the column
 /// kind and the cell's actual href never disagree.
 fn nav_href(class: &Class, role: &str, fk_id: i64) -> Option<String> {
@@ -912,8 +912,24 @@ fn render_wp_detail(
     let wp_href = format!("/work_packages/{}", wp.id);
     let project_href = nav_href(&class, "project", wp.project_id)
         .unwrap_or_else(|| format!("/projects/{}", wp.project_id));
+    // The family edges whose targets have a page link from the context line
+    // too (the fieldview cannot carry links); the hrefs come from
+    // `nav::route_for`, so a target without a page stays unlinked.
+    let mut related = String::new();
+    for (role, id, name) in [
+        ("status", Some(wp.status_id), status_name),
+        ("type", Some(wp.type_id), type_name),
+        ("priority", wp.priority_id, priority_name),
+    ] {
+        if let Some(href) = id.and_then(|id| nav_href(&class, role, id)) {
+            related.push_str(&format!(
+                " · <a href=\"{href}\" data-role=\"{role}\">{}</a>",
+                esc(name)
+            ));
+        }
+    }
     let context = format!(
-        "<p class=\"wp-context\"><a href=\"{wp_href}\">#{}</a> · <a href=\"{project_href}\">{}</a></p>",
+        "<p class=\"wp-context\"><a href=\"{wp_href}\">#{}</a> · <a href=\"{project_href}\">{}</a>{related}</p>",
         wp.id,
         esc(project_name),
     );
@@ -2444,6 +2460,44 @@ mod tests {
     /// containing the subject, resolved labels, and (crucially) the
     /// rewritten `/work_packages/…` + `/projects/…` hrefs out — proving
     /// the board's link rewrite lands on a page that actually resolves.
+    /// The family edges to the desk pages are real clicks: the detail's
+    /// context line links status, type and priority (the NAV_EDGES
+    /// WorkItem -> ProjectStatus/ProjectType/Priority edges), with the hrefs
+    /// from `nav::route_for`. A work package without a priority has no
+    /// priority link.
+    #[test]
+    fn render_wp_detail_links_status_type_and_priority() {
+        let mut wp = work_package(101, "Fix the login bug", 10, 2, 40);
+        wp.type_id = 3;
+        wp.priority_id = Some(5);
+        let html = render_wp_detail(
+            &wp,
+            "In <b>Progress</b>",
+            "Nexgen",
+            "Bug",
+            "High",
+            "Jane",
+            "John",
+        );
+        let status_id = wp.status_id;
+        assert!(
+            html.contains(&format!("href=\"/statuses/{status_id}\"")),
+            "{html}"
+        );
+        assert!(html.contains("href=\"/types/3\""), "{html}");
+        assert!(html.contains("href=\"/priorities/5\""), "{html}");
+        assert!(
+            html.contains("In &lt;b&gt;Progress&lt;/b&gt;"),
+            "names are escaped: {html}"
+        );
+        // The author/assignee targets have no page: no /users link.
+        assert!(!html.contains("/users/"), "{html}");
+
+        wp.priority_id = None;
+        let html = render_wp_detail(&wp, "In Progress", "Nexgen", "Bug", "—", "Jane", "John");
+        assert!(!html.contains("/priorities/"), "{html}");
+    }
+
     #[test]
     fn render_wp_detail_contains_fields() {
         let mut wp = work_package(101, "Fix the login bug", 10, 2, 40);
@@ -2924,9 +2978,9 @@ mod tests {
 
     /// The work-package detail page's `project` cell is a live
     /// `RecordRef` link (derived from `nav::route_for("Project")`
-    /// being `Some`), while `status` — a known dead lane per
-    /// `nav::NOT_YET_NAVIGABLE` — renders as plain resolved text with
-    /// no href anywhere in the fragment. Both are DERIVED from
+    /// being `Some`), while `author` — a known dead lane per
+    /// `nav::NOT_YET_NAVIGABLE` (ProjectActor) — renders as plain resolved
+    /// text with no href anywhere in the fragment. Both are DERIVED from
     /// `nav::nav_edges`, not hand-wired.
     #[test]
     fn detail_project_link_is_derived_not_hardwired() {
@@ -2943,9 +2997,9 @@ mod tests {
         );
 
         assert!(html.contains("href=\"/projects/10\""), "{html}");
-        assert!(!html.contains("/statuses/"), "{html}");
-        // The status label still shows (resolved text), just unlinked.
-        assert!(html.contains("In Progress"), "{html}");
+        assert!(!html.contains("/users/"), "{html}");
+        // The author label still shows (resolved text), just unlinked.
+        assert!(html.contains("Jane Doe"), "{html}");
     }
 
     /// A project detail page stacks its work packages' list view
