@@ -258,11 +258,16 @@ permission lowering feeds the generator, the same witness can verify it.
   every validation, whether or not `schedule_manually` was submitted.
 - Ruby side: not harvested. The permission scan reads the `attribute` line and skips
   the block; ruff lowers only `writable:`.
-- Rust side: `admit_create` is defined, structured and current in the store, and has
-  no edge to such a validator. The generated `NOT_EVALUATED_VALIDATORS` does not list
-  it, and no crate contains the string `cannot_be_automatically_scheduled`. So the
-  rule is absent from the generated admission path and is not declared as
-  not-evaluated: a silent omission.
+- Rust side, before the validator was ported: `admit_create` had no edge to such a
+  validator, `NOT_EVALUATED_VALIDATORS` did not list it, and no crate contained the
+  string `cannot_be_automatically_scheduled`: a silent omission. Now `admit_create`
+  evaluates it on every create (`validate_has_predecessors_or_children`, from the facts
+  `model.schedule_manually?`, `model.children.any?` and
+  `Relation.used_for_scheduling_of(model.parent).any?`), so it stays out of
+  `NOT_EVALUATED_VALIDATORS`. A fact that blocks the error decides without the others;
+  an unknown fact with no blocker makes the verdict unresolved. A create supplies what
+  it determines itself: `schedule_manually` is the column default `true`, there are no
+  children, and no scheduling predecessors unless a parent is submitted.
 - Executable coverage before this change: none. `create_transition_differential`
   compares `writable?` per attribute and the service trace's errors; the service
   cases set no `schedule_manually: false`. The reconciliation compared only `errors[base]`.
@@ -273,21 +278,20 @@ permission lowering feeds the generator, the same witness can verify it.
   `schedule_manually` both unsubmitted and submitted.
   - Ruby fires on `leaf_automatic` only, with recorded facts `schedule_manually: false`
     and `children.any?: false`, and no parent.
-  - Rust fires on no record.
-  - The Rust side cannot fire at all, so the 5 records where both are silent prove
-    nothing and are not counted as agreements.
-  - Compared: 1 discriminating record, 1 mismatch: **ExecutedDisagreement** on the
-    error key. The verdicts happen to agree (both reject `leaf_automatic`, also
-    because of `author_id: error_readonly`), so this is a disagreement in the error
-    keys, not in admission. It is not added to the 350 contract-rule items.
+  - Rust fires on `leaf_automatic` only.
+  - The 5 records where both are silent are not counted as agreements.
+  - Compared: 1 discriminating record, 0 mismatches: **ExecutedAgreement** on the
+    error key. It is not added to the 350 contract-rule items.
 - Structural verdict: `Slag(RubySideNotHarvested)`. Status: **OPEN**, owner
   `ContractHarvest`.
 - Proposal: a ruff contract-arm rule that harvests validator calls inside attribute
   blocks, keeping their condition. If supplied, the claim becomes `RubyOnly`. The
   negative control: a harvest that drops the condition would predict the error on
   `leaf_manual`, where the oracle records none.
-- The validator is not implemented here. When it is, its differential case is added
-  next to this one, not into the 350.
+- The validator is implemented in `admit_create`; its differential case is the one
+  above, kept apart from the 350. The ledger and report are regenerated from a Charon
+  extraction that includes the changed Rust files: until then the stored ledger still
+  shows the earlier numbers.
 
 ## 10. Scorecard (this branch; ruff `79ed2ba`, OpenProject `2725194`, store from nexgen `8f2680e`)
 
@@ -306,10 +310,10 @@ Separate denominators. Before means #138 as it was; after means this change.
 | Residuals open, by owner | not typed | ContractHarvest 2, RustExtraction 3, DataWitness 1 |
 | Resolved by extraction / data witness / semantic rule | 0 / 0 / 0 | 0 / 9 / 0 |
 | Lifecycle | none | RESOLVED(DataWitness) 9, EVIDENCED 1, CANDIDATE 1, OPEN 4 |
-| Runtime verdicts over the 21 claims | 10 executed (0 mismatches), 3 cited, 8 none | ExecutedAgreement 10, ExecutedDisagreement 1, Unverified 3, NotExecuted 7 |
+| Runtime verdicts over the 21 claims | 10 executed (0 mismatches), 3 cited, 8 none | ExecutedAgreement 11, ExecutedDisagreement 0, Unverified 3, NotExecuted 7 |
 | Contract-rule items executed against the oracle (`create_transition_differential`) | 350, 0 mismatches | 350, 0 mismatches (unchanged; the new case is separate) |
 | Lowered guards against the oracle (`guard_differential`) | 84 pairs, 0 mismatches | 84, 0 |
-| `schedule_manually` block differential | not run | 1 discriminating record, 1 mismatch |
+| `schedule_manually` block differential | not run | 1 discriminating record, 0 mismatches |
 | Callback ledger (`callback_differential`) | 115 / 157 matched, 42 slag (ruff 79ed2ba) | 154 / 157, 3 slag (ruff b3bdfb1, from #140; not this PR) |
 | Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | AssociationNotInCheckout 2, GeneratedUndecided 1 |
 | Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 16 definite, 13 UNKNOWN, 0 differ |
