@@ -48,11 +48,35 @@ use op_codegen_pipeline::callback_harvest::*;
 use serde_json::Value;
 
 /// Distinct journal entries matched to a declaration, measured on the committed
-/// trace with ruff PR #156 (`79ed2baa007d`): 91 before it.
-const MATCHED_FLOOR: usize = 115;
+/// trace at OpenProject 2725194, as `(with vendor/bundle, without it)`. The
+/// harvest reads the gems the intake names (the Rails framework) only where
+/// `vendor/bundle` holds them; CI unpacks them with
+/// `scripts/fetch-oracle-gems.sh`.
+///
+/// 91 before ruff PR #156 (`79ed2baa007d`), 115 after it. 117 with the Rails
+/// framework roots (the two `normalize_changed_in_place_attributes` entries
+/// come from `ActiveModel::Attributes::Normalization`).
+const MATCHED_FLOOR: (usize, usize) = (117, 115);
 
-/// Of those, entries that match only through a generated callback (67 before #156).
-const MATCHED_GENERATED_FLOOR: usize = 89;
+/// Of those, entries that match only through a generated callback (67 before
+/// #156), as `(with vendor/bundle, without it)`.
+const MATCHED_GENERATED_FLOOR: (usize, usize) = (89, 89);
+
+/// Typed slag per reason as measured, and no more: a reason may fall, never
+/// grow. Only checked where `vendor/bundle` is installed.
+const SLAG_CEILINGS: &[(Slag, usize)] = &[
+    (Slag::AssociationFromPlugin, 3),
+    (Slag::AssociationNotInCheckout, 15),
+    (Slag::DefinedInPlugin, 7),
+    (Slag::FromGem, 6),
+    (Slag::ModelWithoutClassFile, 3),
+    (Slag::ChainFileNotHarvested, 2),
+    (Slag::GeneratedUndecided, 4),
+];
+
+/// Order groups that must be DEFINITE and agree with the recording, as
+/// `(with vendor/bundle, without it)`.
+const ORDER_DEFINITE_FLOOR: (usize, usize) = (19, 19);
 
 /// Distinct patch modules the intake applies to `WorkPackage` (include only),
 /// measured on the checkout at the trace's revision (4 before #156 rendered
@@ -435,6 +459,16 @@ fn fired_callbacks_are_matched_or_named_slag() {
     let (entries_total, entries) = fired_entries();
     let models: BTreeSet<String> = entries.keys().map(|(m, _, _)| m.clone()).collect();
     let cfg = intake_cfg();
+    // The framework roots and the gem constants live in `vendor/bundle`.
+    // Without it they are unread, and the floors are the ones from before
+    // they existed.
+    let vendor = src.join("vendor/bundle").is_dir();
+    if !vendor {
+        eprintln!("UNVERIFIED: no vendor/bundle in the checkout; gem roots are not read (scripts/fetch-oracle-gems.sh)");
+    }
+    let pick = |(with, without): (usize, usize)| if vendor { with } else { without };
+    let matched_floor = pick(MATCHED_FLOOR);
+    let matched_generated_floor = pick(MATCHED_GENERATED_FLOOR);
     let mut h = harvest_for(&src, &cfg);
     let patches = discover_patches(&src, &cfg, &mut h);
     let (ctxs, unresolved) = contexts(&mut h, &models, &patches);
@@ -496,12 +530,19 @@ fn fired_callbacks_are_matched_or_named_slag() {
     for (from, m) in &unresolved {
         eprintln!("  unresolved include: {from} -> {m}");
     }
+    // Every `include` / `prepend` in the harvested chains names a unit the roots
+    // find (a unit nested in its parent's file, a Rails gem, a plugin). One that
+    // does not is a registration the harvest cannot follow.
+    assert!(
+        !vendor || unresolved.is_empty(),
+        "includes the harvest cannot resolve: {unresolved:?}"
+    );
 
     let o = run(&ctxs, &entries, &ev, Clone::clone);
     eprintln!("{o}");
     for (s, rows) in &o.slag {
         eprintln!("-- slag {s:?} ({})", rows.len());
-        for r in rows.iter().take(6) {
+        for r in rows.iter().take(60) {
             eprintln!("     {r}");
         }
     }
@@ -540,16 +581,26 @@ fn fired_callbacks_are_matched_or_named_slag() {
     // Measured at OpenProject 2725194 (trace revision). A drop means the harvest
     // lost declarations; a rise means it gained some: re-measure and move the floor.
     assert!(
-        o.matched >= MATCHED_FLOOR,
-        "matched {} of {}, floor {MATCHED_FLOOR}",
+        o.matched >= matched_floor,
+        "matched {} of {}, floor {matched_floor}",
         o.matched,
         o.total
     );
     assert!(
-        o.matched_generated >= MATCHED_GENERATED_FLOOR,
-        "matched through generated callbacks: {}, floor {MATCHED_GENERATED_FLOOR}",
+        o.matched_generated >= matched_generated_floor,
+        "matched through generated callbacks: {}, floor {matched_generated_floor}",
         o.matched_generated
     );
+    if vendor {
+        for s in Slag::all() {
+            let ceiling = SLAG_CEILINGS
+                .iter()
+                .find(|(r, _)| r == s)
+                .map_or(0, |(_, n)| *n);
+            let n = o.slag.get(s).map_or(0, Vec::len);
+            assert!(n <= ceiling, "slag {s:?}: {n}, ceiling {ceiling}");
+        }
+    }
     // A declared, unconditioned callback on an exercised chain that never fired
     // would be a real discrepancy, not slag.
     assert!(
@@ -908,6 +959,12 @@ fn fired_callbacks_are_matched_or_named_slag() {
     assert!(
         effective.groups >= ORDER_GROUPS_FLOOR,
         "fewer order groups compared than measured"
+    );
+    let order_definite_floor = pick(ORDER_DEFINITE_FLOOR);
+    assert!(
+        effective.definite() >= order_definite_floor,
+        "{} definite order groups, floor {order_definite_floor}",
+        effective.definite()
     );
     assert_eq!(
         effective.differing, 0,

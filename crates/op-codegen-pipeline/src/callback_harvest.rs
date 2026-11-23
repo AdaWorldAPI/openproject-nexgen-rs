@@ -248,6 +248,27 @@ impl Harvest {
                 }
             }
         }
+        // A unit nested in its parent's file (`module A; module B; module C`
+        // all in a/b.rb): `A::B::C` has no file of its own, but loading `A::B`
+        // defines it. Look in the file of each enclosing constant, nearest
+        // first.
+        let mut parent = name;
+        while let Some((outer, _)) = parent.rsplit_once("::") {
+            parent = outer;
+            let mut ppath = underscore(parent);
+            for (from, to) in &self.inflections {
+                ppath = ppath.replace(from.as_str(), to);
+            }
+            for root in self.roots.clone() {
+                let rel = format!("{root}/{ppath}.rb");
+                if self.src.join(&rel).is_file() {
+                    let hit = self.load(&rel).iter().find(|o| o.name == name).cloned();
+                    if let Some(ore) = hit {
+                        return Some((rel, ore));
+                    }
+                }
+            }
+        }
         None
     }
 

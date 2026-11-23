@@ -69,6 +69,12 @@ jobs:
           ref: 2725194454c895dfab6ff2685d9688b0cba53068
           path: openproject-src
           fetch-depth: 1
+      # The checkout has no vendor/bundle. callback_differential reads the Rails
+      # framework, acts_as_list and closure_tree from it (the gems
+      # oracle/intake.json names); the script unpacks them, each checked against
+      # the sha256 in the checkout's Gemfile.lock.
+      - name: unpack the gems the callback intake reads
+        run: scripts/fetch-oracle-gems.sh openproject-src
       # callback_differential, create_transition_differential, guard_differential and
       # class_proposer_openproject read OPENPROJECT_SRC. REQUIRE_SOURCES=1 makes a
       # missing or unset source a failure instead of an UNVERIFIED pass; it is read by

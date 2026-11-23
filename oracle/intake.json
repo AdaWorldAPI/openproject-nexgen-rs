@@ -15,9 +15,14 @@
       "modules/*/app/controllers",
       "modules/*/app/controllers/concerns",
       "modules/*/app/formatters",
-      "modules/*/app/services"
+      "modules/*/app/services",
+      "lib_static",
+      "vendor/bundle/ruby/*/gems/activerecord-8.1.4.1/lib",
+      "vendor/bundle/ruby/*/gems/activemodel-8.1.4.1/lib",
+      "vendor/bundle/ruby/*/gems/activesupport-8.1.4.1/lib"
     ],
     "list_doc": "The last six were added from PatchFileNotFound slag: the module an `include_module` / `prepend_module` call names lives in one of these directories (20 calls, none found in the model roots). A Rails engine autoloads every app/* subdirectory (railties-8.1.4.1/lib/rails/engine/configuration.rb:77-78: `paths.add \"app\", eager_load: true, glob: \"{*,*/concerns}\"`), so each is a Zeitwerk root, and `app/<dir>/concerns` is one too. Only the directories the slag named are listed, not every app/* directory, so a name stays findable only where the data says it is.",
+    "framework_doc": "The last four roots were added so the harvest reads, instead of a table, what the framework registers itself. `lib_static` is a Zeitwerk root: config/application.rb:140 (`config.autoload_once_paths << Rails.root.join(\"lib_static\")`). `activerecord-8.1.4.1/lib`, `activemodel-8.1.4.1/lib` and `activesupport-8.1.4.1/lib` are the Rails gems at the version Gemfile.lock pins (activerecord :327, activemodel :325; `activemodel (= 8.1.4.1)` requires activesupport at the same version); their files are named after their constants (active_record/base.rb defines ActiveRecord::Base). `ApplicationRecord < ActiveRecord::Base`, so every model's superclass chain ends in `ActiveRecord::Base` and its include-time callbacks (for instance `before_validation :normalize_changed_in_place_attributes`, activemodel-8.1.4.1/lib/active_model/attributes/normalization.rb:14, reached through `ActiveRecord::Attributes`, activerecord-8.1.4.1/lib/active_record/attributes.rb:10) are registered before the model's own. The gem directories exist only where `vendor/bundle` is installed.",
     "inflections": [
       {
         "constant": "SquashTM",
