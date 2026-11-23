@@ -145,18 +145,18 @@ impl HealthChecker {
         let mut components = Vec::new();
         let mut overall_status = HealthStatus::Healthy;
 
-        // Check database
-        if self.pool.is_some() {
-            let db_health = self.check_database().await;
-            if db_health.status == HealthStatus::Unhealthy {
-                overall_status = HealthStatus::Unhealthy;
-            } else if db_health.status == HealthStatus::Degraded
-                && overall_status == HealthStatus::Healthy
-            {
-                overall_status = HealthStatus::Degraded;
-            }
-            components.push(db_health);
+        // Check database. A server that could not connect at boot has no pool and
+        // serves without a database; that is not ready, so the check runs either way
+        // (`check_database` reports a missing pool as unhealthy).
+        let db_health = self.check_database().await;
+        if db_health.status == HealthStatus::Unhealthy {
+            overall_status = HealthStatus::Unhealthy;
+        } else if db_health.status == HealthStatus::Degraded
+            && overall_status == HealthStatus::Healthy
+        {
+            overall_status = HealthStatus::Degraded;
         }
+        components.push(db_health);
 
         // Check memory
         let mem_health = self.check_memory().await;
@@ -299,12 +299,18 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_health_check() {
+    async fn a_checker_without_a_database_is_not_ready() {
         let checker = HealthChecker::new(HealthConfig::default());
         let report = checker.check().await;
 
-        assert!(report.status.is_healthy());
-        assert!(!report.components.is_empty());
+        assert_eq!(report.status, HealthStatus::Unhealthy);
+        assert_eq!(report.http_status(), StatusCode::SERVICE_UNAVAILABLE);
+        let db = report
+            .components
+            .iter()
+            .find(|c| c.name == "database")
+            .expect("the database component is always reported");
+        assert_eq!(db.status, HealthStatus::Unhealthy);
     }
 
     #[tokio::test]
