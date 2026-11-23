@@ -15,7 +15,9 @@ crates/op-services/src/users/set_attributes.rs	71db37972303b31c
 crates/op-services/src/users/update.rs	75816c72afc3c2fd
 crates/op-services/src/work_packages/create.rs	44c63d375568bd96
 crates/op-services/src/work_packages/delete.rs	ff942dcfd67ea83e
-crates/op-services/src/work_packages/mod.rs	f123d4a0e10e3e09
-crates/op-services/src/work_packages/mutation.rs	edd5026f6961cab6
+crates/op-services/src/work_packages/mod.rs	e1abcf2d89bc8307
+crates/op-services/src/work_packages/mutation.rs	70d9e19bb0451c30
+crates/op-services/src/work_packages/mutation/reschedule.rs	32ab225970d81eb7
+crates/op-services/src/work_packages/scheduling.rs	f905ad8b5369c713
 crates/op-services/src/work_packages/set_attributes.rs	f8db219053828871
 crates/op-services/src/work_packages/update.rs	c7032ab5fa87aebd

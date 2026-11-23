@@ -37,6 +37,7 @@ use op_db::{
 };
 use sqlx::PgPool;
 
+use super::scheduling;
 use super::{CreateWorkPackageService, WorkPackageParams};
 
 /// The permission that gates a work-package create.
@@ -624,6 +625,9 @@ pub async fn create_in<S: CreationStore>(
     Ok(store.insert_wp(dto).await?)
 }
 
+mod reschedule;
+pub use reschedule::scheduling_changes;
+
 // ── ancestor totals (pure part) ──────────────────────────────────────
 
 /// `Journal::CausedByWorkPackageChildValuesChange.new(work_package).to_hash`
@@ -1061,8 +1065,9 @@ impl PgMutationStore {
     /// transaction (OpenProject runs `after_create`: ancestors, rescheduling, watcher, and the
     /// journal in its save callbacks, inside `in_user_context`). The journal is written here
     /// ([`PgCreateScope::write_creation_journal`]), then the ancestors' totals
-    /// ([`PgCreateScope::update_ancestors_of_created`]), then the creator as watcher
-    /// ([`PgCreateScope::add_creator_as_watcher`]); `apply_patterns` and rescheduling are not
+    /// ([`PgCreateScope::update_ancestors_of_created`]), then the rescheduling
+    /// ([`PgCreateScope::reschedule_after_create`]), then the creator as watcher
+    /// ([`PgCreateScope::add_creator_as_watcher`]); `apply_patterns` is not
     /// ported. `None` is the production call. `post_insert` exists so the
     /// failure-after-the-journal case can be exercised through the real transaction code.
     pub async fn create_then(
@@ -1091,6 +1096,13 @@ impl PgMutationStore {
                 {
                     out = Err(e.into());
                 }
+            }
+        }
+        // `after_create`'s `reschedule_related` (create_service.rb:79, :90-110), after the
+        // ancestors (a parent may just have switched to automatic mode) and before the watcher.
+        if let Ok(row) = &out {
+            if let Err(e) = scope.reschedule_after_create(row.id, row.author_id).await {
+                out = Err(e.into());
             }
         }
         // `after_create`'s last step, `set_user_as_watcher` (create_service.rb:82, :118-122). The
@@ -1294,9 +1306,10 @@ impl PgCreateScope {
     /// `derive_ignore_non_working_days` run when the parent changed, the latter for the former
     /// chain as well.
     ///
-    /// Not ported: `simple_average` and status-based modes, `update_related`
-    /// (`reschedule_related`, `update_descendants` on a project change, :62-81), the
-    /// apply-patterns subject generation and notifications.
+    /// Not ported: `simple_average` and status-based modes, `update_descendants` on a project
+    /// change (`update_service.rb:67-82`), the apply-patterns subject generation and
+    /// notifications. The rescheduling of `update_related` is
+    /// [`PgCreateScope::reschedule_after_edit`], run by `update_in` after this.
     async fn update_totals_after_edit(
         &self,
         work_package_id: Id,
@@ -1708,7 +1721,7 @@ impl PgCreateScope {
         let existing = authorize_edit(self, caller, id).await?;
         validate_update(&existing, &dto)?;
         let user_id = self.acting_user_id(caller).await?;
-        let mut row = self.update_row(id, dto).await?;
+        let row = self.update_row(id, dto).await?;
         self.write_update_journal(id, user_id, aggregation_minutes)
             .await?;
         // `after_perform` -> `update_related_work_packages` (`update_service.rb:54-81`): the totals
@@ -1717,18 +1730,29 @@ impl PgCreateScope {
             self.update_totals_after_edit(id, existing.parent_id, row.parent_id, user_id, plan)
                 .await?;
         }
-        // `touch_journable` and the initiator's re-save may have advanced `updated_at` and
-        // `lock_version` past the UPDATE's values: answer with the committed ones.
+        // `update_related` (`update_service.rb:62-65`), after the ancestors: the rescheduling of
+        // what follows the edited work package, its parent and its former parent.
+        if scheduling_changes(&existing, &row) {
+            self.reschedule_after_edit(id, existing.parent_id, row.parent_id, user_id)
+                .await?;
+        }
+        // `touch_journable`, the initiator's re-save and the rescheduling (which can move an
+        // automatically scheduled work package's own dates again, e.g. a parent restored to the
+        // span of its children) may have changed the row after the UPDATE: answer with the
+        // committed record, not an intermediate state.
         let mut tx = self.tx.lock().await;
-        let (updated_at, lock_version): (chrono::DateTime<chrono::Utc>, i32) =
-            sqlx::query_as("SELECT updated_at, lock_version FROM work_packages WHERE id = $1")
-                .bind(id)
-                .fetch_one(&mut **tx)
-                .await
-                .map_err(db_failure)?;
-        row.updated_at = updated_at;
-        row.lock_version = lock_version;
-        Ok(row)
+        sqlx::query_as::<_, WorkPackageRow>(
+            "SELECT id, subject, description, project_id, type_id, status_id, \
+                    priority_id, author_id, assigned_to_id, responsible_id, \
+                    start_date, due_date, estimated_hours, done_ratio, \
+                    parent_id, version_id, category_id, lock_version, \
+                    created_at, updated_at \
+             FROM work_packages WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|e| db_failure(e).into())
     }
 
     async fn lock_work_package(&self, id: Id) -> Result<(), StoreFailure> {
@@ -1770,6 +1794,35 @@ impl PgCreateScope {
         id: Id,
         dto: UpdateWorkPackageDto,
     ) -> Result<WorkPackageRow, StoreFailure> {
+        // `set_calculated_attributes` (`set_attributes_service.rb:92-107`): the dates and the
+        // duration the UPDATE writes. A date was "given" when it differs from the stored one.
+        let (cur_start, cur_due, ignore, cur_type): (
+            Option<chrono::NaiveDate>,
+            Option<chrono::NaiveDate>,
+            bool,
+            Id,
+        ) = sqlx::query_as(
+            "SELECT start_date, due_date, ignore_non_working_days, type_id \
+             FROM work_packages WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&mut **self.tx.lock().await)
+        .await
+        .map_err(db_failure)?
+        .ok_or_else(|| StoreFailure::NotFound(format!("work package {id}")))?;
+        let dates = self
+            .derived_dates(
+                dto.type_id.unwrap_or(cur_type),
+                ignore,
+                dto.start_date != cur_start,
+                dto.due_date != cur_due,
+                scheduling::DateAttrs {
+                    start_date: dto.start_date,
+                    due_date: dto.due_date,
+                    duration: None,
+                },
+            )
+            .await?;
         let mut tx = self.tx.lock().await;
         sqlx::query_as::<_, WorkPackageRow>(
             r#"
@@ -1788,6 +1841,7 @@ impl PgCreateScope {
                 parent_id = $12,
                 version_id = $13,
                 category_id = $14,
+                duration = $17,
                 lock_version = lock_version + 1,
                 updated_at = NOW()
             WHERE id = $15 AND lock_version = $16
@@ -1805,8 +1859,8 @@ impl PgCreateScope {
         .bind(dto.priority_id)
         .bind(dto.assigned_to_id)
         .bind(dto.responsible_id)
-        .bind(dto.start_date)
-        .bind(dto.due_date)
+        .bind(dates.start_date)
+        .bind(dates.due_date)
         .bind(dto.estimated_hours)
         .bind(dto.done_ratio)
         .bind(dto.parent_id)
@@ -1814,6 +1868,7 @@ impl PgCreateScope {
         .bind(dto.category_id)
         .bind(id)
         .bind(dto.lock_version)
+        .bind(dates.duration)
         .fetch_optional(&mut **tx)
         .await
         .map_err(db_failure)?
@@ -2232,6 +2287,22 @@ impl CreationStore for PgCreateScope {
     }
 
     async fn insert_wp(&self, dto: CreateWorkPackageDto) -> Result<WorkPackageRow, StoreFailure> {
+        // The dates and the duration the INSERT carries: `set_calculated_attributes`
+        // (`set_attributes_service.rb:92-107`), before the save. A new work package does not
+        // ignore non-working days.
+        let dates = self
+            .derived_dates(
+                dto.type_id,
+                false,
+                dto.start_date.is_some(),
+                dto.due_date.is_some(),
+                scheduling::DateAttrs {
+                    start_date: dto.start_date,
+                    due_date: dto.due_date,
+                    duration: None,
+                },
+            )
+            .await?;
         let mut tx = self.tx.lock().await;
         sqlx::query_as::<_, WorkPackageRow>(
             r#"
@@ -2240,9 +2311,9 @@ impl CreationStore for PgCreateScope {
                 priority_id, author_id, assigned_to_id, responsible_id,
                 start_date, due_date, estimated_hours, done_ratio,
                 parent_id, version_id, category_id, lock_version,
-                created_at, updated_at, remaining_hours
+                created_at, updated_at, remaining_hours, duration
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0, NOW(), NOW(), $17
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0, NOW(), NOW(), $17, $18
             )
             RETURNING id, subject, description, project_id, type_id, status_id,
                       priority_id, author_id, assigned_to_id, responsible_id,
@@ -2260,14 +2331,15 @@ impl CreationStore for PgCreateScope {
         .bind(dto.author_id)
         .bind(dto.assigned_to_id)
         .bind(dto.responsible_id)
-        .bind(dto.start_date)
-        .bind(dto.due_date)
+        .bind(dates.start_date)
+        .bind(dates.due_date)
         .bind(dto.estimated_hours)
         .bind(dto.done_ratio)
         .bind(dto.parent_id)
         .bind(dto.version_id)
         .bind(dto.category_id)
         .bind(dto.remaining_hours)
+        .bind(dates.duration)
         .fetch_one(&mut **tx)
         .await
         .map_err(db_failure)
