@@ -409,6 +409,26 @@ async fn journey(db_url: String) -> Tally {
         "the form carries the committed lock_version"
     );
     let headers_a = headers_with_cookie(&cookie_a);
+    // Without a valid form token the same edit is refused and nothing is written: a token minted
+    // for another browser cookie, and no token at all.
+    let unchanged = row_json(&verify, id).await.unwrap();
+    let foreign_token = write_guard::token_for(SECRET, &write_guard::new_cookie_value(), LOGIN_A);
+    let mut missing = edit_form(&read, "forged edit", &token_a);
+    missing.remove(CSRF_FIELD);
+    for form in [edit_form(&read, "forged edit", &foreign_token), missing] {
+        let resp = update_core(&page_store, id, &ctx(&who_a, &headers_a), &form).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "a bad CSRF token is refused"
+        );
+        assert_eq!(
+            row_json(&verify, id).await.unwrap(),
+            unchanged,
+            "no write without a valid CSRF token"
+        );
+        t.row();
+    }
     let resp = update_core(
         &page_store,
         id,
