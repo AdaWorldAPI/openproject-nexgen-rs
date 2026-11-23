@@ -222,7 +222,7 @@ generated names drops exactly the generated matches. A run without the intake is
 must not match more than the run with it.
 
 
-### After ruff #156 (`79ed2baa007d`): coverage and completeness are two measures
+### After ruff #156: coverage and completeness are two measures
 
 ruff #156 renders keyword arguments (`into:`), reads `def self.included(base)` hooks (`base.class_eval`,
 `base.<macro>`), lists what it could not read in `ClassOre::unharvested`, merges `with_options` options and

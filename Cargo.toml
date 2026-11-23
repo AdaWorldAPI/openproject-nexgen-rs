@@ -115,6 +115,6 @@ url = "2.5"
 # URL than the one it patches, hence `www.github.com`. Keep `rev` equal to
 # `op_codegen_pipeline::RUFF_REV` (checked by `ruff_rev_matches_every_manifest`).
 [patch."https://github.com/AdaWorldAPI/ruff"]
-ruff_ruby_spo    = { git = "https://www.github.com/AdaWorldAPI/ruff", rev = "79ed2baa007d24000d651e23efc4a207122bd08d" }
-ruff_spo_triplet = { git = "https://www.github.com/AdaWorldAPI/ruff", rev = "79ed2baa007d24000d651e23efc4a207122bd08d" }
-ruff_spo_address = { git = "https://www.github.com/AdaWorldAPI/ruff", rev = "79ed2baa007d24000d651e23efc4a207122bd08d" }
+ruff_ruby_spo    = { git = "https://www.github.com/AdaWorldAPI/ruff", rev = "b3bdfb19c26ccde9c354d22597b4156d24542fc4" }
+ruff_spo_triplet = { git = "https://www.github.com/AdaWorldAPI/ruff", rev = "b3bdfb19c26ccde9c354d22597b4156d24542fc4" }
+ruff_spo_address = { git = "https://www.github.com/AdaWorldAPI/ruff", rev = "b3bdfb19c26ccde9c354d22597b4156d24542fc4" }

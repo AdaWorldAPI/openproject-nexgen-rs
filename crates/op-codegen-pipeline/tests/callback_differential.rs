@@ -53,7 +53,7 @@ use serde_json::Value;
 /// closure_tree) only where `vendor/bundle` holds them; CI unpacks them with
 /// `scripts/fetch-oracle-gems.sh`.
 ///
-/// Pinned ruff: 91 before ruff PR #156 (`79ed2baa007d`), 115 after it. 117
+/// Pinned ruff: 91 before ruff PR #156, 115 after it. 117
 /// with the Rails framework roots (the two
 /// `normalize_changed_in_place_attributes` entries come from
 /// `ActiveModel::Attributes::Normalization`).
