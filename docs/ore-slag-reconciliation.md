@@ -316,7 +316,7 @@ Separate denominators. Before means #138 as it was; after means this change.
 | `schedule_manually` block differential | not run | 1 discriminating record, 0 mismatches |
 | Callback ledger (`callback_differential`) | 115 / 157 matched, 42 slag (ruff 79ed2ba) | 154 / 157, 3 slag (ruff b3bdfb1, from #140; not this PR) |
 | Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | AssociationNotInCheckout 2, GeneratedUndecided 1 |
-| Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 16 definite, 13 UNKNOWN, 0 differ |
+| Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 29 definite, 0 UNKNOWN, 0 differ (ruff ce96aae `hidden_complete`; 16 / 13 between the #140 review fix and this change) |
 | Callback bodies executed | 0 | 0 |
 | Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | same; cited by the reconciliation, run separately |
 

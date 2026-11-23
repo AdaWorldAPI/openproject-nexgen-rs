@@ -129,7 +129,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -155,7 +155,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan); ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "revision": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan); ruff ce96aae35f230e35d34fba6515888c1273abc85d",
             "source_side_parsed": false
           }
         ],
@@ -538,7 +538,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -564,7 +564,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
             "source_side_parsed": true
           }
         ],
@@ -642,7 +642,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -668,7 +668,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
             "source_side_parsed": true
           }
         ],
@@ -746,7 +746,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -772,7 +772,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
             "source_side_parsed": true
           }
         ],
@@ -850,7 +850,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -876,7 +876,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
             "source_side_parsed": true
           }
         ],
@@ -954,7 +954,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -980,7 +980,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
             "source_side_parsed": true
           }
         ],
@@ -1058,7 +1058,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -1084,7 +1084,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
             "source_side_parsed": true
           }
         ],
@@ -1162,7 +1162,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -1188,7 +1188,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
             "source_side_parsed": true
           }
         ],
@@ -1266,7 +1266,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -1292,7 +1292,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
             "source_side_parsed": true
           }
         ],
@@ -1370,7 +1370,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4; admission_gen",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -1396,7 +1396,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
             "source_side_parsed": true
           }
         ],
@@ -1436,7 +1436,7 @@
     "charon": "AdaWorldAPI/charon c69e231ea8d71566d4b728e90c12efc432d11b8c",
     "charon_extractor": "AdaWorldAPI/ruff 52eb6c856824ccc7d5bc044d0cdb145a223a7e4e",
     "source_app": "openproject 2725194454c895dfab6ff2685d9688b0cba53068",
-    "source_extractor": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
+    "source_extractor": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
     "target": "nexgen 480f0f1a594c27d7583b4691aab39134321f4592"
   },
   "scorecard": {
