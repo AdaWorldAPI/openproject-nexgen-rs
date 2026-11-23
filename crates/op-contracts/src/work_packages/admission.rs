@@ -123,6 +123,21 @@ fn rule_for(attr: &str) -> Option<&'static AttrRule> {
     table::ATTRIBUTES.iter().find(|r| r.name == c)
 }
 
+/// The attribute a read-only error is reported under
+/// (`ModelContract#readonly_attributes_unchanged`,
+/// `app/contracts/model_contract.rb`: `ancestor_attribute_aliases[attribute] ||
+/// attribute`). The alias table is keyed by the `_id` column
+/// (`attribute_alias :project_phase_definition_id, :project_phase_id`).
+fn error_attribute(col: &str) -> String {
+    match col.strip_suffix("_id") {
+        Some(db) => table::ALIASES
+            .iter()
+            .find(|(_, d)| *d == db)
+            .map_or_else(|| col.to_string(), |(outside, _)| format!("{outside}_id")),
+        None => col.to_string(),
+    }
+}
+
 /// The column a submitted attribute changes: an association (`project`) changes its
 /// foreign key, which the contract declares as written (`attribute :project_id`).
 pub fn changed_column(attr: &str) -> String {
@@ -334,7 +349,7 @@ pub fn admit_create<U: UserContext + ?Sized>(
         let w = is_writable(user, project, &col, facts);
         match &w {
             Writable::No => errors
-                .entry(col.clone())
+                .entry(error_attribute(&col))
                 .or_default()
                 .push("error_readonly"),
             Writable::Unresolved(u) => unresolved = unresolved.take().or(Some(u.clone())),
@@ -462,6 +477,40 @@ mod tests {
         assert_eq!(a.errors["base"], ["error_unauthorized"]);
         assert_eq!(a.errors["subject"], ["error_readonly"]);
         assert_eq!(a.errors["project_id"], ["error_readonly"]);
+    }
+
+    /// `ModelContract#readonly_attributes_unchanged` reports a read-only column
+    /// under its alias's outside name (`ancestor_attribute_aliases[attribute]`,
+    /// `attribute_alias :project_phase_definition_id, :project_phase_id`,
+    /// `app/contracts/work_packages/base_contract.rb:101`). The permission
+    /// (`view_project_phases`) is the database attribute's, so a user holding only
+    /// `add_work_packages` is refused on the column but the error is keyed
+    /// `project_phase_id`.
+    #[test]
+    fn a_read_only_aliased_column_is_reported_under_its_outside_name() {
+        let a = admit_create(
+            &MEMBER,
+            Some(5),
+            &["project_phase_definition_id"],
+            &Facts(true, false, false),
+        );
+        assert_eq!(a.verdict, Verdict::Denied);
+        assert_eq!(a.errors["project_phase_id"], ["error_readonly"]);
+        assert!(!a.errors.contains_key("project_phase_definition_id"));
+        // The writable map stays keyed by the column that changed.
+        assert_eq!(a.writable["project_phase_definition_id"], Writable::No);
+
+        let viewer = User {
+            admin: false,
+            held: &["add_work_packages", "view_project_phases"],
+        };
+        let ok = admit_create(
+            &viewer,
+            Some(5),
+            &["project_phase_definition_id"],
+            &Facts(true, false, false),
+        );
+        assert_eq!(ok.verdict, Verdict::Admitted);
     }
 
     #[test]
