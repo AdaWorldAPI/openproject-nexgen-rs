@@ -14,6 +14,7 @@ BODY_NOT_STRUCTURED	op_services::work_packages::mutation::create
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::create_in
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::load_principal
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::load_project_active
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::CreationStore::parent_dates
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{AuthorizedUpdate}::commit
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{AuthorizedDelete}::commit
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_MutationStore_for_PgMutationStore::find_wp
@@ -26,6 +27,7 @@ BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgMutationStore::default_status
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgMutationStore::default_priority
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgMutationStore::status_is_closed
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgMutationStore::parent_dates
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgMutationStore::insert_wp
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgMutationStore::create_unit_of_work
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgMutationStore}::create_then
@@ -56,13 +58,20 @@ BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::default_status
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::default_priority
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::status_is_closed
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::parent_dates
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::insert_wp
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::create_unit_of_work
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::reschedule_after_create
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::reschedule_after_edit
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::user_may_view
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::reschedule_related
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::compute_schedule
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::save_scheduled
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::load_calendar
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::derived_dates
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::type_is_milestone
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::dates_of
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::raw_soonest_start
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::dates_before_save
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::load_sched
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::for_scheduling

@@ -162,7 +162,7 @@ async fn executed_db_work_package_journey() {
 
     match outcome {
         Ok(tally) => eprintln!(
-            "EXECUTED_DB: journey steps {}/13, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7), update journal: YES (steps 4, 8, 9: no-op, aggregated, new version, closed predecessor, rollback), ancestor totals: YES (step 10: derived hours and done ratio up a 3-level chain, excluded status, caused journals, aggregation, rollback), ancestor totals on update: YES (step 11: estimate and status edits, the edited parent's own totals aggregated into its journal, a move recomputing the former and the new chains, no write for a subject edit, rollback), switch to automatic mode and ignore_non_working_days: YES (step 12: only a direct manual parent with one child and no scheduling relation switches, the scheduling relations of automatic ancestors count and a manual ancestor cuts them off, the former parent is not switched, ignore_non_working_days follows the children except for manual ancestors, the former chain is recomputed), rescheduling: YES (step 13: the duration a create and an edit write in working or calendar days and kept by a moved successor, a successor with a lag moved across a weekend and back with an aggregated related-change journal, a manual successor and a manual parent untouched, calendar days for ignore_non_working_days, a non-working day shifting the result, a parent spanning its children, a create under an automatic parent, the former parent recomputed on a move, rollback, a stale rescheduled row a conflict)",
+            "EXECUTED_DB: journey steps {}/14, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7), update journal: YES (steps 4, 8, 9: no-op, aggregated, new version, closed predecessor, rollback), ancestor totals: YES (step 10: derived hours and done ratio up a 3-level chain, excluded status, caused journals, aggregation, rollback), ancestor totals on update: YES (step 11: estimate and status edits, the edited parent's own totals aggregated into its journal, a move recomputing the former and the new chains, no write for a subject edit, rollback), switch to automatic mode and ignore_non_working_days: YES (step 12: only a direct manual parent with one child and no scheduling relation switches, the scheduling relations of automatic ancestors count and a manual ancestor cuts them off, the former parent is not switched, ignore_non_working_days follows the children except for manual ancestors, the former chain is recomputed), rescheduling: YES (step 13: the duration a create and an edit write in working or calendar days and kept by a moved successor, a successor with a lag moved across a weekend and back with an aggregated related-change journal, a manual successor and a manual parent untouched, calendar days for ignore_non_working_days, a non-working day shifting the result, a parent spanning its children, a create under an automatic parent, the former parent recomputed on a move, rollback, a stale rescheduled row a conflict), dates before the save: YES (step 14: a new work package defaults its dates from the parent unless given, an edited automatic successor snaps to its predecessor's soonest start within the UPDATE with one save and one journal, a due date given by the edit stays, a manual one stays put, an edited automatic parent takes its children's span before the save, a work package moved under a parent with a predecessor takes the parent's soonest start)",
             tally.steps, tally.rows
         ),
         Err(panic) => std::panic::resume_unwind(panic),
@@ -2726,6 +2726,9 @@ async fn journey(db_url: String) -> Tally {
     // the test thread's stack with more locals in it.
     Box::pin(reschedule_step(&pool, &verify, &mut t)).await;
 
+    // ── 14. the dates an edit and a create take before the save ──────
+    Box::pin(dates_step(&pool, &verify, &mut t)).await;
+
     verify.close().await;
     db.close().await;
     t
@@ -3015,9 +3018,10 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         data_dates(&verify, pj[1].data_id).await,
         (Some(day("2026-03-16")), Some(day("2026-03-24")), Some(7))
     );
-    // Editing the automatic parent P's own due date: the rescheduling runs from P and restores
-    // the span of its children, so the update must answer with the committed dates, not the ones
-    // its UPDATE wrote (Codex review on #153).
+    // Editing the automatic parent P's own due date: `update_dates` runs from P before the save
+    // (set_attributes_service.rb:337-365) and restores the span of its children, so the UPDATE
+    // writes the span and the update answers with the committed dates, not the edited ones
+    // (Codex review on #153).
     let returned = set_due(p13, "2026-03-27")
         .await
         .expect("C moves P's own due date");
@@ -3038,9 +3042,13 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
             Some(day("2026-03-24")),
             Some(7),
             false,
-            3
+            2
         ),
-        "P is restored to its children's span Mon 16 .. Tue 24 (edit + reschedule: lock 1 -> 3)"
+        "P is restored to its children's span Mon 16 .. Tue 24 before the save: the UPDATE \
+         writes the dates P already had, lock 1 -> 2. Ruby saves nothing at all for this edit (a \
+         save with no changed attribute issues no UPDATE, so the lock stays 1); the port's \
+         documented no-op UPDATE bumps it once. There is no second save and no cause journal: \
+         the rescheduling after the save finds the dates unchanged"
     );
     t.rows += 2;
     // A manually scheduled parent does not: PM (manual) keeps Mon 16 .. Wed 18 when its child D2's
@@ -3380,6 +3388,397 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         "YR carries 1's reschedule, saved once"
     );
     assert_eq!(journals(&verify, yr13).await.len(), 2, "2 wrote no journal");
+    t.rows += 3;
+    t.steps += 1;
+}
+
+/// Step 14 of the journey (see the call).
+async fn dates_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
+    let (pool, verify) = (pool.clone(), verify.clone());
+    let caller_a = Caller::Actor {
+        login: LOGIN_A.into(),
+    };
+    let caller_c = Caller::Actor {
+        login: LOGIN_C.into(),
+    };
+
+    // ── 14. update_dates and the default dates, before the save ──────
+    // `WorkPackages::SetAttributesService#set_calculated_attributes` (set_attributes_service.rb:
+    // 111-127): a new work package takes its default dates from its parent (`set_default_start_date`
+    // and `set_default_due_date`, :241-257); a persisted one runs `update_dates` (:337-381) first,
+    // so the UPDATE itself writes the result. Dates are fixed: 2026-03-02 is a Monday, so 03-06 is
+    // a Friday, 03-07/08 the weekend, 03-09 a Monday. The working week is Monday to Friday.
+    // Work packages are seeded by a create (A's creation journal) and then given dates, a duration
+    // and a scheduling mode by plain SQL. Edits are C's, so each is a new journal version, not an
+    // aggregation into A's creation journal.
+    let day = |s: &str| -> chrono::NaiveDate { s.parse().expect("a date") };
+    let none_cause = serde_json::json!({});
+    #[allow(clippy::type_complexity)]
+    let seed_dated = |subject: &'static str,
+                      start: &'static str,
+                      due: &'static str,
+                      duration: i32,
+                      manual: bool| {
+        let (store, caller, pool) = (pg_store(&pool), caller_a.clone(), pool.clone());
+        async move {
+            let id = create_plain(&store, &caller, subject, None)
+                .await
+                .expect(subject);
+            sqlx::query(
+                "UPDATE work_packages SET start_date = $2::date, due_date = $3::date, \
+                     duration = $4, schedule_manually = $5 WHERE id = $1",
+            )
+            .bind(id)
+            .bind(start)
+            .bind(due)
+            .bind(duration)
+            .bind(manual)
+            .execute(&pool)
+            .await
+            .expect("seed dates");
+            id
+        }
+    };
+    let follows = |from: i64, to: i64| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query(
+                "INSERT INTO relations (from_id, to_id, relation_type, lag) \
+                 VALUES ($1, $2, 'follows', 0)",
+            )
+            .bind(from)
+            .bind(to)
+            .execute(&pool)
+            .await
+            .expect("a follows relation");
+        }
+    };
+    let child_of = |child: i64, parent: i64| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query("UPDATE work_packages SET parent_id = $2 WHERE id = $1")
+                .bind(child)
+                .bind(parent)
+                .execute(&pool)
+                .await
+                .expect("set parent");
+        }
+    };
+    // C edits `id`: the current values carried forward, a new subject and whatever `f` changes.
+    let edit = |id: i64, f: Box<dyn FnOnce(&mut op_db::UpdateWorkPackageDto) + Send>| {
+        let (store, caller) = (pg_store(&pool), caller_c.clone());
+        async move {
+            let cur = store.find_wp(id).await.unwrap().unwrap();
+            let mut dto = patch_subject(&cur, "renamed by C");
+            f(&mut dto);
+            store.update_unit_of_work(&caller, id, dto).await
+        }
+    };
+    let create_under = |subject: &'static str,
+                        parent: Option<i64>,
+                        start: Option<&'static str>,
+                        due: Option<&'static str>| {
+        let (store, caller) = (pg_store(&pool), caller_a.clone());
+        async move {
+            let mut p = WorkPackageParams::new().with_subject(subject);
+            p.project_id = Some(TARGET_PROJECT);
+            p.parent_id = parent;
+            p.start_date = start.map(|d| d.parse().expect("a date"));
+            p.due_date = due.map(|d| d.parse().expect("a date"));
+            mutation::create(&store, &caller, p)
+                .await
+                .map(|row| row.id)
+                .expect(subject)
+        }
+    };
+    let freeze = |id: i64| {
+        let verify = verify.clone();
+        async move {
+            (
+                row_json(&verify, id).await.unwrap(),
+                journal_state(&verify, id).await,
+            )
+        }
+    };
+
+    // A. The default dates of a create (the column default of `schedule_manually` is true, so the
+    // created work packages are manual and the rescheduling after a create leaves them alone). PA (manual) is Mon 16 .. Fri 20 and has a child, so a new
+    // child neither switches it to automatic mode nor moves it. `set_default_start_date`:
+    // `parent_start_earlier_than_due?` (16 < 20) gives the parent's start; `set_default_due_date`:
+    // `parent_due_later_than_start?` (20 > 16) gives its due date; the duration is then derived:
+    // Mon 16 .. Fri 20 is 5 working days.
+    let pa = seed_dated("dates PA", "2026-03-16", "2026-03-20", 5, true).await;
+    let pa_child = seed_dated("dates PA child", "2026-03-16", "2026-03-16", 1, true).await;
+    child_of(pa_child, pa).await;
+    let frozen_pa = freeze(pa).await;
+    let defaulted = create_under("dates defaulted", Some(pa), None, None).await;
+    assert_eq!(
+        dates(&verify, defaulted).await,
+        (
+            Some(day("2026-03-16")),
+            Some(day("2026-03-20")),
+            Some(5),
+            true,
+            0
+        ),
+        "no dates given: Mon 16 .. Fri 20 from the parent, 5 working days, not saved again"
+    );
+    // Only a start date given (Tue 17): it is kept, not replaced by the parent's Mon 16 (the
+    // `has_key?(:start_date)` guard, :242), and the due date is still defaulted, now against that
+    // start: 20 > 17, so Fri 20. Working days Tue 17 .. Fri 20: 4.
+    let start_only = create_under("dates start only", Some(pa), Some("2026-03-17"), None).await;
+    assert_eq!(
+        dates(&verify, start_only).await,
+        (
+            Some(day("2026-03-17")),
+            Some(day("2026-03-20")),
+            Some(4),
+            true,
+            0
+        ),
+        "a given start is kept, the due date is defaulted against it"
+    );
+    // Only a due date given (Wed 18): the start is defaulted against it (16 < 18) to Mon 16.
+    // Working days Mon 16 .. Wed 18: 3.
+    let due_only = create_under("dates due only", Some(pa), None, Some("2026-03-18")).await;
+    assert_eq!(
+        dates(&verify, due_only).await,
+        (
+            Some(day("2026-03-16")),
+            Some(day("2026-03-18")),
+            Some(3),
+            true,
+            0
+        ),
+        "a given due date is kept, the start is defaulted against it"
+    );
+    // Both given (Wed 18, Thu 19): nothing is defaulted. Duration 2.
+    let both = create_under(
+        "dates both",
+        Some(pa),
+        Some("2026-03-18"),
+        Some("2026-03-19"),
+    )
+    .await;
+    assert_eq!(
+        dates(&verify, both).await,
+        (
+            Some(day("2026-03-18")),
+            Some(day("2026-03-19")),
+            Some(2),
+            true,
+            0
+        ),
+        "both dates given: nothing defaulted"
+    );
+    // No parent: no dates (`work_package_startdate_is_adddate` is off by default,
+    // definition.rb:1545-1547, so "today" is never the start date).
+    let orphan = create_under("dates no parent", None, None, None).await;
+    assert_eq!(
+        dates(&verify, orphan).await,
+        (None, None, None, true, 0),
+        "no parent, no dates"
+    );
+    assert_eq!(
+        freeze(pa).await,
+        frozen_pa,
+        "the manual parent is neither moved nor journaled by its new children"
+    );
+    t.rows += 6;
+
+    // B. An automatically scheduled successor edited: `update_dates_from_self` (:367-375). PRED
+    // (manual) is Mon 2 .. Fri 6; SUCC follows it with lag 0 and sits at stale dates, Mon 2 ..
+    // Tue 3, duration 2. The soonest start is the day after Fri 6, Sat 7, which is no working day:
+    // Mon 9; `new_due_date` keeps the duration (it is assignable, so `reuse_current_due_date?` is
+    // false): Mon 9, Tue 10. C renames SUCC; the UPDATE writes the subject and Mon 9 .. Tue 10
+    // (lock 0 -> 1). The rescheduling after the save finds nothing left to move (:149-161 reads
+    // the saved dates), so there is no second save: lock 1, and one new journal (version 2, C's)
+    // with no cause (the dates were taken by the edit itself, not by a rescheduling).
+    let pred = seed_dated("dates PRED", "2026-03-02", "2026-03-06", 5, true).await;
+    let succ = seed_dated("dates SUCC", "2026-03-02", "2026-03-03", 2, false).await;
+    follows(succ, pred).await;
+    edit(succ, Box::new(|_| {})).await.expect("C renames SUCC");
+    assert_eq!(
+        dates(&verify, succ).await,
+        (
+            Some(day("2026-03-09")),
+            Some(day("2026-03-10")),
+            Some(2),
+            false,
+            1
+        ),
+        "SUCC snapped to Mon 9 .. Tue 10 by its own UPDATE, saved once"
+    );
+    let sj = journals(&verify, succ).await;
+    assert_eq!(
+        (sj.len(), sj[1].version, sj[1].user_id, &sj[1].cause),
+        (2, 2, USER_C, &none_cause),
+        "A's creation journal, then one journal of C's edit: no cause, no second journal"
+    );
+    assert_eq!(
+        data_dates(&verify, sj[1].data_id).await,
+        (Some(day("2026-03-09")), Some(day("2026-03-10")), Some(2))
+    );
+    assert_eq!(
+        data_subject(&verify, sj[1].data_id).await.as_deref(),
+        Some("renamed by C")
+    );
+    t.rows += 4;
+
+    // The same edit of a manually scheduled work package with a start date changes no date
+    // (`new_start_date` returns nil, :484-489): MS follows PRED too, at stale Mon 2 .. Tue 3.
+    let ms = seed_dated("dates MS", "2026-03-02", "2026-03-03", 2, true).await;
+    follows(ms, pred).await;
+    edit(ms, Box::new(|_| {})).await.expect("C renames MS");
+    assert_eq!(
+        dates(&verify, ms).await,
+        (
+            Some(day("2026-03-02")),
+            Some(day("2026-03-03")),
+            Some(2),
+            true,
+            1
+        ),
+        "a manual work package keeps its dates: only the subject changed"
+    );
+    t.rows += 1;
+
+    // A due date given by the edit stays (`due_date_came_from_user?`, :508-509): SUCC2 (same
+    // stale dates, follows PRED) gets due Fri 20. The start is the soonest start, Mon 9; the
+    // duration is derived from the two: Mon 9 .. Fri 13 is 5, Mon 16 .. Fri 20 is 5: 10. Not the
+    // duration-based Tue 10. The rescheduling after the save computes Mon 9 + 10 working days =
+    // Fri 20 as well: no second save.
+    let succ2 = seed_dated("dates SUCC2", "2026-03-02", "2026-03-03", 2, false).await;
+    follows(succ2, pred).await;
+    edit(
+        succ2,
+        Box::new(|d| d.due_date = Some("2026-03-20".parse().expect("a date"))),
+    )
+    .await
+    .expect("C gives SUCC2 a due date");
+    assert_eq!(
+        dates(&verify, succ2).await,
+        (
+            Some(day("2026-03-09")),
+            Some(day("2026-03-20")),
+            Some(10),
+            false,
+            1
+        ),
+        "the given due date stays, the start is the soonest start, the duration follows"
+    );
+    assert_eq!(journals(&verify, succ2).await.len(), 2);
+    t.rows += 2;
+
+    // C. An automatically scheduled parent takes its children's span before the save
+    // (`update_dates_from_rescheduled_children`, :346-365). P (automatic) has C1 Mon 16 .. Tue 17
+    // and C2 Wed 18 .. Fri 20 (both manual), and is Mon 16 .. Fri 20 (5). C renames P and moves
+    // its due date to Fri 27: the reschedule inside `set_calculated_attributes` takes the span
+    // of the children back (earliest Mon 16, latest Fri 20), so the UPDATE writes the subject
+    // only: lock 0 -> 1, one new journal with no cause, and no journal data row ever holds the
+    // edited Fri 27. (Before this was ported the UPDATE wrote Fri 27 and a rescheduling restored
+    // the span: two saves, a related-change cause.)
+    let p = seed_dated("dates P", "2026-03-16", "2026-03-20", 5, false).await;
+    let c1 = seed_dated("dates C1", "2026-03-16", "2026-03-17", 2, true).await;
+    let c2 = seed_dated("dates C2", "2026-03-18", "2026-03-20", 3, true).await;
+    child_of(c1, p).await;
+    child_of(c2, p).await;
+    let returned = edit(
+        p,
+        Box::new(|d| d.due_date = Some("2026-03-27".parse().expect("a date"))),
+    )
+    .await
+    .expect("C moves P's due date");
+    assert_eq!(
+        dates(&verify, p).await,
+        (
+            Some(day("2026-03-16")),
+            Some(day("2026-03-20")),
+            Some(5),
+            false,
+            1
+        ),
+        "P's own due date edit is overridden by its children's span within the UPDATE"
+    );
+    assert_eq!(
+        (returned.due_date, returned.lock_version),
+        (Some(day("2026-03-20")), 1)
+    );
+    let pj = journals(&verify, p).await;
+    assert_eq!(
+        (pj.len(), pj[1].user_id, &pj[1].cause),
+        (2, USER_C, &none_cause),
+        "one journal for the edit, no related-change cause"
+    );
+    assert_eq!(
+        data_dates(&verify, pj[1].data_id).await,
+        (Some(day("2026-03-16")), Some(day("2026-03-20")), Some(5))
+    );
+    assert_eq!(
+        count(
+            &verify,
+            "SELECT count(*) FROM work_package_journals WHERE due_date = '2026-03-27'"
+        )
+        .await,
+        0,
+        "the edited due date was never written, not even transiently"
+    );
+    t.rows += 5;
+
+    // An automatic parent edited without a date or parent change is not rescheduled
+    // (`SetScheduleService#call` acts only for start_date, due_date, parent, parent_id or
+    // schedule_manually among the changed attributes, set_schedule_service.rb:42-44): PS keeps its
+    // stale Mon 2 .. Tue 3 (2) although its children span Mon 16 .. Fri 20.
+    let ps = seed_dated("dates PS", "2026-03-02", "2026-03-03", 2, false).await;
+    let s1 = seed_dated("dates S1", "2026-03-16", "2026-03-17", 2, true).await;
+    let s2 = seed_dated("dates S2", "2026-03-18", "2026-03-20", 3, true).await;
+    child_of(s1, ps).await;
+    child_of(s2, ps).await;
+    edit(ps, Box::new(|_| {})).await.expect("C renames PS");
+    assert_eq!(
+        dates(&verify, ps).await,
+        (
+            Some(day("2026-03-02")),
+            Some(day("2026-03-03")),
+            Some(2),
+            false,
+            1
+        ),
+        "a subject edit does not reschedule a parent"
+    );
+    t.rows += 1;
+
+    // D. A work package moved under a parent that has a predecessor
+    // (`new_start_date_from_parent`, :497-504). NP (automatic, Mon 9 .. Tue 10, 2) follows PRED
+    // (due Fri 6): its soonest start is Mon 9. LEAF (automatic, stale Mon 2 .. Tue 3, duration 2,
+    // no predecessor of its own) is moved under NP by C: the parent changed, so the edit takes
+    // NP's soonest start, Mon 9, and keeps its duration: Mon 9 .. Tue 10, in the same UPDATE as
+    // the new parent (lock 0 -> 1, one journal of C's, no cause). NP spans its only child, the
+    // dates it already has: nothing of NP is saved.
+    let np = seed_dated("dates NP", "2026-03-09", "2026-03-10", 2, false).await;
+    follows(np, pred).await;
+    let leaf = seed_dated("dates LEAF", "2026-03-02", "2026-03-03", 2, false).await;
+    let frozen_np = freeze(np).await;
+    edit(leaf, Box::new(move |d| d.parent_id = Some(np)))
+        .await
+        .expect("C moves LEAF under NP");
+    assert_eq!(
+        dates(&verify, leaf).await,
+        (
+            Some(day("2026-03-09")),
+            Some(day("2026-03-10")),
+            Some(2),
+            false,
+            1
+        ),
+        "LEAF takes NP's soonest start in its own UPDATE"
+    );
+    let lj = journals(&verify, leaf).await;
+    assert_eq!(
+        (lj.len(), lj[1].user_id, &lj[1].cause),
+        (2, USER_C, &none_cause)
+    );
+    assert_eq!(freeze(np).await, frozen_np, "NP is not saved");
     t.rows += 3;
     t.steps += 1;
 }

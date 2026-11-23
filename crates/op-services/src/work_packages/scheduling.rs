@@ -257,6 +257,117 @@ pub fn derive_dates(
     }
 }
 
+/// `Setting.work_package_startdate_is_adddate` at its OpenProject default
+/// (`work_package_startdate_is_adddate: { default: false }`,
+/// `config/constants/settings/definition.rb:1545-1547`). This schema has no settings table, so the
+/// default is the setting. While it is `false` the "today" branch of [`default_dates_for_new`] is
+/// never taken by the store.
+pub const WORK_PACKAGE_STARTDATE_IS_ADDDATE: bool = false;
+
+/// The start and due date a new work package takes when the caller left them out:
+/// `set_default_start_date` and `set_default_due_date` (`set_attributes_service.rb:241-257`), run
+/// by `set_default_attributes` for a new record only (:217-223), start date first.
+///
+/// `start_given` / `due_given` are Ruby's `attributes.has_key?(:start_date)` / `:due_date` (:242,
+/// :252): a date the caller gave is never defaulted. The create params cannot tell an absent key
+/// from a key given as `nil`, so a date is "given" exactly when it is `Some`; a literal `nil` is
+/// treated as absent (Ruby would leave it `nil`). `parent` is the dates of `work_package.parent`
+/// (`None` without a parent, `Some((None, None))` for a parent without dates).
+///
+/// * start date (`||=`, so only while it is `nil`): the parent's start date when
+///   `parent_start_earlier_than_due?` (:542-547), else today when `adddate` is set, else `nil`;
+/// * due date: the parent's due date when `parent_due_later_than_start?` (:549-554), which reads
+///   the start date the first step just assigned.
+pub fn default_dates_for_new(
+    start: Option<NaiveDate>,
+    due: Option<NaiveDate>,
+    start_given: bool,
+    due_given: bool,
+    parent: Option<(Option<NaiveDate>, Option<NaiveDate>)>,
+    adddate: bool,
+    today: NaiveDate,
+) -> (Option<NaiveDate>, Option<NaiveDate>) {
+    let (parent_start, parent_due) = parent.unwrap_or((None, None));
+    let mut start = start;
+    let mut due = due;
+    if !start_given && start.is_none() {
+        // `parent_start_earlier_than_due?`: (start && !due) || (due && start && start < due),
+        // with `due = work_package.due_date || parent&.due_date`.
+        let effective_due = due.or(parent_due);
+        let earlier = match (parent_start, effective_due) {
+            (Some(_), None) => true,
+            (Some(s), Some(d)) => s < d,
+            _ => false,
+        };
+        start = if earlier {
+            parent_start
+        } else if adddate {
+            Some(today)
+        } else {
+            None
+        };
+    }
+    if !due_given && due.is_none() {
+        // `parent_due_later_than_start?`: (due && !start) || (due && start && due > start), with
+        // `start = work_package.start_date || parent&.start_date`.
+        let effective_start = start.or(parent_start);
+        let later = match (parent_due, effective_start) {
+            (Some(_), None) => true,
+            (Some(d), Some(s)) => d > s,
+            _ => false,
+        };
+        if later {
+            due = parent_due;
+        }
+    }
+    (start, due)
+}
+
+/// `update_dates_from_self` (`set_attributes_service.rb:367-375`) of an UPDATE, for a work package
+/// without children: the `(start, due)` it takes, or `None` when `new_start_date` finds nothing
+/// (the dates stay as assigned). `current` is the work package as the edit left it in memory.
+///
+/// * `new_start_date` (:482-495): a manually scheduled work package with a start date keeps its
+///   dates (`None`); without one it takes the soonest working day of `parent_soonest`
+///   (`new_start_date_from_parent`, :497-504); an automatically scheduled one takes the soonest
+///   working day of the later of `parent_soonest` and `own_soonest` (`soonest_start`,
+///   `scheduling_rules.rb:61-71`). Both are the raw maxima over the follows relations (the
+///   snapping to a working day is monotone, so snapping the later of two equals the later of two
+///   snapped).
+/// * `new_due_date` (:506-516): the due date the caller gave stays (`due_came_from_user`);
+///   else the current due date when there is one and the duration cannot be used (:518-524; the
+///   caller never writes `ignore_non_working_days`, so its `came_from_user` is false), but never
+///   before the start; else the duration's due date; else `nil`.
+pub fn update_dates_from_self(
+    calendar: &Calendar,
+    ignore_non_working_days: bool,
+    schedule_manually: bool,
+    current: DateAttrs,
+    due_came_from_user: bool,
+    parent_soonest: Option<NaiveDate>,
+    own_soonest: Option<NaiveDate>,
+) -> Option<(NaiveDate, Option<NaiveDate>)> {
+    let days = Days::for_work_package(ignore_non_working_days, calendar);
+    let min_start = if schedule_manually {
+        if current.start_date.is_some() {
+            return None;
+        }
+        days.soonest_working_day(parent_soonest?)
+    } else {
+        let later = [parent_soonest, own_soonest].into_iter().flatten().max()?;
+        days.soonest_working_day(later)
+    };
+    let assignable = current.duration.filter(|d| *d > 0);
+    let due = if due_came_from_user {
+        current.due_date
+    } else if let Some(due) = current.due_date.filter(|_| assignable.is_none()) {
+        Some(min_start.max(due))
+    } else {
+        assignable.map(|d| days.due_date(min_start, d).unwrap_or(min_start))
+    };
+    Some((min_start, due))
+}
+
 /// A work package as scheduling sees it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SchedWp {
@@ -760,6 +871,261 @@ mod tests {
         assert_eq!(days.start_date(d("2026-03-08"), 1), d("2026-03-06"));
         let all = Days::for_work_package(true, &cal);
         assert_eq!(all.start_date(d("2026-03-10"), 3), d("2026-03-08"));
+    }
+
+    #[test]
+    fn a_new_work_package_defaults_its_dates_from_the_parent() {
+        let today = d("2026-03-02");
+        let parent =
+            |s: &str, u: &str| Some(((!s.is_empty()).then(|| d(s)), (!u.is_empty()).then(|| d(u))));
+        let run = |sg: bool, dg: bool, s: &str, u: &str, p, adddate| {
+            default_dates_for_new(
+                (!s.is_empty()).then(|| d(s)),
+                (!u.is_empty()).then(|| d(u)),
+                sg,
+                dg,
+                p,
+                adddate,
+                today,
+            )
+        };
+        let some = |s: &str| Some(d(s));
+        // Parent Mon 16 .. Fri 20: start (16 < 20) and due (20 > 16) are both taken.
+        assert_eq!(
+            run(
+                false,
+                false,
+                "",
+                "",
+                parent("2026-03-16", "2026-03-20"),
+                false
+            ),
+            (some("2026-03-16"), some("2026-03-20"))
+        );
+        // A parent with a start date only: the start is taken (`start && !due`), no due.
+        assert_eq!(
+            run(false, false, "", "", parent("2026-03-16", ""), false),
+            (some("2026-03-16"), None)
+        );
+        // A parent with a due date only: no start (no start to be earlier than anything), the due
+        // is taken (`due && !start`).
+        assert_eq!(
+            run(false, false, "", "", parent("", "2026-03-20"), false),
+            (None, some("2026-03-20"))
+        );
+        // One-day parent: start < due and due > start are both strict.
+        assert_eq!(
+            run(
+                false,
+                false,
+                "",
+                "",
+                parent("2026-03-16", "2026-03-16"),
+                false
+            ),
+            (None, None)
+        );
+        // A given start is kept, and the due is judged against it: 20 > 18.
+        assert_eq!(
+            run(
+                true,
+                false,
+                "2026-03-18",
+                "",
+                parent("2026-03-16", "2026-03-20"),
+                false
+            ),
+            (some("2026-03-18"), some("2026-03-20"))
+        );
+        // A given due is kept, and the start is judged against it: 16 < 18.
+        assert_eq!(
+            run(
+                false,
+                true,
+                "",
+                "2026-03-18",
+                parent("2026-03-16", "2026-03-20"),
+                false
+            ),
+            (some("2026-03-16"), some("2026-03-18"))
+        );
+        // A given start later than the parent's due: the due is not taken (20 > 25 is false).
+        assert_eq!(
+            run(
+                true,
+                false,
+                "2026-03-25",
+                "",
+                parent("2026-03-16", "2026-03-20"),
+                false
+            ),
+            (some("2026-03-25"), None)
+        );
+        // Both given: nothing is defaulted, not even a given nil.
+        assert_eq!(
+            run(
+                true,
+                true,
+                "",
+                "",
+                parent("2026-03-16", "2026-03-20"),
+                false
+            ),
+            (None, None)
+        );
+        // No parent: nothing, unless `work_package_startdate_is_adddate` gives today.
+        assert_eq!(run(false, false, "", "", None, false), (None, None));
+        assert_eq!(
+            run(false, false, "", "", None, true),
+            (some("2026-03-02"), None)
+        );
+        // The parent's start wins over today; a parent without a usable start falls back to it.
+        assert_eq!(
+            run(
+                false,
+                false,
+                "",
+                "",
+                parent("2026-03-16", "2026-03-20"),
+                true
+            )
+            .0,
+            some("2026-03-16")
+        );
+        assert_eq!(
+            run(false, false, "", "", parent("", ""), true).0,
+            some("2026-03-02")
+        );
+    }
+
+    #[test]
+    fn an_update_pulls_an_automatic_work_package_to_its_soonest_start() {
+        let cal = Calendar::default();
+        let attrs = |s: &str, u: &str, dur: Option<i32>| DateAttrs {
+            start_date: (!s.is_empty()).then(|| d(s)),
+            due_date: (!u.is_empty()).then(|| d(u)),
+            duration: dur,
+        };
+        // Sat 7 (raw soonest) is Mon 9; the duration 2 keeps Mon 9 .. Tue 10.
+        assert_eq!(
+            update_dates_from_self(
+                &cal,
+                false,
+                false,
+                attrs("2026-03-02", "2026-03-03", Some(2)),
+                false,
+                None,
+                Some(d("2026-03-07")),
+            ),
+            Some((d("2026-03-09"), Some(d("2026-03-10"))))
+        );
+        // Calendar days keep Sat 7 and give Sat 7 .. Sun 8.
+        assert_eq!(
+            update_dates_from_self(
+                &cal,
+                true,
+                false,
+                attrs("2026-03-02", "2026-03-03", Some(2)),
+                false,
+                None,
+                Some(d("2026-03-07")),
+            ),
+            Some((d("2026-03-07"), Some(d("2026-03-08"))))
+        );
+        // The later of the parent's and the own soonest start wins: Tue 10 over Mon 9.
+        assert_eq!(
+            update_dates_from_self(
+                &cal,
+                false,
+                false,
+                attrs("2026-03-02", "2026-03-03", Some(2)),
+                false,
+                Some(d("2026-03-10")),
+                Some(d("2026-03-09")),
+            )
+            .map(|r| r.0),
+            Some(d("2026-03-10"))
+        );
+        // No duration: the current due date stays but not before the start (Mar 3 < Mar 9).
+        assert_eq!(
+            update_dates_from_self(
+                &cal,
+                false,
+                false,
+                attrs("2026-03-02", "2026-03-03", None),
+                false,
+                None,
+                Some(d("2026-03-09")),
+            ),
+            Some((d("2026-03-09"), Some(d("2026-03-09"))))
+        );
+        // A due date the caller gave stays as given.
+        assert_eq!(
+            update_dates_from_self(
+                &cal,
+                false,
+                false,
+                attrs("2026-03-02", "2026-03-20", Some(2)),
+                true,
+                None,
+                Some(d("2026-03-09")),
+            ),
+            Some((d("2026-03-09"), Some(d("2026-03-20"))))
+        );
+        // Nothing to follow: nothing taken.
+        assert_eq!(
+            update_dates_from_self(
+                &cal,
+                false,
+                false,
+                attrs("2026-03-02", "2026-03-03", Some(2)),
+                false,
+                None,
+                None,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn an_update_leaves_a_manual_work_package_with_a_start_date_alone() {
+        let cal = Calendar::default();
+        let with_start = DateAttrs {
+            start_date: Some(d("2026-03-02")),
+            due_date: Some(d("2026-03-03")),
+            duration: Some(2),
+        };
+        assert_eq!(
+            update_dates_from_self(
+                &cal,
+                false,
+                true,
+                with_start,
+                false,
+                Some(d("2026-03-09")),
+                Some(d("2026-03-09")),
+            ),
+            None
+        );
+        // Without a start date it inherits the parent's soonest start (:486-491), the own
+        // relations are not consulted: Sat 7 -> Mon 9, no due date to give.
+        let no_start = DateAttrs {
+            start_date: None,
+            due_date: None,
+            duration: None,
+        };
+        assert_eq!(
+            update_dates_from_self(
+                &cal,
+                false,
+                true,
+                no_start,
+                false,
+                Some(d("2026-03-07")),
+                Some(d("2026-03-20")),
+            ),
+            Some((d("2026-03-09"), None))
+        );
     }
 
     fn wp(
