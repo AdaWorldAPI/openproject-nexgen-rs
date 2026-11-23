@@ -617,7 +617,7 @@ name no application. An application supplies:
    - `[[residual]]` per key and `[residual_default.<SlagReason>]` templates: the
      proposal fields, owner stage, sub-reason, source location and revision specs.
 3. App evaluators in its test module: the named predicates, witnesses and
-   generators the config refers to. `ore_slag_config::load` rejects unknown keys
+   generators the config refers to. `OreSlagConfig::load` rejects unknown keys
    and duplicate claim or residual keys.
 4. Runtime attachments from its own oracle traces.
 5. A ledger path, checked like this one.

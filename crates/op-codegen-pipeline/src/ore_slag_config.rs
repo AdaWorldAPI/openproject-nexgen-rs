@@ -88,6 +88,10 @@ pub enum ConfigError {
         error: String,
     },
     Evaluator(String),
+    /// The `[[learned]]` block is misplaced: the marker line is missing where
+    /// required, repeated, or hand-written tables sit after it or `[[learned]]`
+    /// entries before it.
+    Learned(String),
 }
 
 impl fmt::Display for ConfigError {
@@ -106,6 +110,7 @@ impl fmt::Display for ConfigError {
             ConfigError::UnknownName { what, name } => write!(f, "unknown {what}: {name}"),
             ConfigError::Render { key, error } => write!(f, "{key}: {error}"),
             ConfigError::Evaluator(e) => write!(f, "{e}"),
+            ConfigError::Learned(e) => write!(f, "[[learned]] block: {e}"),
         }
     }
 }
@@ -298,8 +303,16 @@ pub struct LocateCfg {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum LocationCfg {
-    Locate { locate: LocateCfg },
+    Locate(LocateWrap),
     Name(String),
+}
+
+/// `{ locate = { … } }`; any other key is refused (an untagged enum variant would
+/// otherwise ignore it).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocateWrap {
+    pub locate: LocateCfg,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -325,7 +338,7 @@ pub struct ResidualCfg {
 
 impl ResidualCfg {
     fn todo_fields(&self) -> bool {
-        let loc_todo = matches!(&self.source_location, LocationCfg::Name(n) if n == TODO);
+        let loc_todo = matches!(&self.source_location, LocationCfg::Name(n) if n.contains(TODO));
         loc_todo
             || [
                 &self.missing_fact,
@@ -337,7 +350,7 @@ impl ResidualCfg {
                 &self.source_revision,
             ]
             .iter()
-            .any(|s| s.as_str() == TODO)
+            .any(|s| s.contains(TODO))
     }
 }
 
@@ -708,7 +721,7 @@ impl OreSlagConfig {
         };
         let sub = |s: &str| substitute(s, charon.as_deref()).map_err(bad);
         let location = match &t.source_location {
-            LocationCfg::Locate { locate: l } => {
+            LocationCfg::Locate(LocateWrap { locate: l }) => {
                 (ctx.locate)(&l.root, &l.file, &l.needle).map_err(bad)?
             }
             LocationCfg::Name(n) => match n.as_str() {
@@ -858,16 +871,68 @@ pub fn render_learned(entries: &[(String, String, String)]) -> String {
     out
 }
 
-/// The file's text from the marker to the end, if the marker is there.
-pub fn learned_tail(text: &str) -> Option<&str> {
-    text.find(LEARNED_MARKER).map(|at| &text[at..])
+/// The byte offset of the marker line: a line equal to [`LEARNED_MARKER`], not
+/// text that merely contains it (in a string or a comment). Refused when it occurs
+/// more than once, when anything but `[[learned]]` tables follows it, or when a
+/// `[[learned]]` table precedes it: each would make a rewrite drop or ignore
+/// hand-written data.
+pub fn marker_at(text: &str) -> Result<Option<usize>, ConfigError> {
+    let mut found = Vec::new();
+    let mut at = 0;
+    for line in text.split_inclusive('\n') {
+        if line.trim_end_matches(['\n', '\r']) == LEARNED_MARKER {
+            found.push(at);
+        }
+        at += line.len();
+    }
+    let Some(&at) = found.first() else {
+        if text
+            .parse::<toml::Table>()
+            .is_ok_and(|t| t.contains_key("learned"))
+        {
+            return Err(ConfigError::Learned(
+                "[[learned]] tables without the marker line".into(),
+            ));
+        }
+        return Ok(None);
+    };
+    if found.len() > 1 {
+        return Err(ConfigError::Learned(format!(
+            "the marker line occurs {} times",
+            found.len()
+        )));
+    }
+    let (head, tail) = text.split_at(at);
+    let tail_table: toml::Table = tail
+        .parse()
+        .map_err(|e| ConfigError::Learned(format!("text after the marker does not parse: {e}")))?;
+    if let Some(other) = tail_table.keys().find(|k| k.as_str() != "learned") {
+        return Err(ConfigError::Learned(format!(
+            "hand-written `{other}` after the marker would be dropped by a rewrite; move it above"
+        )));
+    }
+    if head
+        .parse::<toml::Table>()
+        .is_ok_and(|t| t.contains_key("learned"))
+    {
+        return Err(ConfigError::Learned(
+            "[[learned]] tables above the marker are never checked; move them below".into(),
+        ));
+    }
+    Ok(Some(at))
 }
 
-/// `text` with everything from the marker on replaced by `block` (which starts with
-/// the marker, as [`render_learned`] returns it). Without a marker the block is
-/// appended. The text before the marker is untouched.
-pub fn rewrite_learned(text: &str, block: &str) -> String {
-    match text.find(LEARNED_MARKER) {
+/// The file's text from the marker line to the end, if the marker is there.
+pub fn learned_tail(text: &str) -> Result<Option<&str>, ConfigError> {
+    Ok(marker_at(text)?.map(|at| &text[at..]))
+}
+
+/// `text` with everything from the marker line on replaced by `block` (which starts
+/// with the marker, as [`render_learned`] returns it). Without a marker the block is
+/// appended. The text before the marker is untouched; a misplaced block is refused
+/// ([`marker_at`]).
+pub fn rewrite_learned(text: &str, block: &str) -> Result<String, ConfigError> {
+    Ok(match marker_at(text)? {
         Some(at) => format!("{}{block}", &text[..at]),
         None => {
             let sep = if text.is_empty() || text.ends_with("\n\n") {
@@ -879,18 +944,18 @@ pub fn rewrite_learned(text: &str, block: &str) -> String {
             };
             format!("{text}{sep}{block}")
         }
-    }
+    })
 }
 
 /// `text` with a stub `[[residual]]` for `key` inserted before the `[[learned]]`
 /// block: every proposal field `"TODO"`, the owner the reason's default.
-pub fn append_stub(text: &str, key: &str, reason: SlagReason) -> String {
+pub fn append_stub(text: &str, key: &str, reason: SlagReason) -> Result<String, ConfigError> {
     let stub = format!(
         "[[residual]]\nkey = {}\nmissing_fact = \"{TODO}\"\nsupplier = \"{TODO}\"\nsupplier_exists = false\nclaim_change = \"{TODO}\"\nvalidating_evidence = \"{TODO}\"\nnegative_control = \"{TODO}\"\nsub_reason = \"{TODO}\"\nowner_stage = {}\nsource_location = \"{TODO}\"\nsource_revision = \"{TODO}\"\n",
         toml_string(key),
         toml_string(&format!("{:?}", OwnerStage::default_for(reason))),
     );
-    match text.find(LEARNED_MARKER) {
+    Ok(match marker_at(text)? {
         Some(at) => format!("{}{stub}\n{}", &text[..at], &text[at..]),
         None => {
             let sep = if text.ends_with("\n\n") || text.is_empty() {
@@ -902,7 +967,7 @@ pub fn append_stub(text: &str, key: &str, reason: SlagReason) -> String {
             };
             format!("{text}{sep}{stub}")
         }
-    }
+    })
 }
 
 /// Write `text` to `path` through a rename, so a concurrent reader never sees half a
@@ -1268,33 +1333,37 @@ charon_residual_symbol = "a::b"
         let block = render_learned(&entries);
         assert!(block.starts_with(LEARNED_MARKER));
         let hand_written = format!("{BASE}\n");
-        let file = rewrite_learned(&hand_written, &block);
+        let file = rewrite_learned(&hand_written, &block).unwrap();
         assert!(file.starts_with(&hand_written));
-        assert_eq!(learned_tail(&file), Some(block.as_str()));
+        assert_eq!(learned_tail(&file).unwrap(), Some(block.as_str()));
         // The written file parses, and the learned entries round-trip.
         let cfg = OreSlagConfig::parse(&file).unwrap();
         assert_eq!(cfg.learned.len(), 2);
         assert_eq!(cfg.learned[1].key, "q\"uote");
         // A second rewrite replaces the tail and leaves the head byte for byte.
         let next = render_learned(&entries[..1]);
-        let again = rewrite_learned(&file, &next);
+        let again = rewrite_learned(&file, &next).unwrap();
         assert!(again.starts_with(&hand_written));
-        assert_eq!(learned_tail(&again), Some(next.as_str()));
-        assert_ne!(learned_tail(&again), learned_tail(&file));
+        assert_eq!(learned_tail(&again).unwrap(), Some(next.as_str()));
+        assert_ne!(learned_tail(&again).unwrap(), learned_tail(&file).unwrap());
     }
 
     #[test]
     fn a_stub_is_inserted_before_the_learned_block_and_blocks_until_filled() {
-        let file = rewrite_learned(&format!("{BASE}\n"), &render_learned(&[]));
+        let file = rewrite_learned(&format!("{BASE}\n"), &render_learned(&[])).unwrap();
         let stubbed = append_stub(
             &file,
             "app/Thing/make/admission/m1/e1",
             SlagReason::RubySideNotHarvested,
-        );
+        )
+        .unwrap();
         let at_stub = stubbed.find("[[residual]]").expect("stub");
         let at_marker = stubbed.find(LEARNED_MARKER).expect("marker");
         assert!(at_stub < at_marker, "the learned block stays last");
-        assert_eq!(learned_tail(&stubbed), learned_tail(&file));
+        assert_eq!(
+            learned_tail(&stubbed).unwrap(),
+            learned_tail(&file).unwrap()
+        );
         let cfg = OreSlagConfig::parse(&stubbed).unwrap();
         assert_eq!(cfg.todo_keys(), ["app/Thing/make/admission/m1/e1"]);
         assert_eq!(
@@ -1320,5 +1389,81 @@ charon_residual_symbol = "a::b"
         assert!(matches!(e, ConfigError::Todo { .. }), "{e}");
         // The file without the stub reports nothing to do.
         assert!(OreSlagConfig::parse(&file).unwrap().todo_keys().is_empty());
+    }
+
+    /// The marker counts only as a whole line: quoted in a string it is data, and a
+    /// rewrite must not cut the file there (it used to drop every table after it).
+    #[test]
+    fn the_marker_inside_a_string_is_not_the_marker_line() {
+        let quoted = BASE.replacen(
+            "repair = \"r\"",
+            &format!("repair = \"{LEARNED_MARKER}\""),
+            1,
+        );
+        assert_ne!(quoted, BASE, "fixture: the marker text is in a string");
+        let hand_written = format!("{quoted}\n");
+        let file = rewrite_learned(&hand_written, &render_learned(&[])).unwrap();
+        assert!(
+            file.starts_with(&hand_written),
+            "nothing hand-written is cut"
+        );
+        assert!(OreSlagConfig::parse(&file).is_ok());
+        assert_eq!(marker_at(&file).unwrap(), Some(hand_written.len()));
+    }
+
+    #[test]
+    fn a_misplaced_learned_block_is_refused_not_rewritten() {
+        let block = render_learned(&[]);
+        // Hand-written data after the marker.
+        let after = format!("{BASE}\n{block}\n[[residual]]\nkey = \"x\"\n");
+        assert!(matches!(
+            rewrite_learned(&after, &block),
+            Err(ConfigError::Learned(_))
+        ));
+        // The marker twice.
+        let twice = format!("{BASE}\n{LEARNED_MARKER}\n{block}");
+        assert!(matches!(marker_at(&twice), Err(ConfigError::Learned(_))));
+        // [[learned]] above the marker.
+        let above = format!(
+            "{BASE}\n[[learned]]\nkey = \"k\"\nstatus = \"OPEN\"\nreason = \"r\"\n\n{block}"
+        );
+        assert!(matches!(learned_tail(&above), Err(ConfigError::Learned(_))));
+        // The well-placed file is accepted.
+        assert!(marker_at(&format!("{BASE}\n{block}")).unwrap().is_some());
+    }
+
+    #[test]
+    fn an_extra_key_beside_locate_is_refused() {
+        let ok: Result<ResidualLoc, _> = toml::from_str(
+            "source_location = { locate = { file = \"f\", needle = \"n\", root = \"src\" } }",
+        );
+        assert!(ok.is_ok(), "{ok:?}");
+        let stray: Result<ResidualLoc, _> = toml::from_str(
+            "source_location = { locate = { file = \"f\", needle = \"n\", root = \"src\" }, root = \"dst\" }",
+        );
+        assert!(stray.is_err(), "a misplaced root must not be ignored");
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    #[allow(dead_code)]
+    struct ResidualLoc {
+        source_location: LocationCfg,
+    }
+
+    #[test]
+    fn a_todo_inside_a_longer_value_still_counts() {
+        let file = rewrite_learned(&format!("{BASE}\n"), &render_learned(&[])).unwrap();
+        let stubbed = append_stub(
+            &file,
+            "app/Thing/make/admission/m1/e1",
+            SlagReason::RubySideNotHarvested,
+        )
+        .unwrap()
+        .replace(
+            "missing_fact = \"TODO\"",
+            "missing_fact = \"TODO: fill in\"",
+        );
+        let cfg = OreSlagConfig::parse(&stubbed).unwrap();
+        assert_eq!(cfg.todo_keys(), ["app/Thing/make/admission/m1/e1"]);
     }
 }

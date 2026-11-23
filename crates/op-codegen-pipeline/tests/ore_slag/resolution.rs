@@ -455,7 +455,9 @@ fn residuals_with(
     src: Option<&std::path::Path>,
     bind: &WitnessBinding,
     roots: &Roots,
-    fallback: Option<SlagReason>,
+    // `(default, applies_to)`: a row of a reason with no default of its own borrows
+    // `default`'s, when its reason is in `applies_to` (empty: every reason).
+    fallback: Option<(SlagReason, &[SlagReason])>,
 ) -> Result<Vec<Residual>, Vec<ConfigError>> {
     let drift = src.and_then(|s| drift_evidence(s, roots, false));
     let companions = cfg.gates.companions().map_err(|e| vec![e])?;
@@ -465,6 +467,8 @@ fn residuals_with(
         let Verdict::Slag(reason) = row.verdict else {
             continue;
         };
+        let fallback =
+            fallback.and_then(|(d, only)| (only.is_empty() || only.contains(&reason)).then_some(d));
         let mut r = match residual_for(cfg, row, reason, store, src, fallback) {
             Ok(r) => r,
             Err(e) => {
@@ -541,7 +545,7 @@ fn residuals_synthetic(
         src,
         bind,
         roots,
-        Some(SlagReason::RepresentedAsData),
+        Some((SlagReason::RepresentedAsData, &[])),
     )
     .unwrap_or_else(|e| panic!("{}", describe(&e)))
 }
@@ -561,7 +565,7 @@ fn missing_residuals(errors: &[ConfigError]) -> ! {
         let path = root().join(ORE_SLAG_CONFIG);
         let mut text = std::fs::read_to_string(&path).expect("config");
         for (key, reason) in &missing {
-            text = append_stub(&text, key, *reason);
+            text = append_stub(&text, key, *reason).unwrap_or_else(|e| panic!("{e}"));
         }
         write_atomic(&path, &text).expect("write config");
         panic!(
@@ -639,7 +643,13 @@ fn ore_slag_ledger_and_lifecycle() {
         src.as_deref(),
         &FAITHFUL,
         &roots,
-        src.is_none().then_some(SlagReason::RepresentedAsData),
+        // Without the Ruby checkout, rows the checkout would have harvested are
+        // RubySideNotHarvested; only those borrow the data default. Any other
+        // reason without a proposal is still a MissingResidual.
+        src.is_none().then_some((
+            SlagReason::RepresentedAsData,
+            &[SlagReason::RubySideNotHarvested][..],
+        )),
     )
     .unwrap_or_else(|errors| missing_residuals(&errors));
 
@@ -805,11 +815,15 @@ fn ore_slag_ledger_and_lifecycle() {
         let config_path = root().join(ORE_SLAG_CONFIG);
         let mut text = std::fs::read_to_string(&config_path).expect("config");
         if std::env::var("UPDATE_ORE_SLAG").as_deref() == Ok("1") {
-            write_atomic(&config_path, &rewrite_learned(&text, &learned)).expect("write config");
+            write_atomic(
+                &config_path,
+                &rewrite_learned(&text, &learned).unwrap_or_else(|e| panic!("{e}")),
+            )
+            .expect("write config");
             text = std::fs::read_to_string(&config_path).expect("config");
         }
         assert!(
-            learned_tail(&text) == Some(learned.as_str()),
+            learned_tail(&text).unwrap_or_else(|e| panic!("{e}")) == Some(learned.as_str()),
             "{ORE_SLAG_CONFIG} [[learned]] is stale: rerun with UPDATE_ORE_SLAG=1"
         );
     }
