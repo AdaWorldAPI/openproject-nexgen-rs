@@ -58,3 +58,11 @@ BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::status_is_closed
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::insert_wp
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_CreationStore_for_PgCreateScope::create_unit_of_work
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::reschedule_after_create
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::reschedule_after_edit
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::user_may_view
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::reschedule_related
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::load_calendar
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::derived_dates
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::load_sched
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::reschedule::{PgCreateScope}::for_scheduling

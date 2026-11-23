@@ -2,6 +2,17 @@
 #schema subject	effect	kind	file	start	end
 op_services::result::{ServiceResult<T>[TraitClause0]}::add_dependent	DEREF_WRITE	Arg	crates/op-services/src/result.rs	3932	3952
 op_services::result::{ServiceResult<T>[TraitClause0]}::all_errors	DEREF_WRITE	Local	crates/op-services/src/result.rs	4477	4495
+op_services::work_packages::scheduling::with_lag	ASSERT	OverflowNeg	crates/op-services/src/work_packages/scheduling.rs	6658	6662
+op_services::work_packages::scheduling::with_lag	ASSERT	Overflow:Sub	crates/op-services/src/work_packages/scheduling.rs	6778	6792
+op_services::work_packages::scheduling::with_lag	ASSERT	Overflow:Sub	crates/op-services/src/work_packages/scheduling.rs	6527	6541
+op_services::work_packages::scheduling::schedule_order	ASSERT	Overflow:Add	crates/op-services/src/work_packages/scheduling.rs	15983	15992
+op_services::work_packages::scheduling::schedule_following	DEREF_WRITE	Local	crates/op-services/src/work_packages/scheduling.rs	18992	19056
+op_services::work_packages::scheduling::schedule_following	DEREF_WRITE	Local	crates/op-services/src/work_packages/scheduling.rs	19502	19509
+op_services::work_packages::scheduling::schedule_following	DEREF_WRITE	Local	crates/op-services/src/work_packages/scheduling.rs	19502	19509
+op_services::work_packages::scheduling::reschedule	DEREF_WRITE	Local	crates/op-services/src/work_packages/scheduling.rs	21936	21995
+op_services::work_packages::scheduling::set_dates	DEREF_WRITE	Arg	crates/op-services/src/work_packages/scheduling.rs	22830	22851
+op_services::work_packages::scheduling::set_dates	DEREF_WRITE	Arg	crates/op-services/src/work_packages/scheduling.rs	22857	22874
+op_services::work_packages::scheduling::set_dates	DEREF_WRITE	Arg	crates/op-services/src/work_packages/scheduling.rs	22880	22975
 op_services::work_packages::set_attributes::{op_services::work_packages::set_attributes::SetAttributesService<'a, U>[TraitClause0, TraitClause1]}::set_attributes	DEREF_WRITE	Arg	crates/op-services/src/work_packages/set_attributes.rs	3746	3764
 op_services::work_packages::set_attributes::{op_services::work_packages::set_attributes::SetAttributesService<'a, U>[TraitClause0, TraitClause1]}::set_attributes	DEREF_WRITE	Arg	crates/op-services/src/work_packages/set_attributes.rs	3746	3764
 op_services::work_packages::set_attributes::{op_services::work_packages::set_attributes::SetAttributesService<'a, U>[TraitClause0, TraitClause1]}::set_attributes	DEREF_WRITE	Arg	crates/op-services/src/work_packages/set_attributes.rs	3866	3888
@@ -20,6 +31,16 @@ op_services::work_packages::set_attributes::{op_services::work_packages::set_att
 op_services::work_packages::set_attributes::{op_services::work_packages::set_attributes::SetAttributesService<'a, U>[TraitClause0, TraitClause1]}::set_attributes	DEREF_WRITE	Arg	crates/op-services/src/work_packages/set_attributes.rs	5312	5350
 op_services::work_packages::set_attributes::{op_services::work_packages::set_attributes::SetAttributesService<'a, U>[TraitClause0, TraitClause1]}::set_attributes	DEREF_WRITE	Arg	crates/op-services/src/work_packages/set_attributes.rs	5428	5468
 op_services::work_packages::set_attributes::{op_services::work_packages::set_attributes::SetAttributesService<'a, U>[TraitClause0, TraitClause1]}::set_attributes	DEREF_WRITE	Arg	crates/op-services/src/work_packages/set_attributes.rs	5548	5590
+op_services::work_packages::scheduling::{Days<'a>}::duration	ASSERT	Overflow:Add	crates/op-services/src/work_packages/scheduling.rs	3955	3965
+op_services::work_packages::scheduling::{Days<'a>}::due_date	ASSERT	Overflow:Sub	crates/op-services/src/work_packages/scheduling.rs	4828	4842
+op_services::work_packages::scheduling::{Days<'a>}::due_date	ASSERT	Overflow:Sub	crates/op-services/src/work_packages/scheduling.rs	4828	4842
+op_services::work_packages::scheduling::{Days<'a>}::due_date	ASSERT	Overflow:Sub	crates/op-services/src/work_packages/scheduling.rs	4554	4577
+op_services::work_packages::scheduling::{Days<'a>}::start_date	ASSERT	Overflow:Sub	crates/op-services/src/work_packages/scheduling.rs	5632	5646
+op_services::work_packages::scheduling::{Days<'a>}::start_date	ASSERT	Overflow:Sub	crates/op-services/src/work_packages/scheduling.rs	5632	5646
+op_services::work_packages::scheduling::{Days<'a>}::start_date	ASSERT	Overflow:Sub	crates/op-services/src/work_packages/scheduling.rs	5292	5315
+op_services::work_packages::scheduling::derive_dates::{impl FnMut<(&'_3 usize,)> for op_services::work_packages::scheduling::derive_dates::{closure#3}<'_0, '_1, '_2>}::call_mut	ASSERT	BoundsCheck	crates/op-services/src/work_packages/scheduling.rs	9144	9152
+op_services::work_packages::scheduling::schedule_order::{impl FnMut<(&'_2 usize,)> for op_services::work_packages::scheduling::schedule_order::{closure#2}<'_0, '_1>}::call_mut	ASSERT	BoundsCheck	crates/op-services/src/work_packages/scheduling.rs	15928	15935
+op_services::work_packages::scheduling::schedule_following::{impl FnMut<(&'_5 i64,)> for op_services::work_packages::scheduling::schedule_following::{closure#1}<'_0, '_1, '_2, '_3, '_4>}::call_mut	DEREF_WRITE	Local	crates/op-services/src/work_packages/scheduling.rs	17817	17825
 op_services::projects::set_attributes::{op_services::projects::set_attributes::SetAttributesService<'a, U>[TraitClause0, TraitClause1]}::set_attributes	DEREF_WRITE	Arg	crates/op-services/src/projects/set_attributes.rs	2392	2407
 op_services::projects::set_attributes::{op_services::projects::set_attributes::SetAttributesService<'a, U>[TraitClause0, TraitClause1]}::set_attributes	DEREF_WRITE	Arg	crates/op-services/src/projects/set_attributes.rs	2392	2407
 op_services::projects::set_attributes::{op_services::projects::set_attributes::SetAttributesService<'a, U>[TraitClause0, TraitClause1]}::set_attributes	DEREF_WRITE	Arg	crates/op-services/src/projects/set_attributes.rs	2504	2525
@@ -44,3 +65,7 @@ op_services::users::set_attributes::{op_services::users::set_attributes::SetAttr
 op_services::users::set_attributes::{op_services::users::set_attributes::SetAttributesService<'a, U>[TraitClause0, TraitClause1]}::set_attributes	DEREF_WRITE	Arg	crates/op-services/src/users/set_attributes.rs	3823	3842
 op_services::users::set_attributes::{op_services::users::set_attributes::SetAttributesService<'a, U>[TraitClause0, TraitClause1]}::set_attributes	DEREF_WRITE	Arg	crates/op-services/src/users/set_attributes.rs	3823	3842
 op_services::users::set_attributes::{op_services::users::set_attributes::SetAttributesService<'a, U>[TraitClause0, TraitClause1]}::set_attributes	DEREF_WRITE	Arg	crates/op-services/src/users/set_attributes.rs	3951	3991
+op_services::work_packages::scheduling::derive_dates::{closure#3}::{impl FnMut<(usize,)> for op_services::work_packages::scheduling::derive_dates::{closure#3}::{closure}<'_0>}::call_mut	ASSERT	BoundsCheck	crates/op-services/src/work_packages/scheduling.rs	9174	9184
+op_services::work_packages::scheduling::derive_dates::{closure#4}::{impl FnMut<(&'_3 usize,)> for op_services::work_packages::scheduling::derive_dates::{closure#4}::{closure}<'_0, '_1, '_2>}::call_mut	ASSERT	BoundsCheck	crates/op-services/src/work_packages/scheduling.rs	9254	9262
+op_services::work_packages::scheduling::schedule_order::{closure#1}::{impl FnOnce<()> for op_services::work_packages::scheduling::schedule_order::{closure#1}::{closure}<'_0, '_1, '_2, '_3, '_4, '_5>}::call_once	DEREF_WRITE	Local	crates/op-services/src/work_packages/scheduling.rs	15160	15168
+op_services::work_packages::scheduling::derive_dates::{closure#4}::{closure}::{impl FnMut<(&'_1 usize,)> for op_services::work_packages::scheduling::derive_dates::{closure#4}::{closure}::{closure}<'_0>}::call_mut	ASSERT	BoundsCheck	crates/op-services/src/work_packages/scheduling.rs	9288	9298
