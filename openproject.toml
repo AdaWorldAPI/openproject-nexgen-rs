@@ -55,5 +55,8 @@ verbatim_file = "crates/op-desk/verbatim.txt"
 calls = []
 
 [op_desk]
-# The schema the specs follow: OpenProject's own, after every migration.
-structure = "db/structure.sql"
+# The schema the specs follow: OpenProject's own db/structure.sql after every
+# migration. OpenProject does not commit it (.gitignore: db/*.sql); this is the
+# dump `rails db:migrate` writes at the pinned revision, with all 357 migrations
+# applied. Relative to this file.
+structure = "oracle/openproject-structure.sql"

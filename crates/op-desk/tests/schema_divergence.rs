@@ -137,10 +137,7 @@ fn render(lines: &[String]) -> String {
 
 #[test]
 fn nexgen_schema_divergence_is_pinned() {
-    let Some(src) = common::openproject_src("schema_divergence") else {
-        return;
-    };
-    let lines = divergences(&common::structure(&src), &nexgen_schema());
+    let lines = divergences(&common::structure(), &nexgen_schema());
     let now = render(&lines);
     let path = common::repo_root().join(PINNED);
     if std::env::var("UPDATE_SCHEMA_DIVERGENCE").as_deref() == Ok("1") {

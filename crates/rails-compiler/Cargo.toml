@@ -1,0 +1,30 @@
+[package]
+name = "rails-compiler"
+description = "Application-independent Rails semantic compiler: ruff Rails harvest -> concern expansion -> OGAR class lift -> rails-polyfill rewrite rules -> Ruby body lowering -> deterministic Rust emission with provenance. The application is selected by a config file only."
+version.workspace = true
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+rails-polyfill = { path = "../rails-polyfill" }
+ruff_ruby_spo = { git = "https://github.com/AdaWorldAPI/ruff", branch = "main" }
+ruff_spo_triplet = { git = "https://github.com/AdaWorldAPI/ruff", branch = "main" }
+ogar-vocab = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+ogar-from-ruff = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+lib-ruby-parser = { version = "4.0", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = "0.8"
+regex = { workspace = true }
+
+[[bin]]
+name = "rails-compile"
+path = "src/bin/rails-compile.rs"
+
+[features]
+# The shadow derivation ignores concern-provided associations (negative control).
+disable-shadow-concerns = []
+# Target and default foreign key are computed from the including model, not the reflection holder (negative control).
+disable-shadow-holder = []
+# The behaviour table leaves the Host rows out (negative control).
+disable-behaviour-host = []
