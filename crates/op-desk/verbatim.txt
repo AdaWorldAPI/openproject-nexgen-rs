@@ -1,0 +1,3 @@
+# Callback methods whose bodies rails-compiler compiles for op-desk
+# (openproject.toml [slice].verbatim_file). Empty: the generated specs carry
+# no callbacks yet.
