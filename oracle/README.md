@@ -146,8 +146,8 @@ order is not file order: taking the walk's file order with generated callbacks l
 declarations (`app/models/work_package.rb:69-70`): the trace has them after `meetings`, because the
 `modules/storages` patch declares them again and Rails moves a re-registered filter to the end, and
 the walk does not enter `modules/`. That is the `AssociationFromModule` gap, not an ordering error.
-With the intake the storages patch is now found, but it is `BodyUnreadable` (see Engine patches), so the
-3 differences remain.
+With the intake the storages patch is found; since ruff #156 its `def self.included` hook is read, and the
+order picture changed (see "After ruff #156" below).
 
 ### Engine patches (`oracle/intake.json`)
 
@@ -174,11 +174,19 @@ how to find engines, the engine order, and one rule per call) and names no OpenP
   `.prepend` / `class_eval` outside the DSL (checked by search, each engine read).
 - Unresolved calls get a closed `PatchSlag`; `ArgsUnreadable` and `PatchFileNotFound` must be 0.
 
+Counts as first measured (ruff before #156; the current counts are in "After ruff #156" below):
+
 | `PatchSlag` | count | stage |
 |---|---:|---|
 | `TargetUnreadable` | 38 | ruff extension: `walk::render_node` renders `Hash` but not `Kwargs`, so `include_module "X", into: "WorkPackage"` arrives as `"X", <expr>`. All of costs, repositories, resource_management and budgets use this form. |
 | `BodyUnreadable` | 24 | ruff extension: storages and bim patch modules register through `def self.included(base) ... base.class_eval do ... end`; `module_ore` walks only a direct `included do`. |
 | `ArgsUnreadable`, `PatchFileNotFound` | 0 | |
+
+Conservation is per (call, target), not per call. A call such as `into: ["A", "B", "C"]` is three jobs; a
+call whose targets cannot be read is one job with no target. The test records every job and requires that
+each ends in exactly one applied patch or exactly one typed `PatchSlag` (`ArgsUnreadable`,
+`TargetUnreadable`, `PatchFileNotFound`); `BodyUnreadable` and `BodyPartiallyRead` are notes on a patch that
+was applied. `calls` (62) still counts each call once.
 
 Ledger, attributed per change (157 entries; every column keeps `matched + slag == total`):
 
@@ -213,7 +221,108 @@ read it. The negative controls are unchanged: 0 matches with every name reversed
 generated names drops exactly the generated matches. A run without the intake is part of the test and
 must not match more than the run with it.
 
-The slag reasons name the next extension, cheapest first:
+
+### After ruff #156 (`79ed2baa007d`): coverage and completeness are two measures
+
+ruff #156 renders keyword arguments (`into:`), reads `def self.included(base)` hooks (`base.class_eval`,
+`base.<macro>`), lists what it could not read in `ClassOre::unharvested`, merges `with_options` options and
+promotes `validates_*_of`. Nothing else changed: same trace (157 entries), same OpenProject `2725194`.
+
+**Measure (a): callback coverage.** How many fired callbacks have a declaration (written or generated).
+
+| reason | before (`91` matched) | after | moved by |
+|---|---:|---:|---|
+| matched to a declaration | 91 | 115 | #156 |
+| of which only a generated callback matches | 67 | 89 | #156 |
+| slag AssociationFromModule | 21 | 0 | #156: `include_module ... into:` resolves, storages' `def self.included` is read |
+| slag DefinedInModule | 1 | 0 | #156 (the one filter with a `def` only under `modules/` is now declared by an applied patch) |
+| slag ChainFileNotHarvested | 2 | 0 | #156 (`:bcf_issue` through bim's hook, `story_points` through `validates_*_of`) |
+| slag AssociationFromPlugin | 5 | 5 | |
+| slag AssociationNotInCheckout | 15 | 15 | |
+| slag DefinedInPlugin | 7 | 7 | |
+| slag FromGem | 8 | 8 | |
+| slag ModelWithoutClassFile | 3 | 3 | |
+| slag GeneratedUndecided | 4 | 4 | same 2 `Undecided` rules (`:changesets`, `:github_pull_requests`) |
+| slag ValidatorFromModule, ValidatorFromFramework, ValidatesWithUndeclared, AssociationAutosave, DefinedInWalkedRootsNotDeclared | 0 | 0 | |
+| typed slag, total | 66 | 42 | `matched + slag == 157` holds in both |
+| declared (source) callbacks / generated callbacks (undecided rules) | 38 / n/a | 41 / 206 (2) | |
+| declared, never fired: ChainNotExercised / OnOptionNotExercised / ConditionalOptionNotEvaluated / Unexplained | 1 / 1 / 7 / 0 | 2 / 1 / 7 / 0 | `move_cost_entries` (costs, `after_update`) is new |
+| generated, never fired: ChainNotExercised / Unexplained | n/a | 39 / 0 | |
+| without the intake (matched / via generated) | 89 / 65 | 89 / 65 | unchanged: the intake adds 26 matches |
+
+The "before" column is the committed ledger (c) above. Negative controls are unchanged: 0 of 157 with every
+name reversed, 0 generated matches with only the generated names reversed. No new undecidable case: the
+`Undecided` rules from `derive` are the same 2.
+
+Extending `oracle/intake.json` moved no callback number by itself: with the old roots ruff #156 already gave
+115 matched, because every `WorkPackage` patch module sits under a root already listed (the new roots hold
+patch modules for contracts, services and components, which no traced model includes). They matter for the
+patch ledger below.
+
+**Measure (b): extraction completeness.** A matching callback name does not mean the module that registers it
+was read in full. `ClassOre::unharvested` lists the include-time statements (`included do`,
+`def self.included`, its `base.class_eval`) that produced no declaration, with a typed reason. The test
+classifies every module in a traced model's chain (concern or engine patch):
+
+| completeness | meaning | `WorkPackage` chain (31 modules) |
+|---|---|---:|
+| Full | declarations came out, nothing listed unharvested | 21 |
+| Partial | declarations came out, statements listed unharvested | 3: `WorkPackage::Ancestors` (METHOD_DEFINITION 1), `WorkPackages::Costs` (METHOD_DEFINITION 5), `OpenProject::Bim::Patches::WorkPackagePatch` (METHOD_DEFINITION 1) |
+| Unread | no declaration, statements listed unharvested | 2: `WorkPackage::Automatable` (METHOD_DEFINITION 2), `Scopes::Scoped` (METHOD_DEFINITION 1) |
+| NoIncludeTimeBody | nothing to read | 5 |
+
+`Watcher` and `WorkPackageHierarchy` have no module in their chain. Unharvested statements per reason across the
+chain: METHOD_DEFINITION 10, every other reason 0. Class bodies are not covered: ruff leaves `unharvested`
+empty for a class, so a statement skipped in `app/models/work_package.rb` itself is not listed.
+
+Patch slag, per (call, target) job: 62 calls, 79 jobs, 79 applied, 0 typed before apply. `ArgsUnreadable` 0,
+`TargetUnreadable` 0 (38 before), `PatchFileNotFound` 0 (20 appeared when `into:` became readable, see the
+roots below), `BodyUnreadable` 1 (24 before), `BodyPartiallyRead` 7 (new). `BodyPartiallyRead` marks a patch module
+whose include-time bodies gave a declaration and left statements unread; it is applied anyway. A module read
+in full is not slag, and the test re-derives every note from the model chains and requires both to agree
+(7 patch modules full, 2 partial, 0 unread among those applied to a traced model). The one `BodyUnreadable` is
+bim's `ColorThemesPatch` (a `class << base` block, reason OTHER), which targets no traced model.
+
+Roots from data. The 20 `PatchFileNotFound` were `include_module` / `prepend_module` calls whose module lives
+in an engine's `app/components`, `app/contracts`, `app/controllers` (and `app/controllers/concerns`),
+`app/formatters` or `app/services`. A Rails engine autoloads every `app/*` subdirectory
+(`railties-8.1.4.1/lib/rails/engine/configuration.rb:77-78`), so those are Zeitwerk roots and now sit in
+`oracle/intake.json` (`modules/*/app/{components,contracts,controllers,controllers/concerns,formatters,services}`);
+no module name is in the Rust. The 21st (`OpenProject::JournalFormatter::SquashTMCauseRendering`) is in
+`app/formatters` but the file is `squashtm_cause_rendering.rb`: the engine inflects `squashtm` as `SquashTM`
+(`modules/squashtm_integration/lib/open_project/squashtm_integration/engine.rb:42,49`), so the roots entry
+`roots.inflections` carries that pair and cites those lines. Removing the six roots brings 20 back, removing
+the inflection brings 1 back.
+
+Order. 19 `(case, model, phase)` groups compared, as before. Before #156: 3 differ (`WorkPackage after_create`,
+in the three successful cases), 3 adjacent inversions. After: 4 differ, 4 inversions, and they are a different
+group: `WorkPackage before_validate` in all four cases (49 entries, first difference at #30: recorded
+`validate_associated_records_for_file_links`, `..._storages`, then `..._changesets`; reconstructed puts
+`changesets` first). The `after_create` difference is resolved: storages' hook is read, `file_links` /
+`storages` are re-declared, and Rails moves a re-registered `after_create` callback to the end. The
+`before_validate` one is new and is visible only because the re-declaration is now read. Cause, from
+`activerecord-8.1.4.1/lib/active_record/autosave_association.rb:213-214`: the validation callback is added
+only when `!method_defined?(validation_method)`, so a re-declared association does not re-register its
+`validate_associated_records_for_*`, and the reconstruction first moved it. That was a reconstruction rule, not an
+ordering fact about OpenProject, and it is now fixed: `EffState::push` keeps a generated
+`validate_associated_records_for_*` at its first registration (`autosave_association.rb:220`), while save
+callbacks, which have no guard (`:197-198`, `:210-211`, `:214`), still move to the end. Result: 19 groups,
+**0 differ**, 0 inversions, and the test now asserts it (`ORDER_GROUPS_FLOOR` 19, reconstructed differences 0).
+The walk-file-order comparison is kept as the negative control and must differ: 10 groups, 25 inversions
+(was 10 / 17).
+
+Unknown order. A group is reported UNKNOWN, not definite, when a matched callback is registered in a module
+whose include-time bodies leave a `ControlFlow`, `DynamicSend` or `UnreadBlockBody` statement unread (any of
+those may register a callback or re-register one). Measured now: 0 groups, because the only statements left
+unread in the traced chains are `def`s. The logic is exercised anyway: with every origin marked unread, all
+19 groups turn UNKNOWN and none counts as a definite difference. `UnrecognizedCall`, `CallOnOtherReceiver`,
+`MethodDefinition` and `Other` are counted and printed, but do not make an order unknown.
+
+The Rails engine `to_prepare` order (engines in `Gemfile.modules` order, statement order inside one engine)
+is still UNVERIFIED: nothing in the trace separates it from other orders, because the groups it would decide
+are the ones above and the `after_create` match does not depend on the order between engines.
+
+The slag reasons name the next extension, cheapest first (written before #156; item 1 is done, see above):
 
 1. `AssociationFromModule`, `DefinedInModule` (22) and the 62 patch calls: the intake above walks
    `modules/*` and follows `patches`. What is left needs two ruff changes, in this order: render keyword
@@ -268,7 +377,7 @@ Acceptance report (OpenProject `2725194`):
 | contract rules EXECUTED | 350 items, 0 mismatches: `create_member` verdict 1, error keys 0, `writable?` 5 of 5; `create_no_permission` verdict 1, error keys 6, `writable?` 5; every attribute of every `CreateContract` record 332 compared and 332 matched |
 | contract attributes unresolved (58) | `UndeclaredAttribute` 36 (engine contracts), `FactUnavailable` 12 (`WorkPackage.work_based_mode?` x10, `Setting.apiv3_write_readonly_attributes?` x2), `OpaqueWritable` 10 (`allow_writable_timestamps`) |
 | contract rules not evaluated | the `validate :x` rules listed by `not_evaluated_validators()`, the `attribute ... do` blocks, `ModelContract#valid?` model validations |
-| callback registrations RECONSTRUCTED | 103 declarations for create (96 invoked, 7 `ConditionalOptionNotEvaluated`); 157 journal entries: 91 registered, 66 typed slag (after #131 engine patches: 101 -> 103, 89 -> 91, 68 -> 66) |
+| callback registrations RECONSTRUCTED | 127 declarations for create (120 invoked, 7 `ConditionalOptionNotEvaluated`); 157 journal entries: 115 registered, 42 typed slag (after ruff #156: 103 -> 127, 91 -> 115, 66 -> 42; after #131 engine patches: 101 -> 103, 89 -> 91, 68 -> 66) |
 | callback bodies EXECUTED | 0 |
 | DB effects PERFORMED | 0 (the stub writes no row) |
 | effects PREDICTED | attribute state 5 (`subject`, `project_id`, `type_id`, `status_id`, `priority_id`), persistence 2 (`persisted`, one `work_packages` row) |
@@ -277,8 +386,9 @@ Acceptance report (OpenProject `2725194`):
 Sections are separate: authorization (executed), callbacks, attribute state, persistence, jobs.
 Ordering is compared only inside one `(model, kind_chain)` callback group, where ActiveSupport runs
 a chain in registration order; `changed_attributes`, `row_deltas` and `enqueued_jobs` are sorted by
-the oracle script and compared as sets or maps, claiming no order. The one order difference is the
-`file_links` / `storages` re-declaration in `modules/`.
+the oracle script and compared as sets or maps, claiming no order. The `file_links` / `storages`
+re-declaration in `modules/` is now read (ruff #156), and with the validation-callback guard applied (see
+"After ruff #156") `create_transition_differential` reports 6 groups, 0 UNKNOWN, 0 differ.
 
 Negative controls: (a) `create_no_permission`: production denies with the oracle's exact
 `base: error_unauthorized` and `error_readonly` on the five submitted attributes, and the 46 registered
