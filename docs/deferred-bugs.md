@@ -72,6 +72,7 @@ starting point).
 | M3 | `journals.validity_period` (`tstzrange`) and `journals.cause` (`jsonb`) have no polyfill type | op-desk maps them to Text / Json; plan §3 gap 4 decision open |
 | M4 | Quack refuses `ORDER BY` on text (`TextOrder`) and filters on unlaned columns (date, float, jsonb) | API sorts by subject/name must sort in Rust after `rows`, or stay refused (plan §3 gaps 7–8) |
 | M5 | A DateTime filter value has no settled encoding: the snapshot convention (and the PostgreSQL oracle) reads a number as microseconds since the epoch, Quack's timestamp lane as epoch seconds (it refuses a microsecond value as `ValueOutOfLane`) | No desk read filters on a DateTime column yet (`op_desk::reads::demo_reads` leaves them out); settle the encoding before the first such read |
+| M6 | Desk reads of `users` do not apply ActiveRecord's STI type condition. `User.all` adds `users.type IN ('User', <its subclasses>)` (User's subclasses here are AnonymousUser, DeletedUser and SystemUser), which drops Group and PlaceholderUser rows (both subclass Principal, not User) and keeps the built-in users. The desk applies only the lowered `default_scope`s (`op_desk::scopes`) | The demo seed holds only `type = 'User'` rows, so no current read differs; lower the STI condition from the harvest's class tree before the desk reads a seed or store holding other principal types |
 
 ## 6. WorkPackage::Create reconciliation (`oracle/charon/reconcile-create-admission.ledger.json`)
 
