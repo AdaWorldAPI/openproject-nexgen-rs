@@ -321,8 +321,17 @@ pub fn save(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Resul
         ctx.store.rollback(snapshot);
         ctx.pending_commit.clear();
         // `rolledback!` runs after_rollback, then restores the record state
-        // in an `ensure` (transactions.rb:415-423).
-        let rolled_back = run_chain(ctx, model, &[Phase::AfterRollback], action, rec);
+        // in an `ensure` (transactions.rb:415-423). The callbacks run only for
+        // a record whose save wrote its row (`trigger_transactional_callbacks?`:
+        // `@_new_record_before_last_commit` or `_trigger_update_callback`): a
+        // save refused before the write (failed validation, an abort, a
+        // destroyed record) gets none (oracle/lock_rollback.rb,
+        // destroyed-save scenario).
+        let rolled_back = if row_written {
+            run_chain(ctx, model, &[Phase::AfterRollback], action, rec)
+        } else {
+            Ok(())
+        };
         rec.restore_transaction_state(record_state);
         rolled_back?;
         return result;
@@ -360,8 +369,18 @@ fn save_in_transaction(
     }
 
     // Callbacks: run_callbacks(:save) { run_callbacks(:create|:update) { write } }
+    let mut refused_destroyed = false;
     let body = (|| {
         run_chain(ctx, model, SAVE_BEFORE, action, rec)?;
+        // Persistence#create_or_update: `return false if destroyed?`
+        // (persistence.rb:925). It runs inside `_run_save_callbacks`
+        // (callbacks.rb:439-441), so the validation and before_save callbacks
+        // have run; nothing is written and no later callback runs
+        // (oracle/lock_rollback.rb, destroyed-save scenario).
+        if rec.destroyed() {
+            refused_destroyed = true;
+            return Ok(());
+        }
         match action {
             Action::Create => {
                 run_chain(ctx, model, CREATE_BEFORE, action, rec)?;
@@ -393,6 +412,7 @@ fn save_in_transaction(
         run_chain(ctx, model, &[Phase::AfterSave], action, rec)
     })();
     match body {
+        Ok(()) if refused_destroyed => Ok(Saved { ok: false, errors, aborted: false }),
         Ok(()) => Ok(Saved { ok: true, errors, aborted: false }),
         Err(Halt::Abort) => Ok(Saved { ok: false, errors, aborted: true }),
         Err(e) => Err(e),
@@ -1225,6 +1245,64 @@ mod tests {
         let mut live = seeded(&mut ctx, &WATCHED_PLAIN);
         assert_eq!(destroy(&mut ctx, &WATCHED_PLAIN, &mut live), Ok(true));
         assert_eq!(phases(&ctx), [Phase::AfterCommit]);
+    }
+
+    static WROTE_THEN_RAISED: ModelSpec = ModelSpec {
+        name: "WroteThenRaised",
+        table: &LOCKED,
+        callbacks: &[
+            cb(Phase::AfterSave, "boom", On::ANY, boom),
+            cb(Phase::AfterRollback, "after_rollback", On::ANY, noop),
+        ],
+    };
+
+    /// The twin of the destroyed-save case: a save that wrote its row and then
+    /// raised does run after_rollback (`trigger_transactional_callbacks?`).
+    #[test]
+    fn a_save_that_wrote_then_raised_runs_after_rollback() {
+        let mut ctx = ctx_with(&LOCKED);
+        let mut rec = build(&mut ctx, &WROTE_THEN_RAISED, &[("name", Value::str("w"))]).unwrap();
+        assert!(save(&mut ctx, &WROTE_THEN_RAISED, &mut rec).is_err());
+        assert!(phases(&ctx).contains(&Phase::AfterRollback), "{:?}", phases(&ctx));
+        assert_eq!(ctx.store.count(&LOCKED), 0, "the insert was rolled back");
+    }
+
+    static GONE: ModelSpec = ModelSpec {
+        name: "Gone",
+        table: &LOCKED,
+        callbacks: &[
+            cb(Phase::BeforeValidation, "before_validation", On::ANY, noop),
+            cb(Phase::BeforeSave, "before_save", On::ANY, noop),
+            cb(Phase::AfterSave, "after_save", On::ANY, noop),
+            cb(Phase::AfterCreate, "after_create", On::ANY, noop),
+            cb(Phase::AfterUpdate, "after_update", On::ANY, noop),
+            cb(Phase::AfterCommit, "after_commit", On::ANY, noop),
+            cb(Phase::AfterRollback, "after_rollback", On::ANY, noop),
+        ],
+    };
+
+    /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, destroyed-save scenario):
+    /// saving a destroyed record, new or persisted, returns false, writes
+    /// nothing, and runs only `["before_validation", "before_save"]`.
+    #[test]
+    fn saving_a_destroyed_record_returns_false_after_the_before_save_callbacks() {
+        let mut ctx = ctx_with(&LOCKED);
+        let mut fresh = build(&mut ctx, &GONE, &[("name", Value::str("g"))]).unwrap();
+        assert_eq!(destroy(&mut ctx, &GONE, &mut fresh), Ok(true));
+        ctx.journal.clear();
+        let saved = save(&mut ctx, &GONE, &mut fresh).expect("no raise");
+        assert!(!saved.ok, "a destroyed new record is not saved");
+        assert_eq!(phases(&ctx), [Phase::BeforeValidation, Phase::BeforeSave]);
+        assert_eq!(ctx.store.count(&LOCKED), 0);
+        assert!(fresh.new_record());
+
+        let mut kept = seeded(&mut ctx, &GONE);
+        assert_eq!(destroy(&mut ctx, &GONE, &mut kept), Ok(true));
+        ctx.journal.clear();
+        let saved = save(&mut ctx, &GONE, &mut kept).expect("no raise");
+        assert!(!saved.ok, "a destroyed persisted record is not saved");
+        assert_eq!(phases(&ctx), [Phase::BeforeValidation, Phase::BeforeSave]);
+        assert_eq!(ctx.store.count(&LOCKED), 0);
     }
 
     #[test]
