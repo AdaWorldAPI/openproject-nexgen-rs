@@ -56,7 +56,7 @@ starting point).
 | C2 | No reader for `db/structure.sql` or for OpenProject's `Tables::X.table(migration)` migration form (both read as 0 tables) | `op_desk::structure` parses `oracle/openproject-structure.sql` |
 | C3 | Keyword module names emitted unescaped (`pub mod type;`) | op-desk post-processing writes `r#type` |
 | C4 | Regenerate header hardcodes Zammad (`ZAMMAD_SRC`, `zammad.toml`) | op-desk post-processing rewrites it |
-| C5 | `Unit::superclass` is stored as a string, so `class X < ::Base` loses its leading `::`; rails-f000 then resolves it lexically and can pick `Ns::Base` (includes are handled from the AST since #167) | None; no OpenProject model is known to use an absolute superclass |
+| C5 | `Unit::superclass` is stored as a string, so `class X < ::Base` loses its leading `::`; rails-f000 then resolves it lexically and can pick `Ns::Base` (includes are handled from the AST since #167) | None. OpenProject has ~10 such classes under `app/models` (e.g. `class Status < ::Exports::Formatters::Default`); all found so far are export formatters, not ActiveRecord models, so none carries a default_scope today |
 
 ## 5. Migration (`docs/plans/polyfill-quack-migration.md`)
 
