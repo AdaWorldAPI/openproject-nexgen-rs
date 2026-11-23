@@ -6,8 +6,10 @@
 //! `#E0E6EC`, radius 14px, the soft card shadow and a 2px DG-red focus ring.
 //! The values are copied, not shared through a dependency.
 //!
-//! Another company sets its own identity in a TOML file named by
-//! `OP_BRAND_FILE`; every key is optional and falls back to the default:
+//! Another company sets its own identity as TOML, either in a file named by
+//! `OP_BRAND_FILE` or inline in `OP_BRAND_TOML` (for hosts such as Railway
+//! that pass configuration as variables); setting both is refused. Every key
+//! is optional and falls back to the default:
 //!
 //! ```toml
 //! [brand]
@@ -96,6 +98,8 @@ impl Default for Brand {
 pub enum BrandError {
     /// The file named by `OP_BRAND_FILE` could not be read.
     Read(String),
+    /// Both `OP_BRAND_FILE` and `OP_BRAND_TOML` are set.
+    Both,
     /// The file is not valid TOML for a `[brand]` table.
     Parse(String),
     /// A value would leave its CSS declaration or attribute.
@@ -106,10 +110,9 @@ impl std::fmt::Display for BrandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BrandError::Read(e) => write!(f, "OP_BRAND_FILE: {e}"),
-            BrandError::Parse(e) => write!(f, "OP_BRAND_FILE: {e}"),
-            BrandError::Value { key, value } => {
-                write!(f, "OP_BRAND_FILE: brand.{key} = {value:?} is not allowed")
-            }
+            BrandError::Both => write!(f, "set OP_BRAND_FILE or OP_BRAND_TOML, not both"),
+            BrandError::Parse(e) => write!(f, "brand: {e}"),
+            BrandError::Value { key, value } => write!(f, "brand.{key} = {value:?} is not allowed"),
         }
     }
 }
@@ -128,11 +131,15 @@ impl Brand {
         file.brand.checked()
     }
 
-    /// The brand named by `OP_BRAND_FILE`, or the default when it is unset.
+    /// The brand from `OP_BRAND_FILE` or `OP_BRAND_TOML`, or the default when
+    /// neither is set.
     pub fn from_env(get: impl Fn(&str) -> Option<String>) -> Result<Brand, BrandError> {
-        match get("OP_BRAND_FILE").filter(|p| !p.trim().is_empty()) {
-            None => Ok(Brand::default()),
-            Some(path) => {
+        let set = |k: &str| get(k).filter(|v| !v.trim().is_empty());
+        match (set("OP_BRAND_FILE"), set("OP_BRAND_TOML")) {
+            (Some(_), Some(_)) => Err(BrandError::Both),
+            (None, None) => Ok(Brand::default()),
+            (None, Some(text)) => Brand::from_toml(&text),
+            (Some(path), None) => {
                 let text = std::fs::read_to_string(path.trim())
                     .map_err(|e| BrandError::Read(format!("{path}: {e}")))?;
                 Brand::from_toml(&text)
@@ -308,9 +315,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(b.accent, "#123456");
         assert!(matches!(
-            Brand::from_env(|_| Some("/nonexistent/brand.toml".into())),
+            Brand::from_env(|k| (k == "OP_BRAND_FILE").then(|| "/nonexistent/brand.toml".into())),
             Err(BrandError::Read(_))
         ));
+    }
+
+    #[test]
+    fn a_brand_can_come_inline_from_op_brand_toml_but_not_with_a_file_too() {
+        let inline =
+            |k: &str| (k == "OP_BRAND_TOML").then(|| "[brand]\naccent = \"#654321\"\n".to_string());
+        assert_eq!(Brand::from_env(inline).unwrap().accent, "#654321");
+        let both = |k: &str| match k {
+            "OP_BRAND_TOML" => Some("[brand]\n".to_string()),
+            "OP_BRAND_FILE" => Some("/etc/brand.toml".to_string()),
+            _ => None,
+        };
+        assert_eq!(Brand::from_env(both), Err(BrandError::Both));
     }
 
     #[test]

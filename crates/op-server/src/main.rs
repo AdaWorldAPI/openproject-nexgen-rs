@@ -203,11 +203,11 @@ async fn main() -> anyhow::Result<()> {
         db: db.map(|d| d.pool().clone()),
     });
 
-    // Company identity: OP_BRAND_FILE names a [brand] TOML file; unset keeps the
-    // default identity. A file that cannot be used stops the start.
+    // Company identity: a [brand] TOML table from OP_BRAND_FILE or OP_BRAND_TOML;
+    // neither keeps the default identity. A brand that cannot be used stops the start.
     let brand =
         brand::Brand::from_env(|k| std::env::var(k).ok()).map_err(|e| anyhow::anyhow!("{e}"))?;
-    info!(brand = %brand.name, custom = std::env::var("OP_BRAND_FILE").is_ok(), "Brand");
+    info!(brand = %brand.name, custom = std::env::var("OP_BRAND_FILE").is_ok() || std::env::var("OP_BRAND_TOML").is_ok(), "Brand");
     brand::install(brand);
 
     // Sign-in is on only when OP_SIGNIN_OIDC_ISSUER is set; a half-configured sign-in
