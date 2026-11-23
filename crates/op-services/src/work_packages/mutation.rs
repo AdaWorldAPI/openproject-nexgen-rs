@@ -793,9 +793,7 @@ impl PgCreateScope {
             )
             SELECT
                 type_id, project_id, subject,
-                REGEXP_REPLACE(COALESCE(description, ''), '
-', E'
-', 'g'),
+                REGEXP_REPLACE(COALESCE(description, ''), '\r\n', E'\n', 'g'),
                 due_date, category_id, status_id,
                 assigned_to_id, priority_id, version_id, author_id, done_ratio, estimated_hours,
                 start_date, parent_id, responsible_id, schedule_manually, duration,
