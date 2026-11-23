@@ -4,6 +4,7 @@ BODY_NOT_STRUCTURED	op_services::base::AsyncCreateService::execute
 BODY_NOT_STRUCTURED	op_services::base::AsyncUpdateService::execute
 BODY_NOT_STRUCTURED	op_services::base::AsyncDeleteService::execute
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::authorize
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::authorize_edit
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::authorize_record
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::authorize_update
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::authorize_delete

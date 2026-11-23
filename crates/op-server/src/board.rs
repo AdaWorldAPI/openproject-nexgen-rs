@@ -2836,7 +2836,7 @@ mod write_path_tests {
             project_id: PROJECT,
             type_id: 1,
             status_id: 1,
-            priority_id: None,
+            priority_id: Some(1),
             author_id: 1,
             assigned_to_id: None,
             responsible_id: None,
@@ -3026,7 +3026,7 @@ mod write_path_tests {
     }
 
     #[tokio::test]
-    async fn anonymous_may_write_only_with_the_explicit_opt_in() {
+    async fn anonymous_may_not_write_even_with_the_demo_opt_in() {
         let c = cookie();
         let headers = headers_with_cookie(&c);
         let form = good_form(&c, "anonymous");
@@ -3036,10 +3036,12 @@ mod write_path_tests {
         assert_eq!(denied.status(), StatusCode::FORBIDDEN);
         assert_eq!(store.writes(), 0);
 
+        // The demo opt-in does not open editing: an anonymous edit could not be journaled
+        // (docs/decisions/0001-journaled-edits.md §2).
         let store = Fake::new();
-        let allowed = update_core(&store, 101, &ctx(None, &headers, true), &form).await;
-        assert_eq!(allowed.status(), StatusCode::SEE_OTHER);
-        assert_eq!(store.writes(), 1);
+        let demo = update_core(&store, 101, &ctx(None, &headers, true), &form).await;
+        assert_eq!(demo.status(), StatusCode::FORBIDDEN);
+        assert_eq!(store.writes(), 0);
     }
 
     // ── authorization ────────────────────────────────────────────────

@@ -1190,27 +1190,83 @@ async fn journey(db_url: String) -> Tally {
     );
     t.rows += 2;
 
-    // The demo posture's anonymous editor has no `users` row to journal as (this schema has no
-    // `users.type`, so no AnonymousUser can be identified): the update is applied, as before the
-    // journal was ported, and writes no journal. Stated here so it cannot change silently.
+    // The demo posture's anonymous caller may not edit (docs/decisions/0001-journaled-edits.md
+    // §2): with no `users.type`, the edit could not be journaled, so it is refused before any
+    // lookup and nothing is written.
     let anon = Caller::Anonymous { allowed: true };
     let current = page_store.find_wp(id).await.unwrap().unwrap();
+    let wp_before = row_json(&verify, id).await.unwrap();
     let state_before = journal_state(&verify, id).await;
-    store
+    let r = store
         .update_unit_of_work(&anon, id, patch_subject(&current, "anonymous demo edit"))
-        .await
-        .expect("the demo anonymous editor may edit");
+        .await;
+    assert!(matches!(r, Err(MutationError::Unauthenticated)), "{r:?}");
     assert_eq!(
-        page_store.find_wp(id).await.unwrap().unwrap().subject,
-        "anonymous demo edit",
-        "the update itself is applied"
+        row_json(&verify, id).await.unwrap(),
+        wp_before,
+        "the anonymous edit is not applied"
     );
     assert_eq!(
         journal_state(&verify, id).await,
         state_before,
-        "and, with nobody to attribute it to, writes no journal"
+        "and writes no journal"
     );
     t.rows += 2;
+
+    // A work package stored without a priority (the column is nullable): an edit that does not
+    // set one is refused with `priority: blank` and writes nothing (`validates :priority,
+    // presence: true`, work_package/validations.rb:34, via ModelContract#valid?), where the
+    // journal insert would otherwise fail on `work_package_journals.priority_id NOT NULL`. The
+    // same edit with a priority is applied and journaled.
+    let no_priority: i64 = sqlx::query_scalar(
+        "INSERT INTO work_packages (subject, project_id, type_id, status_id, priority_id, \
+                                    author_id, done_ratio, lock_version) \
+         VALUES ('no priority', $1, $2, $3, NULL, $4, 0, 0) RETURNING id",
+    )
+    .bind(TARGET_PROJECT)
+    .bind(TYPE_BUG)
+    .bind(STATUS_DEFAULT)
+    .bind(USER_A)
+    .fetch_one(&pool)
+    .await
+    .expect("a work package without a priority");
+    let row = page_store.find_wp(no_priority).await.unwrap().unwrap();
+    let wp_before = row_json(&verify, no_priority).await.unwrap();
+    let r = mutation::update(
+        &store,
+        &caller_a,
+        no_priority,
+        patch_subject(&row, "no priority, edited"),
+    )
+    .await;
+    match r {
+        Err(MutationError::Invalid(errors)) => assert_eq!(
+            errors.get("priority"),
+            Some(&vec!["blank".to_string()]),
+            "refused with priority: blank"
+        ),
+        r => panic!("expected priority: blank, got {r:?}"),
+    }
+    assert_eq!(
+        row_json(&verify, no_priority).await.unwrap(),
+        wp_before,
+        "nothing written"
+    );
+    assert!(
+        journals(&verify, no_priority).await.is_empty(),
+        "no journal"
+    );
+    let mut with_priority = patch_subject(&row, "no priority, edited");
+    with_priority.priority_id = Some(PRIORITY_DEFAULT);
+    mutation::update(&store, &caller_a, no_priority, with_priority)
+        .await
+        .expect("the edit that sets a priority is applied");
+    assert_eq!(
+        journals(&verify, no_priority).await.len(),
+        1,
+        "and journaled"
+    );
+    t.rows += 4;
     t.steps += 1;
 
     verify.close().await;
