@@ -23,10 +23,7 @@ fn expected_default(d: Option<&str>) -> Default {
 
 #[test]
 fn generated_specs_match_openproject_structure_sql() {
-    let Some(src) = common::openproject_src("schema_fidelity") else {
-        return;
-    };
-    let schema = common::structure(&src);
+    let schema = common::structure();
     let mut checked = 0;
     for m in MODELS {
         let spec = m.table;
@@ -66,10 +63,7 @@ fn generated_specs_match_openproject_structure_sql() {
 /// a polyfill `Date`, every `double precision` column a `Float`.
 #[test]
 fn date_and_double_columns_keep_their_types() {
-    let Some(src) = common::openproject_src("schema_fidelity") else {
-        return;
-    };
-    let schema = common::structure(&src);
+    let schema = common::structure();
     let (mut dates, mut floats) = (0, 0);
     for m in MODELS {
         for s in &schema[m.table.name].columns {
@@ -95,10 +89,7 @@ fn date_and_double_columns_keep_their_types() {
 /// (`projects_types`) is the only one not generated.
 #[test]
 fn every_journey_table_in_openproject_is_generated() {
-    let Some(src) = common::openproject_src("schema_fidelity") else {
-        return;
-    };
-    let schema = common::structure(&src);
+    let schema = common::structure();
     for t in op_desk::JOURNEY_TABLES {
         let generated = MODELS.iter().any(|m| m.table.name == *t);
         assert_eq!(generated, schema.contains_key(*t), "{t}");

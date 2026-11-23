@@ -42,7 +42,10 @@ const ZAMMAD_REGEN: &str =
     "// Regenerate: ZAMMAD_SRC=<zammad checkout> cargo run -p rails-compiler -- zammad.toml\n";
 const OP_REGEN: &str = "// Regenerate: OPENPROJECT_SRC=<openproject checkout> cargo run -p op-desk --example generate\n// (openproject.toml; rails-compiler's emitter, then op_desk::types post-mapping for date/float)\n";
 
-/// The schema file named by `[op_desk].structure`, relative to the source.
+/// OpenProject's own path for the schema the capture copies.
+const OP_STRUCTURE: &str = "db/structure.sql";
+
+/// The schema file named by `[op_desk].structure`, relative to openproject.toml.
 pub fn structure_path(cfg_path: &Path) -> Result<String, String> {
     let text = std::fs::read_to_string(cfg_path).map_err(|e| e.to_string())?;
     let v: toml::Value = toml::from_str(&text).map_err(|e| e.to_string())?;
@@ -77,8 +80,11 @@ pub fn generate(cfg_path: &Path) -> Result<BTreeMap<String, String>, String> {
     let cfg = Loaded::read(cfg_path)?;
     let app = &cfg.config.app;
     let structure_rel = structure_path(cfg_path)?;
-    let sql = std::fs::read_to_string(cfg.source.join(&structure_rel))
+    let base = cfg_path.parent().unwrap_or_else(|| Path::new("."));
+    let sql = std::fs::read_to_string(base.join(&structure_rel))
         .map_err(|e| format!("{structure_rel}: {e}"))?;
+    // Provenance names the file in OpenProject the capture is a copy of.
+    let structure_rel = OP_STRUCTURE;
     let dump = op_desk::structure::parse(&sql);
 
     let h = Harvest::collect(&cfg.source, &app.autoload_roots, &app.namespace);
@@ -116,7 +122,7 @@ pub fn generate(cfg_path: &Path) -> Result<BTreeMap<String, String>, String> {
                 columns: t
                     .columns
                     .iter()
-                    .map(|c| to_column(c, &structure_rel))
+                    .map(|c| to_column(c, structure_rel))
                     .collect(),
                 provenance: provenance.clone(),
             },

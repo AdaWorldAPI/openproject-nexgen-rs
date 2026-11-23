@@ -11,8 +11,8 @@ pub fn openproject_src(test: &str) -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("OPENPROJECT_SRC") {
         let p = PathBuf::from(p);
         assert!(
-            p.join("db/structure.sql").is_file(),
-            "OPENPROJECT_SRC={} has no db/structure.sql",
+            p.join("app/models").is_dir(),
+            "OPENPROJECT_SRC={} has no app/models",
             p.display()
         );
         return Some(p);
@@ -25,12 +25,16 @@ pub fn openproject_src(test: &str) -> Option<PathBuf> {
     None
 }
 
+pub const STRUCTURE: &str = "oracle/openproject-structure.sql";
+
 pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// OpenProject's schema, `db/structure.sql`.
-pub fn structure(src: &Path) -> std::collections::BTreeMap<String, op_desk::structure::SqlTable> {
-    let sql = std::fs::read_to_string(src.join("db/structure.sql")).expect("db/structure.sql");
+/// OpenProject's schema at the pinned revision: its `db/structure.sql`, which
+/// OpenProject does not commit, captured in `oracle/openproject-structure.sql`.
+pub fn structure() -> std::collections::BTreeMap<String, op_desk::structure::SqlTable> {
+    let path = repo_root().join(STRUCTURE);
+    let sql = std::fs::read_to_string(&path).expect("oracle/openproject-structure.sql");
     op_desk::structure::parse(&sql)
 }
