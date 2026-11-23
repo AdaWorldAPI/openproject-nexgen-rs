@@ -30,6 +30,7 @@ BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgMutationStore}::cre
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::begin
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::commit
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::rollback
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::write_creation_journal
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::execute
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_MutationStore_for_PgCreateScope::find_wp
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_MutationStore_for_PgCreateScope::project_active

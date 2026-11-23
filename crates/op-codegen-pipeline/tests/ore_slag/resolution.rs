@@ -470,7 +470,7 @@ fn residual_for(
                 "remove the call from a structured body: the row must become RubyOnly, never stay Agreement",
             ),
             if key == KEY_PERSIST {
-                format!("Charon residual {charon}; the create is transactional (EXECUTED_DB step 7) but writes no journal")
+                format!("Charon residual {charon}; the create is transactional and writes its creation journal (EXECUTED_DB steps 2, 7)")
             } else {
                 format!("Charon residual {charon}")
             },
