@@ -51,6 +51,10 @@ pub mod ogar_consumer;
 /// Generator for the create-contract admission table in `op-contracts`.
 pub mod admission_gen;
 
+/// Three-witness reconciliation (source-side harvest, Charon store, runtime axis), per
+/// semantic claim.
+pub mod reconcile;
+
 /// Callback harvest shared by the Rails-callback differentials (test support).
 pub mod callback_harvest;
 

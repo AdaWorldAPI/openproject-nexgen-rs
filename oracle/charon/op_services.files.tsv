@@ -1,0 +1,21 @@
+#version 1
+#schema path	fnv64
+crates/op-services/src/base.rs	dcd37518070115ea
+crates/op-services/src/lib.rs	7d77c1d1a038328c
+crates/op-services/src/projects/create.rs	f34c33883451416b
+crates/op-services/src/projects/delete.rs	9137882b03acc97d
+crates/op-services/src/projects/mod.rs	786de51f9cceda94
+crates/op-services/src/projects/set_attributes.rs	3dce1036d24941c8
+crates/op-services/src/projects/update.rs	d148beb99c6c0ad0
+crates/op-services/src/result.rs	cfd7203fa92ebf4c
+crates/op-services/src/users/create.rs	772d21568e2b9d2d
+crates/op-services/src/users/delete.rs	17c6a1351ae44a4b
+crates/op-services/src/users/mod.rs	8cc6012d7a801bea
+crates/op-services/src/users/set_attributes.rs	71db37972303b31c
+crates/op-services/src/users/update.rs	75816c72afc3c2fd
+crates/op-services/src/work_packages/create.rs	8f79fef627cfe0c7
+crates/op-services/src/work_packages/delete.rs	ff942dcfd67ea83e
+crates/op-services/src/work_packages/mod.rs	f664d8ded6f039f2
+crates/op-services/src/work_packages/mutation.rs	76cc6012025f41a2
+crates/op-services/src/work_packages/set_attributes.rs	43ddba66a4dc4b09
+crates/op-services/src/work_packages/update.rs	c7032ab5fa87aebd

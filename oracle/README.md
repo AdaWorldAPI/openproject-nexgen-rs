@@ -423,3 +423,18 @@ What each step is worth (the operator's evidence table):
 Disable runs proving the connection: making `call` ignore the admission verdict, replacing the evaluator
 inside the service with one that always admits, always admitting inside `call`, skipping admission in `call`, or ignoring `with_facts`, each fails the admission
 comparison (error keys differ from the oracle; verdict differs; the 3-fact perturbation no longer flips).
+
+## Charon structural witness (`charon/`)
+
+`charon/` holds the Charon store for `op-contracts` and `op-services` (`<crate>.rows.tsv`,
+`residuals.tsv`, `files.tsv`, `effects.tsv`; `PROVENANCE.txt` names the Charon, ruff_charon and
+nexgen revisions and the extraction-only `sqlx-postgres` patch). Charon needs a pinned nightly and
+that patch, so it does not run in CI; like the traces above, the store is a frozen witness.
+`op-api`, `op-server` and `op-db` were not extracted.
+
+`crates/op-codegen-pipeline/tests/reconcile_create_admission.rs` reconciles it, per semantic
+claim, with the Ruby-side harvest of `WorkPackages::CreateContract` and with production Rust
+executed against `work-package-contract-trace.json`, and checks that
+`charon/reconcile-create-admission.md` is current (`UPDATE_RECONCILE_REPORT=1` rewrites it). The
+store's `files.tsv` hashes are compared with the checkout; a changed source file fails the test
+until the store is re-extracted.
