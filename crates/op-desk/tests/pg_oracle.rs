@@ -119,22 +119,64 @@ async fn answer(pool: &PgPool, read: &Read) -> J {
         let columns: Vec<&str> = spec.columns.iter().map(|c| c.name).collect();
         json!({"columns": columns, "rows": rows})
     };
+    // The table's default scope, read from op_desk::scopes (generated from
+    // OpenProject's source) and written as SQL here, independently of the
+    // desk's translation into Quack calls.
+    let scope = op_desk::scopes::of_table(t);
+    let mut scope_preds: Vec<String> = Vec::new();
+    for f in scope.map(|s| s.filters).unwrap_or_default() {
+        let negated = f.op == op_desk::scopes::Op::Ne;
+        let ty = spec.columns[spec.index_of(f.col).expect("scope column")].ty;
+        let sql_type = sql_type_of(t, f.col);
+        scope_preds.push(match f.lit {
+            op_desk::scopes::Lit::Nil if negated => format!("{} IS NOT NULL", ident(f.col)),
+            op_desk::scopes::Lit::Nil => format!("{} IS NULL", ident(f.col)),
+            lit => format!(
+                "{} {} {}",
+                ident(f.col),
+                if negated { "<>" } else { "=" },
+                literal(&lit_json(lit), ty, &sql_type)
+            ),
+        });
+    }
+    let mut order: Vec<String> = scope
+        .map(|s| s.order)
+        .unwrap_or_default()
+        .iter()
+        .map(|o| {
+            let dir = if o.dir == op_desk::scopes::Dir::Asc {
+                "ASC"
+            } else {
+                "DESC"
+            };
+            format!("{} {dir}", ident(o.col))
+        })
+        .collect();
+    if !scope.is_some_and(|s| s.order.iter().any(|o| o.col == "id")) {
+        order.push("id ASC".into());
+    }
+    let order = order.join(", ");
+    let where_of = |own: Option<String>| {
+        let preds: Vec<String> = scope_preds.iter().cloned().chain(own).collect();
+        if preds.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", preds.join(" AND "))
+        }
+    };
     match read {
         Read::All(_) => {
             rows_of(format!(
-                "SELECT {} FROM {} ORDER BY id",
+                "SELECT {} FROM {}{} ORDER BY {order}",
                 select_list(spec),
-                ident(t)
+                ident(t),
+                where_of(None),
             ))
             .await
         }
         Read::Eq(_, col, value) => {
             let ty = spec.columns[spec.index_of(col).expect("column")].ty;
-            let sql_type = sql_types(t)
-                .into_iter()
-                .find(|(n, _)| n == col)
-                .map(|(_, s)| s)
-                .expect("sql type");
+            let sql_type = sql_type_of(t, col);
             // Rails' `where(col: nil)` is `IS NULL`, and Quack reads an eq with
             // a null value the same way.
             let predicate = if value.is_null() {
@@ -143,20 +185,42 @@ async fn answer(pool: &PgPool, read: &Read) -> J {
                 format!("{} = {}", ident(col), literal(value, ty, &sql_type))
             };
             rows_of(format!(
-                "SELECT {} FROM {} WHERE {predicate} ORDER BY id",
+                "SELECT {} FROM {}{} ORDER BY {order}",
                 select_list(spec),
                 ident(t),
+                where_of(Some(predicate)),
             ))
             .await
         }
         Read::Count(_) => {
-            let n: i64 = sqlx::query(&format!("SELECT count(*) FROM {}", ident(t)))
-                .fetch_one(pool)
-                .await
-                .expect("count")
-                .get(0);
+            let n: i64 = sqlx::query(&format!(
+                "SELECT count(*) FROM {}{}",
+                ident(t),
+                where_of(None)
+            ))
+            .fetch_one(pool)
+            .await
+            .expect("count")
+            .get(0);
             json!({"count": n})
         }
+    }
+}
+
+fn sql_type_of(t: &str, col: &str) -> String {
+    sql_types(t)
+        .into_iter()
+        .find(|(n, _)| n == col)
+        .map(|(_, s)| s)
+        .expect("sql type")
+}
+
+fn lit_json(l: op_desk::scopes::Lit) -> J {
+    match l {
+        op_desk::scopes::Lit::Int(i) => json!(i),
+        op_desk::scopes::Lit::Str(s) => json!(s),
+        op_desk::scopes::Lit::Bool(b) => json!(b),
+        op_desk::scopes::Lit::Nil => J::Null,
     }
 }
 

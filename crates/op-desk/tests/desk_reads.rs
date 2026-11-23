@@ -67,8 +67,9 @@ fn a_table_or_column_outside_the_slice_is_refused() {
     ));
 }
 
-/// The demo seed: every table's catalog count equals its seed rows, and the
-/// write-side store agrees.
+/// The demo seed: every table's catalog count equals its seed rows within the
+/// table's default-scope filters, and the write-side store (unscoped) holds
+/// every seed row.
 #[test]
 fn the_demo_seed_loads_and_every_count_matches() {
     let doc: J = serde_json::from_str(include_str!("../seed/demo.json")).expect("demo.json");
@@ -77,7 +78,13 @@ fn the_demo_seed_loads_and_every_count_matches() {
     assert!(seed.len() >= 14, "demo seeds the slice: {:?}", seed.keys());
     for (table, rows) in seed {
         let n = rows.as_array().expect("rows").len() as i64;
-        assert_eq!(desk.count(table), Ok(n), "{table}: catalog count");
+        let visible = rows
+            .as_array()
+            .expect("rows")
+            .iter()
+            .filter(|r| within_default_scope(table, r))
+            .count() as i64;
+        assert_eq!(desk.count(table), Ok(visible), "{table}: catalog count");
         let spec = op_desk::desk::table(table).expect("spec");
         assert_eq!(desk.store().count(spec) as i64, n, "{table}: store count");
     }
@@ -123,4 +130,85 @@ fn the_store_keeps_every_seeded_cell() {
         }
     }
     assert!(cells > 1000, "{cells} cells checked");
+}
+
+/// Whether a seed row passes its table's default-scope filters.
+fn within_default_scope(table: &str, row: &J) -> bool {
+    use op_desk::scopes::{Lit, Op};
+    op_desk::scopes::of_table(table).is_none_or(|s| {
+        s.filters.iter().all(|f| {
+            let want = match f.lit {
+                Lit::Int(i) => json!(i),
+                Lit::Str(v) => json!(v),
+                Lit::Bool(b) => json!(b),
+                Lit::Nil => J::Null,
+            };
+            let cell = row.get(f.col).cloned().unwrap_or(J::Null);
+            match (f.op, want.is_null()) {
+                (Op::Eq, _) => cell == want,
+                (Op::Ne, true) => !cell.is_null(),
+                // SQL `<>`: a null cell matches neither side.
+                (Op::Ne, false) => !cell.is_null() && cell != want,
+            }
+        })
+    })
+}
+
+fn names(rows: &op_desk::desk::Rows, col: &str) -> Vec<String> {
+    rows.rows
+        .iter()
+        .map(|r| r[rows.columns.iter().position(|c| c == col).expect("column")].to_string())
+        .collect()
+}
+
+/// OpenProject's default scopes shape the demo reads: statuses and types in
+/// position order (not id order), enumerations by position, and a deleted user
+/// (`Principal`'s `where.not(status: deleted)`) hidden from every user read
+/// while a locked one stays.
+#[test]
+fn demo_reads_follow_openprojects_default_scopes() {
+    let doc: J = serde_json::from_str(include_str!("../seed/demo.json")).expect("demo.json");
+    let desk = Desk::from_seed(&doc).expect("demo desk");
+    let statuses = desk.read_all("statuses").expect("statuses");
+    assert_eq!(
+        names(&statuses, "name"),
+        [
+            "New",
+            "In progress",
+            "On hold",
+            "Resolved",
+            "Closed",
+            "Rejected"
+        ]
+        .map(|n| format!("{n:?}"))
+    );
+    let types = desk.read_all("types").expect("types");
+    assert_eq!(
+        names(&types, "name"),
+        ["Epic", "Task", "Bug", "Feature", "Milestone"].map(|n| format!("{n:?}"))
+    );
+    let enums = desk.read_all("enumerations").expect("enumerations");
+    assert_eq!(names(&enums, "id"), ["1", "5", "2", "6", "3", "4"]);
+    let users = desk.read_all("users").expect("users");
+    let logins = names(&users, "login");
+    assert!(
+        logins.contains(&"\"erin\"".to_string()),
+        "a locked user stays: {logins:?}"
+    );
+    assert!(
+        !logins.contains(&"\"frank\"".to_string()),
+        "a deleted user is hidden: {logins:?}"
+    );
+    assert_eq!(desk.count("users"), Ok(6));
+    assert!(desk
+        .read("users", "login", json!("frank"))
+        .expect("frank")
+        .rows
+        .is_empty());
+    let spec = op_desk::desk::table("users").expect("users spec");
+    assert_eq!(
+        desk.store().count(spec),
+        7,
+        "the store keeps the deleted user"
+    );
 }

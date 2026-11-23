@@ -21,6 +21,10 @@ rails-compiler = { path = "../rails-compiler" }
 ruff_ruby_spo = { git = "https://github.com/AdaWorldAPI/ruff", branch = "main" }
 ogar-from-ruff = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 toml = "0.8"
+# Default-scope lowering (tests/gen/scopes.rs): rails-f000's scope catalog
+# over the same harvest, and the parser its nodes come from.
+rails-f000 = { path = "../rails-f000" }
+lib-ruby-parser = { version = "4.0", default-features = false }
 
 [features]
 # Negative control: `date` columns map to the emitter's `DateTime` again. The
