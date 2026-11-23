@@ -17,6 +17,7 @@
 //! rows. Nothing here is wired into the server yet.
 
 pub mod desk;
+pub mod reads;
 #[rustfmt::skip]
 pub mod generated;
 pub mod snapshot;

@@ -12,6 +12,9 @@ quack-shadow = { path = "../quack-shadow" }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+# The PostgreSQL parity oracle (tests/pg_oracle.rs) only.
+sqlx = { workspace = true }
+tokio = { workspace = true }
 # The generator (examples/generate.rs, tests/regenerate.rs), as zammad-rs runs
 # rails-compiler beside its generated crate rather than inside it.
 rails-compiler = { path = "../rails-compiler" }
