@@ -1,0 +1,15 @@
+[package]
+name = "rails-polyfill"
+description = "Application-independent Rails/ActiveRecord semantics as a native runtime: Ruby value semantics, dirty tracking, the Rails 8.1 save/callback pipeline, validations, association navigation, and the declarative rewrite rules the compiler applies. Contains no application names."
+version.workspace = true
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+regex = { workspace = true }
+
+[features]
+# Disable runs: committed writes are not journaled, so the write-feed tests must fail.
+disable-write-journal = []
+# Disable runs: no column keeps more than milliseconds, so a microsecond column's round trip must fail.
+disable-usec-precision = []
