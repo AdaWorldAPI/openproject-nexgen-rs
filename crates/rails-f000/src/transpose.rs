@@ -244,6 +244,19 @@ fn resolve_const(h: &rails_compiler::harvest::Harvest, nesting: &[String], name:
         .unwrap_or_else(|| name.to_string())
 }
 
+/// Whether a constant reference is absolute (`::Name`, `::A::B`): its
+/// leftmost scope is the top-level base, so Ruby skips the lexical lookup.
+fn is_absolute_const(node: &Node) -> bool {
+    match node {
+        Node::Const(c) => match c.scope.as_deref() {
+            Some(Node::Cbase(_)) => true,
+            Some(other) => is_absolute_const(other),
+            None => false,
+        },
+        _ => false,
+    }
+}
+
 fn lambda_parts(n: &Node) -> Option<(usize, Option<Node>)> {
     match n {
         Node::Block(b) => {
@@ -385,7 +398,11 @@ impl ScopeCatalog {
                         }
                         for arg in &send.args {
                             if let Some(m) = rails_compiler::harvest::const_name(arg) {
-                                parents.push(resolve_const(h, &u.nesting, &m));
+                                if is_absolute_const(arg) {
+                                    parents.push(m);
+                                } else {
+                                    parents.push(resolve_const(h, &u.nesting, &m));
+                                }
                             }
                         }
                     }
@@ -1239,6 +1256,28 @@ mod tests {
         let mut owners: Vec<&str> = cat.default_scopes("State").map(|d| d.class.as_str()).collect();
         owners.sort_unstable();
         assert_eq!(owners, ["Activatable", "BaseState"]);
+    }
+
+    #[test]
+    fn an_absolute_include_skips_the_lexical_lookup() {
+        let dir = std::env::temp_dir().join(format!("f000-absolute-{}", std::process::id()));
+        let models = dir.join("app/models");
+        std::fs::create_dir_all(models.join("admin")).unwrap();
+        std::fs::write(models.join("admin/state.rb"), "module Admin\n  class State < ApplicationRecord\n    include ::Activatable\n    include Activatable\n  end\nend\n").unwrap();
+        std::fs::write(models.join("activatable.rb"), "module Activatable\n  extend ActiveSupport::Concern\nend\n").unwrap();
+        std::fs::write(
+            models.join("admin/activatable.rb"),
+            "module Admin\n  module Activatable\n    extend ActiveSupport::Concern\n    included do\n      default_scope { where(active: true) }\n    end\n  end\nend\n",
+        )
+        .unwrap();
+        let h = rails_compiler::harvest::Harvest::collect(&dir, &["app/models".into()], "app");
+        let cat = ScopeCatalog::from_harvest(&h);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(h.units.contains_key("Admin::Activatable"), "fixture must define the namespaced concern");
+        assert_eq!(
+            cat.parents.get("Admin::State").map(Vec::as_slice),
+            Some(&["Activatable".to_string(), "Admin::Activatable".to_string(), "ApplicationRecord".to_string()][..])
+        );
     }
 
     #[test]
