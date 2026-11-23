@@ -38,15 +38,15 @@ pub static TABLE: rp::TableSpec = rp::TableSpec {
         rp::Column { name: "journable_id", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:3968
         rp::Column { name: "user_id", ty: rp::ColumnType::Integer, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:3969
         rp::Column { name: "notes", ty: rp::ColumnType::Text, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:3970
-        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:3971
+        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:3971
         rp::Column { name: "version", ty: rp::ColumnType::Integer, null: false, default: rp::Default::Int(0), limit: None }, // db/structure.sql:3972
-        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:3973
+        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:3973
         rp::Column { name: "data_type", ty: rp::ColumnType::String, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:3974
         rp::Column { name: "data_id", ty: rp::ColumnType::Integer, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:3975
         rp::Column { name: "cause", ty: rp::ColumnType::Json, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:3976
         rp::Column { name: "validity_period", ty: rp::ColumnType::Text, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:3977
         rp::Column { name: "restricted", ty: rp::ColumnType::Boolean, null: false, default: rp::Default::Bool(false), limit: None }, // db/structure.sql:3978
-        rp::Column { name: "reactions_changed_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:3979
+        rp::Column { name: "reactions_changed_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:3979
     ],
 };
 

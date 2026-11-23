@@ -35,8 +35,8 @@ pub static TABLE: rp::TableSpec = rp::TableSpec {
         rp::Column { name: "is_in_roadmap", ty: rp::ColumnType::Boolean, null: false, default: rp::Default::Bool(true), limit: None }, // db/structure.sql:8118
         rp::Column { name: "is_milestone", ty: rp::ColumnType::Boolean, null: false, default: rp::Default::Bool(false), limit: None }, // db/structure.sql:8119
         rp::Column { name: "color_id", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:8120
-        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:8121
-        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:8122
+        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:8121
+        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:8122
         rp::Column { name: "allow_project_variants", ty: rp::ColumnType::Boolean, null: false, default: rp::Default::Bool(true), limit: None }, // db/structure.sql:8123
         rp::Column { name: "description", ty: rp::ColumnType::Text, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:8124
     ],

@@ -73,8 +73,8 @@ pub static TABLE: rp::TableSpec = rp::TableSpec {
         rp::Column { name: "lock_version", ty: rp::ColumnType::Integer, null: false, default: rp::Default::Int(0), limit: None }, // db/structure.sql:9023
         rp::Column { name: "done_ratio", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:9024
         rp::Column { name: "estimated_hours", ty: rp::ColumnType::Float, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:9025
-        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:9026
-        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:9027
+        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:9026
+        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:9027
         rp::Column { name: "start_date", ty: rp::ColumnType::Date, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:9028
         rp::Column { name: "responsible_id", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:9029
         rp::Column { name: "derived_estimated_hours", ty: rp::ColumnType::Float, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:9030

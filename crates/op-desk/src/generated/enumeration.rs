@@ -38,8 +38,8 @@ pub static TABLE: rp::TableSpec = rp::TableSpec {
         rp::Column { name: "active", ty: rp::ColumnType::Boolean, null: false, default: rp::Default::Bool(true), limit: None }, // db/structure.sql:2022
         rp::Column { name: "project_id", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:2023
         rp::Column { name: "parent_id", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:2024
-        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:2025
-        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:2026
+        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:2025
+        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:2026
         rp::Column { name: "color_id", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:2027
     ],
 };

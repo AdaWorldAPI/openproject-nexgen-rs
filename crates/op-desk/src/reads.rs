@@ -70,7 +70,10 @@ impl Answer {
 
 /// The reads checked against PostgreSQL for the demo seed: every slice table in
 /// full and counted, and equality filters on integer, text and boolean
-/// columns the pages use, including one that matches nothing.
+/// columns the pages use, including one that matches nothing, a case
+/// difference, and a null (`IS NULL`). Filters on a DateTime column are not
+/// in the list: a read value is microseconds in the snapshot convention and
+/// epoch seconds on Quack's timestamp lane, and the encoding is not settled.
 #[must_use]
 pub fn demo_reads() -> Vec<Read> {
     let mut reads = Vec::new();
@@ -102,6 +105,10 @@ pub fn demo_reads() -> Vec<Read> {
         Read::Eq("statuses", "is_default", json!(true)),
         Read::Eq("projects", "identifier", json!("website-relaunch")),
         Read::Eq("users", "login", json!("alice")),
+        // Text equality is case-sensitive on both sides.
+        Read::Eq("users", "login", json!("Alice")),
+        // `where(assigned_to_id: nil)`: IS NULL, not `= NULL`.
+        Read::Eq("work_packages", "assigned_to_id", J::Null),
     ]);
     reads
 }

@@ -42,8 +42,8 @@ pub static TABLE: rp::TableSpec = rp::TableSpec {
         rp::Column { name: "description", ty: rp::ColumnType::Text, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:6309
         rp::Column { name: "public", ty: rp::ColumnType::Boolean, null: false, default: rp::Default::Bool(true), limit: None }, // db/structure.sql:6310
         rp::Column { name: "parent_id", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:6311
-        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:6312
-        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:6313
+        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:6312
+        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:6313
         rp::Column { name: "identifier", ty: rp::ColumnType::String, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:6314
         rp::Column { name: "lft", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:6315
         rp::Column { name: "rgt", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:6316
