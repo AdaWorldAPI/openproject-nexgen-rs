@@ -69,11 +69,64 @@ pub struct ModelSpec {
     pub callbacks: &'static [Callback],
 }
 
+/// One record taking part in the outermost transaction
+/// (`add_to_transaction`, transactions.rb:438). ActiveRecord keeps each
+/// record once, in the order it joined, and runs its after_commit chain once
+/// at commit, with the action read off the record's final state
+/// (`transaction_include_any_action?`).
 #[derive(Debug, Clone)]
 pub(crate) struct PendingCommit {
     model: &'static ModelSpec,
     record: Record,
-    action: Action,
+    /// `@_new_record_before_last_commit`: new when it joined.
+    created: bool,
+    /// What it did that triggers after_commit, if anything yet
+    /// (`_trigger_update_callback` / `_trigger_destroy_callback`).
+    action: Option<Action>,
+}
+
+/// The record's slot in the transaction, joining it if it is not in yet.
+fn join_transaction(ctx: &mut Ctx, model: &'static ModelSpec, rec: &Record) -> usize {
+    if let Some(id) = rec.id() {
+        let same = |p: &PendingCommit| std::ptr::eq(p.record.table, rec.table) && p.record.id() == Some(id);
+        if let Some(i) = ctx.pending_commit.iter().position(same) {
+            return i;
+        }
+    }
+    ctx.pending_commit.push(PendingCommit {
+        model,
+        record: rec.clone(),
+        created: rec.new_record(),
+        action: None,
+    });
+    ctx.pending_commit.len() - 1
+}
+
+/// Records what the operation did; a destroy outweighs an earlier save.
+fn settle(ctx: &mut Ctx, slot: usize, rec: &Record, action: Option<Action>) {
+    let p = &mut ctx.pending_commit[slot];
+    p.record = rec.clone();
+    p.action = match (p.action, action) {
+        (_, Some(Action::Destroy)) => Some(Action::Destroy),
+        (Some(Action::Destroy), _) => Some(Action::Destroy),
+        (old, None) => old,
+        (_, new) => new,
+    };
+}
+
+/// Runs each participating record's after_commit chain once, in join order.
+fn dispatch_commits(ctx: &mut Ctx) -> Result<(), Halt> {
+    let pending = std::mem::take(&mut ctx.pending_commit);
+    for mut p in pending {
+        let Some(did) = p.action else { continue };
+        let action = match did {
+            Action::Destroy => Action::Destroy,
+            _ if p.created => Action::Create,
+            _ => Action::Update,
+        };
+        run_chain(ctx, p.model, &[Phase::AfterCommit], action, &mut p.record)?;
+    }
+    Ok(())
 }
 
 impl std::fmt::Debug for ModelSpec {
@@ -223,6 +276,7 @@ pub fn save(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Resul
     let snapshot = ctx.store.begin();
     let record_state = rec.transaction_state();
     let outer = ctx.txn_depth == 0;
+    let slot = join_transaction(ctx, model, rec);
     ctx.txn_depth += 1;
     let result = save_in_transaction(ctx, model, rec, action);
     ctx.txn_depth -= 1;
@@ -247,16 +301,9 @@ pub fn save(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Resul
         return result;
     }
     ctx.store.release(snapshot);
-    ctx.pending_commit.push(PendingCommit {
-        model,
-        record: rec.clone(),
-        action,
-    });
+    settle(ctx, slot, rec, Some(action));
     if outer {
-        let pending = std::mem::take(&mut ctx.pending_commit);
-        for mut p in pending {
-            run_chain(ctx, p.model, &[Phase::AfterCommit], p.action, &mut p.record)?;
-        }
+        dispatch_commits(ctx)?;
     }
     result
 }
@@ -356,8 +403,10 @@ pub fn destroy(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Re
     let snapshot = ctx.store.begin();
     let record_state = rec.transaction_state();
     let outer = ctx.txn_depth == 0;
+    let slot = join_transaction(ctx, model, rec);
+    let mut row_deleted = false;
     ctx.txn_depth += 1;
-    let result = destroy_in_transaction(ctx, model, rec);
+    let result = destroy_in_transaction(ctx, model, rec, &mut row_deleted);
     ctx.txn_depth -= 1;
 
     let deleted = match result {
@@ -365,8 +414,14 @@ pub fn destroy(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Re
         other => {
             if !outer {
                 // Joined to the outer transaction: nothing is rolled back here
-                // (see `save`).
+                // (see `save`). A row already deleted stays deleted, and its
+                // after_commit runs if the outer transaction commits, even
+                // when an after_destroy raised afterwards
+                // (`@_trigger_destroy_callback` is set by the delete).
                 ctx.store.release(snapshot);
+                if row_deleted {
+                    settle(ctx, slot, rec, Some(Action::Destroy));
+                }
                 return other.map(|_| false);
             }
             ctx.store.rollback(snapshot);
@@ -382,27 +437,31 @@ pub fn destroy(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Re
     };
     ctx.store.release(snapshot);
     if deleted {
-        ctx.pending_commit.push(PendingCommit {
-            model,
-            record: rec.clone(),
-            action: Action::Destroy,
-        });
+        settle(ctx, slot, rec, Some(Action::Destroy));
+    } else {
+        // Destroyed without a deleted row: no destroy trigger, and a
+        // destroyed record takes no create or update callback either.
+        ctx.pending_commit[slot].record = rec.clone();
+        ctx.pending_commit[slot].action = None;
     }
     if outer {
-        let pending = std::mem::take(&mut ctx.pending_commit);
-        for mut p in pending {
-            run_chain(ctx, p.model, &[Phase::AfterCommit], p.action, &mut p.record)?;
-        }
+        dispatch_commits(ctx)?;
     }
     Ok(true)
 }
 
 /// `Some(deleted)` once the chain ran; `None` when a callback aborted.
-fn destroy_in_transaction(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Result<Option<bool>, Halt> {
+fn destroy_in_transaction(
+    ctx: &mut Ctx,
+    model: &'static ModelSpec,
+    rec: &mut Record,
+    row_deleted: &mut bool,
+) -> Result<Option<bool>, Halt> {
     let body = (|| {
         run_chain(ctx, model, DESTROY_BEFORE, Action::Destroy, rec)?;
         // Persistence#destroy: `persisted? && destroy_row > 0`.
         let deleted = rec.persisted() && ctx.store.delete_locked(rec)?;
+        *row_deleted = deleted;
         rec.set_destroyed(true);
         run_chain(ctx, model, &[Phase::AfterDestroy], Action::Destroy, rec)?;
         Ok(deleted)
@@ -822,6 +881,83 @@ mod tests {
         );
         let child_commits = ctx.journal.iter().filter(|e| e.name == "child_commit_destroy").count();
         assert_eq!(child_commits, 1, "the child's after_commit runs");
+    }
+
+    fn destroy_kid_rescuing(ctx: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
+        let mut kid = find(ctx, &KID, 1)?.expect("kid row");
+        match destroy(ctx, &KID, &mut kid) {
+            Err(Halt::Raise(_)) => Ok(Value::Nil),
+            other => other.map(|_| Value::Nil),
+        }
+    }
+
+    static KID: ModelSpec = ModelSpec {
+        name: "Kid",
+        table: &PLAIN,
+        callbacks: &[
+            cb(Phase::AfterDestroy, "kid_boom", On::ANY, boom),
+            cb(Phase::AfterCommit, "kid_commit_destroy", On::DESTROY, noop),
+        ],
+    };
+
+    static MOM: ModelSpec = ModelSpec {
+        name: "Mom",
+        table: &LOCKED,
+        callbacks: &[
+            cb(Phase::BeforeDestroy, "destroy_kid_rescuing", On::ANY, destroy_kid_rescuing),
+            cb(Phase::AfterCommit, "mom_commit_destroy", On::DESTROY, noop),
+        ],
+    };
+
+    fn commits(ctx: &Ctx) -> Vec<&'static str> {
+        ctx.journal.iter().filter(|e| e.phase == Phase::AfterCommit).map(|e| e.name).collect()
+    }
+
+    /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, rescued-raise
+    /// scenario): a nested destroy whose after_destroy raises, rescued by the
+    /// outer before_destroy, keeps its row deleted and its after_commit runs,
+    /// after the outer record's, in the order the records joined.
+    #[test]
+    fn a_nested_destroy_that_deleted_keeps_its_commit_callback_after_a_rescued_raise() {
+        let mut ctx = ctx_with(&PLAIN);
+        ctx.store.register(&LOCKED);
+        ctx.store.seed(&PLAIN, &[("name", Value::str("k"))]).unwrap();
+        let mut mom = seeded(&mut ctx, &MOM);
+        assert_eq!(destroy(&mut ctx, &MOM, &mut mom), Ok(true));
+        assert_eq!((ctx.store.count(&PLAIN), ctx.store.count(&LOCKED)), (0, 0));
+        assert_eq!(commits(&ctx), ["mom_commit_destroy", "kid_commit_destroy"]);
+    }
+
+    fn rename_and_save(ctx: &mut Ctx, rec: &mut Record) -> Result<Value, Halt> {
+        rec.set(1, Value::str("changed"));
+        save(ctx, &SOLO, rec)?;
+        Ok(Value::Nil)
+    }
+
+    static SOLO: ModelSpec = ModelSpec {
+        name: "Solo",
+        table: &PLAIN,
+        callbacks: &[
+            cb(Phase::BeforeDestroy, "rename_and_save", On::ANY, rename_and_save),
+            cb(Phase::AfterCommit, "commit_update", On::UPDATE, noop),
+            cb(Phase::AfterCommit, "commit_destroy", On::DESTROY, noop),
+            cb(Phase::AfterCommit, "commit_any", On::ANY, noop),
+        ],
+    };
+
+    /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, save-then-destroy
+    /// scenario): a record saved in its own before_destroy takes part in the
+    /// transaction once; at commit it is destroyed, so no update callback
+    /// runs and each matching after_commit runs once.
+    #[test]
+    fn a_record_saved_then_destroyed_commits_once_as_a_destroy() {
+        let mut ctx = ctx_with(&PLAIN);
+        let mut solo = seeded(&mut ctx, &SOLO);
+        assert_eq!(destroy(&mut ctx, &SOLO, &mut solo), Ok(true));
+        assert_eq!(ctx.store.count(&PLAIN), 0);
+        let mut got = commits(&ctx);
+        got.sort_unstable();
+        assert_eq!(got, ["commit_any", "commit_destroy"]);
     }
 
     /// A rolled-back create restores the pre-save id and `new_record?`

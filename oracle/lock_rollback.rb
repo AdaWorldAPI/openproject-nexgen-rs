@@ -20,6 +20,8 @@
 #   destroy rolled back: record name=b changed=["name"] stored=a destroyed=false
 #   nested: outer save true; children=0 parents=1 outers=1
 #   nested: ["parent destroy returned false", "child after_commit destroy"]
+#   rescued: kids=0 moms=0 ["rescued kid boom", "mom after_commit destroy", "kid after_commit destroy"]
+#   save then destroy: solos=0 ["after_commit any", "after_commit destroy"]
 B = File.join(ENV.fetch("OPENPROJECT_SRC"), "vendor/bundle/ruby/4.0.0/gems")
 %w[activerecord-8.1.4.1 activemodel-8.1.4.1 activesupport-8.1.4.1].each { |g| $LOAD_PATH.unshift("#{B}/#{g}/lib") }
 Dir["#{B}/{concurrent-ruby,i18n,tzinfo,minitest,base64,bigdecimal,connection_pool,drb,logger,securerandom,uri,benchmark,timeout,json}-*/lib"].each { |d| $LOAD_PATH.unshift(d) }
@@ -34,6 +36,7 @@ ActiveRecord::Schema.define do
   create_table(:children) { |t| t.string :name }
   create_table(:parents) { |t| t.string :name }
   create_table(:outers) { |t| t.string :name }
+  %i[kids moms solos].each { |t| create_table(t) { |c| c.string :name } }
 end
 class Wp < ActiveRecord::Base
   attr_accessor :boom
@@ -82,3 +85,30 @@ o = Outer.new(name: "o")
 saved = o.save
 puts "nested: outer save #{saved.inspect}; children=#{Child.count} parents=#{Parent.count} outers=#{Outer.count}"
 puts "nested: #{$log.inspect}"
+
+# A nested destroy whose after_destroy raises, rescued by the outer
+# before_destroy.
+$log = []
+class Kid < ActiveRecord::Base
+  after_destroy { raise "kid boom" }
+  after_commit(on: :destroy) { $log << "kid after_commit destroy" }
+end
+class Mom < ActiveRecord::Base
+  before_destroy { begin; Kid.first.destroy; rescue => e; $log << "rescued #{e.message}"; end }
+  after_commit(on: :destroy) { $log << "mom after_commit destroy" }
+end
+Kid.create!(name: "k"); mom = Mom.create!(name: "m")
+mom.destroy
+puts "rescued: kids=#{Kid.count} moms=#{Mom.count} #{$log.inspect}"
+
+# A before_destroy that saves the same record, then the destroy proceeds.
+class Solo < ActiveRecord::Base
+  before_destroy { self.name = "changed"; save! }
+  after_commit(on: :update) { $log << "after_commit update" }
+  after_commit(on: :destroy) { $log << "after_commit destroy" }
+  after_commit { $log << "after_commit any" }
+end
+solo = Solo.create!(name: "s")
+$log = []
+solo.destroy
+puts "save then destroy: solos=#{Solo.count} #{$log.inspect}"
