@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use a2ui_layout::{LayoutMode, RIGHT_SLIM_PX, Region, ZONES_CSS};
+use a2ui_layout::{LayoutMode, Region, RIGHT_SLIM_PX, ZONES_CSS};
 use axum::extract::{Extension, Form, Path, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -2234,15 +2234,25 @@ mod tests {
     #[test]
     fn pages_use_the_main_wide_layout_and_own_no_columns_while_the_menu_renders() {
         let html = page_shell("t", "<p>x</p>");
-        assert!(html.contains("<div class=\"a2-body mode-main-wide\">"), "{html}");
-        assert!(html.contains(".a2-body.mode-main-wide { grid-template-columns: 210px minmax(0, 1fr) 70px; }"));
+        assert!(
+            html.contains("<div class=\"a2-body mode-main-wide\">"),
+            "{html}"
+        );
+        assert!(html.contains(
+            ".a2-body.mode-main-wide { grid-template-columns: 210px minmax(0, 1fr) 70px; }"
+        ));
         let default = body_grid_css(&layout::default_region_mask());
-        assert!(!default.contains("grid-template-columns: 210px"), "{default}");
+        assert!(
+            !default.contains("grid-template-columns: 210px"),
+            "{default}"
+        );
         assert!(!default.contains("270px"), "{default}");
 
         let no_left = body_grid_css(&layout::region_mask(&["global", "header", "main"]));
         assert!(
-            no_left.contains(".a2-body.mode-main-wide { grid-template-columns: minmax(0, 1fr) 70px; }"),
+            no_left.contains(
+                ".a2-body.mode-main-wide { grid-template-columns: minmax(0, 1fr) 70px; }"
+            ),
             "{no_left}"
         );
     }
