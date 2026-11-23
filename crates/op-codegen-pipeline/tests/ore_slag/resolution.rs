@@ -93,7 +93,11 @@ const FAITHFUL: WitnessBinding = WitnessBinding {
 };
 
 /// The guard a claim row names, when its Ruby side is a ruff fact.
-fn guard_of<'a>(row: &ReconciledRow, guards: &'a [ContractGuard]) -> Option<&'a ContractGuard> {
+fn guard_of<'a>(
+    row: &ReconciledRow,
+    guards: &'a [ContractGuard],
+    shadowed: &BTreeSet<String>,
+) -> Option<&'a ContractGuard> {
     let RubyEvidence::Fact { extractor, .. } = &row.spec.ruby else {
         return None;
     };
@@ -103,7 +107,7 @@ fn guard_of<'a>(row: &ReconciledRow, guards: &'a [ContractGuard]) -> Option<&'a 
     let m = &row.spec.key.method;
     let (class, rest) = m.split_once(".attribute(:")?;
     let attr = rest.strip_suffix(')')?;
-    effective_guards(guards)
+    effective_guards(guards, shadowed)
         .into_iter()
         .find(|g| g.class == class && g.attribute == attr)
 }
@@ -115,16 +119,17 @@ fn guard_of<'a>(row: &ReconciledRow, guards: &'a [ContractGuard]) -> Option<&'a 
 fn guard_witness(
     row: &ReconciledRow,
     guards: &[ContractGuard],
+    shadowed: &BTreeSet<String>,
     bind: &WitnessBinding,
     roots: &Roots,
 ) -> Option<EvidenceRef> {
-    let g = guard_of(row, guards)?;
+    let g = guard_of(row, guards, shadowed)?;
     let GuardOutcome::Lowered(lowered) = &g.outcome else {
         return None;
     };
     let ruby = (bind.expr)(lowered);
     let attr = (bind.attribute)(
-        &effective_guards(guards)
+        &effective_guards(guards, shadowed)
             .into_iter()
             .cloned()
             .collect::<Vec<_>>(),
@@ -520,8 +525,9 @@ fn residuals(
                 if let Some(e) = ruby.and_then(|rb| add_permission_evidence(rb, roots)) {
                     r.evidence.push(e);
                 }
-            } else if let Some(e) = ruby.and_then(|rb| guard_witness(row, &rb.guards, bind, roots))
-            {
+            } else if let Some(e) = ruby.and_then(|rb| {
+                guard_witness(row, &rb.guards, &rb.scan.writable_shadowed, bind, roots)
+            }) {
                 r.evidence.push(e);
                 r.regression_gate = Some(format!("{WITNESS_GATE}; {DRIFT_GATE}"));
                 // The witness resolves only together with a passing drift check: the
@@ -684,11 +690,11 @@ fn ore_slag_ledger_and_lifecycle() {
 
     match &ruby {
         Some(_) => {
-            assert_eq!(rec.rows.len(), 21);
+            assert_eq!(rec.rows.len(), 20);
             let counts = rec.counts();
             assert_eq!(
                 (counts.get("Agreement"), counts.get("Slag"), counts.get("Disagreement")),
-                (Some(&5), Some(&14), None)
+                (Some(&5), Some(&13), None)
             );
             let resolved: Vec<&Residual> = rs
                 .iter()
@@ -702,7 +708,7 @@ fn ore_slag_ledger_and_lifecycle() {
                     r.key
                 );
             }
-            assert_eq!(resolved.len(), 9, "the nine lowered guard rows resolve as data");
+            assert_eq!(resolved.len(), 8, "the eight lowered guard rows resolve as data");
             assert_eq!(status_of(&rs, KEY_PERMISSION).status, Lifecycle::Evidenced);
         }
         None => eprintln!("UNVERIFIED: the data witness, the ledger and the Ruby-side counts need OPENPROJECT_SRC"),
@@ -781,7 +787,7 @@ fn ore_slag_negative_controls() {
             .filter(|r| matches!(r.status, Lifecycle::Resolved(_) | Lifecycle::Verified(_)))
             .count()
     };
-    assert_eq!(resolved(&real), 9);
+    assert_eq!(resolved(&real), 8);
 
     // (1) Remove a Charon artifact: rows become slag, never a fabricated
     // disagreement, and no data-witness resolution carries over to the new reason.
@@ -875,7 +881,7 @@ fn ore_slag_negative_controls() {
             Lifecycle::Resolved(_) | Lifecycle::Verified(_)
         ));
     }
-    assert_eq!(fell_back, 9);
+    assert_eq!(fell_back, 8);
     let stale_store = store_with_corrupt_hash(GENERATED);
     let rec3 = reconcile(&stale_store, Some(&ruby));
     let stale_rows = rec3
@@ -884,11 +890,11 @@ fn ore_slag_negative_controls() {
         .filter(|r| r.verdict == Verdict::Slag(SlagReason::RustEvidenceStale))
         .count();
     assert_eq!(
-        stale_rows, 10,
-        "ADD_PERMISSION + nine guard rows rest on the generated file"
+        stale_rows, 9,
+        "ADD_PERMISSION + eight guard rows rest on the generated file"
     );
     assert_eq!(rec3.counts().get("Disagreement"), None);
-    eprintln!("control 3: corrupted evidence hash -> 9 of 9 resolutions rejected as stale; corrupted store hash -> {stale_rows} rows RustEvidenceStale, 0 Disagreement");
+    eprintln!("control 3: corrupted evidence hash -> 8 of 8 resolutions rejected as stale; corrupted store hash -> {stale_rows} rows RustEvidenceStale, 0 Disagreement");
 
     // (4) Break a semantic mapping. (a) The witness asks the wrong Rust attribute
     // (rotated): it fails. (b) A join probe names a wrong callee: the agreement
@@ -902,7 +908,7 @@ fn ore_slag_negative_controls() {
     };
     let rs4 = residuals(&rec, &store, Some(&ruby), Some(&src), &rotated, &roots);
     assert!(
-        resolved(&rs4) < 9,
+        resolved(&rs4) < 8,
         "a broken attribute mapping still resolved every guard"
     );
     let mut specs = claims(Some(&ruby));
@@ -916,7 +922,7 @@ fn ore_slag_negative_controls() {
     let broken = Reconciler::new(&store, Some(&root())).decide(entry);
     assert_eq!(broken.verdict, Verdict::RubyOnly);
     eprintln!(
-        "control 4: rotated attribute mapping -> {} of 9 resolve; renamed callee -> {}",
+        "control 4: rotated attribute mapping -> {} of 8 resolve; renamed callee -> {}",
         resolved(&rs4),
         broken.verdict
     );
@@ -938,7 +944,7 @@ fn ore_slag_negative_controls() {
         },
     };
     let rs5 = residuals(&rec, &store, Some(&ruby), Some(&src), &swapped, &roots);
-    let with_connective = effective_guards(&ruby.guards)
+    let with_connective = effective_guards(&ruby.guards, &ruby.scan.writable_shadowed)
         .iter()
         .filter(|g| {
             matches!(
@@ -947,8 +953,8 @@ fn ore_slag_negative_controls() {
             )
         })
         .count();
-    assert!(with_connective >= 5);
-    assert_eq!(resolved(&rs5), 9 - with_connective);
+    assert!(with_connective >= 4);
+    assert_eq!(resolved(&rs5), 8 - with_connective);
     eprintln!("control 5: And/Or swapped in the witness input -> {with_connective} guards fail, {} resolve", resolved(&rs5));
 
     // (8) The drift check is a required companion of the guard rows. A failing or
@@ -958,7 +964,7 @@ fn ore_slag_negative_controls() {
         .iter()
         .filter(|r| matches!(r.status, Lifecycle::Resolved(_)))
         .collect();
-    assert_eq!(guard_rows.len(), 9);
+    assert_eq!(guard_rows.len(), 8);
     for r in &guard_rows {
         assert_eq!(
             r.required_companions,
@@ -982,7 +988,7 @@ fn ore_slag_negative_controls() {
         let missing = drift_failing(|ev| ev.retain(|e| e.kind != EvidenceKind::DriftCheck));
         assert_eq!(missing.status, Lifecycle::Evidenced, "{}", r.key);
     }
-    eprintln!("control 8: a failing or missing drift check keeps all 9 guard rows at EVIDENCED");
+    eprintln!("control 8: a failing or missing drift check keeps all 8 guard rows at EVIDENCED");
 
     // (9) The schedule_manually block claim agrees only on the harvested fact. A
     // different call name, a missing block, a dropped condition or another condition

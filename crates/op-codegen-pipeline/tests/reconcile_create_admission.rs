@@ -16,7 +16,7 @@
 //! and (a) and the report check print UNVERIFIED; `REQUIRE_SOURCES=1` makes a missing
 //! checkout a failure. `UPDATE_RECONCILE_REPORT=1` rewrites the checked-in report.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use op_codegen_pipeline::admission_gen::{contract_scan_facts, ContractScanFacts};
@@ -231,8 +231,15 @@ fn schedule_block_evidence(blocks: &[AttributeBlock], validator: &str) -> RubyEv
 }
 
 /// The ruff guards that decide create admission: `CreateContract` overrides
-/// `BaseContract`, per attribute (the generator's `guard_for`).
-fn effective_guards(guards: &[ContractGuard]) -> Vec<&ContractGuard> {
+/// `BaseContract`, per attribute (the generator's `guard_for`). An attribute the
+/// subclass declares without `writable:` (`shadowed`, from the generator's scan) has no
+/// effective guard: its `nil` condition wins in `collect_ancestor_attributes`
+/// (base_contract.rb:182-190) and `reduce_by_writable_conditions` only removes on
+/// `== false` (base_contract.rb:238-245).
+fn effective_guards<'a>(
+    guards: &'a [ContractGuard],
+    shadowed: &BTreeSet<String>,
+) -> Vec<&'a ContractGuard> {
     let canon = |a: &str| a.strip_suffix("_id").unwrap_or(a).to_string();
     let mut by: BTreeMap<String, &ContractGuard> = BTreeMap::new();
     for class in ["WorkPackages::BaseContract", "WorkPackages::CreateContract"] {
@@ -240,6 +247,7 @@ fn effective_guards(guards: &[ContractGuard]) -> Vec<&ContractGuard> {
             by.insert(canon(&g.attribute), g);
         }
     }
+    by.retain(|name, g| g.class == "WorkPackages::CreateContract" || !shadowed.contains(name));
     by.into_values().collect()
 }
 
@@ -388,7 +396,7 @@ fn claims(ruby: Option<&Ruby>) -> Vec<ClaimSpec> {
         },
     ];
     if let Some(r) = ruby {
-        for g in effective_guards(&r.guards) {
+        for g in effective_guards(&r.guards, &r.scan.writable_shadowed) {
             let (effect, fact) = match &g.outcome {
                 GuardOutcome::Lowered(e) => ("guard:lowered", format!("writable: {e:?}")),
                 GuardOutcome::Unlowered { reason } => {

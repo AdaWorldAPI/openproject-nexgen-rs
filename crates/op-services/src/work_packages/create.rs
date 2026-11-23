@@ -362,40 +362,51 @@ mod tests {
         assert!(result.errors().has_error("subject"));
     }
 
+    /// `done_ratio` carries a writable condition (`WorkPackage.work_based_mode?`). `status`
+    /// does not on create: `CreateContract` redeclares it without `writable:`, which
+    /// shadows the base lambda (create_contract.rb:40-44).
+    fn params_with_done_ratio() -> WorkPackageParams {
+        let mut params = WorkPackageParams::new()
+            .with_subject("Needs a work mode fact")
+            .with_project_id(1)
+            .with_type_id(1);
+        params.done_ratio = Some(0);
+        params
+    }
+
     #[test]
     fn a_guard_that_reads_an_unsupplied_fact_refuses_instead_of_admitting() {
         let user = create_user_with_permission();
-        let params = WorkPackageParams::new()
-            .with_subject("Needs a status fact")
-            .with_project_id(1)
-            .with_type_id(1)
-            .with_status_id(1);
-        let result = CreateWorkPackageService::new(&user).call(params);
+        let result = CreateWorkPackageService::new(&user).call(params_with_done_ratio());
         assert!(result.is_failure());
         assert!(result.errors().base_errors[0].starts_with("admission_unresolved"));
     }
 
     #[test]
-    fn a_supplied_fact_resolves_the_guard() {
-        struct Open;
-        impl AdmissionFacts for Open {
-            fn fact(&self, name: &str) -> Option<bool> {
-                match name {
-                    "model.status_id_change" => Some(true),
-                    "model.status&.closed?" | "model.status.closed?" => Some(false),
-                    "model.effective_target_versions.any?(&:closed?)" => Some(false),
-                    _ => None,
-                }
-            }
-        }
+    fn a_status_needs_no_fact_on_create() {
         let user = create_user_with_permission();
         let params = WorkPackageParams::new()
-            .with_subject("Has facts")
+            .with_subject("Has a status")
             .with_project_id(1)
             .with_type_id(1)
             .with_status_id(1);
-        let result = CreateWorkPackageService::new(&user).with_facts(&Open).call(params);
-        assert!(result.is_success());
+        let result = CreateWorkPackageService::new(&user).call(params);
+        assert!(result.is_success(), "{:?}", result.errors());
+    }
+
+    #[test]
+    fn a_supplied_fact_resolves_the_guard() {
+        struct WorkBased;
+        impl AdmissionFacts for WorkBased {
+            fn fact(&self, name: &str) -> Option<bool> {
+                (name == "WorkPackage.work_based_mode?").then_some(true)
+            }
+        }
+        let user = create_user_with_permission();
+        let result = CreateWorkPackageService::new(&user)
+            .with_facts(&WorkBased)
+            .call(params_with_done_ratio());
+        assert!(result.is_success(), "{:?}", result.errors());
     }
 
     #[test]

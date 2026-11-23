@@ -13,7 +13,7 @@ crates/op-services/src/users/delete.rs	17c6a1351ae44a4b
 crates/op-services/src/users/mod.rs	8cc6012d7a801bea
 crates/op-services/src/users/set_attributes.rs	71db37972303b31c
 crates/op-services/src/users/update.rs	75816c72afc3c2fd
-crates/op-services/src/work_packages/create.rs	44c63d375568bd96
+crates/op-services/src/work_packages/create.rs	b92449150cf02ff6
 crates/op-services/src/work_packages/delete.rs	ff942dcfd67ea83e
 crates/op-services/src/work_packages/mod.rs	e1abcf2d89bc8307
 crates/op-services/src/work_packages/mutation.rs	f28c5c9823cabf78

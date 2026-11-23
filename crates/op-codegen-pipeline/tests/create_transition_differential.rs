@@ -53,6 +53,11 @@ const CASE_PROJECT: Id = 7;
 /// oracle does not record. Admission never reads it and no comparison uses it.
 const OPAQUE_MARKER: Id = 1;
 
+/// The guarded attribute control (b) adds to the submission (see there).
+const CONTROL_ATTRIBUTE: &str = "start_date";
+/// Facts that must change to flip `start_date`'s `leaf? || schedule_manually?`.
+const CONTROL_FLIP_FACTS: usize = 2;
+
 /// The checked-in table, for the drift check.
 const CHECKED_IN_TABLE: &str =
     include_str!("../../op-contracts/src/work_packages/generated_create_admission.rs");
@@ -367,6 +372,7 @@ fn run_auth(
     default_perms: &[String],
     case: &str,
     facts_override: Option<&TraceFacts>,
+    extra_submitted: &[&str],
 ) -> Auth {
     let block = case_block(service_rb, case);
     let user = user_of_block(block, default_perms);
@@ -378,7 +384,8 @@ fn run_auth(
     );
     let rec = analogue(contract, user.label());
     let facts = facts_override.cloned().unwrap_or_else(|| facts_of(rec));
-    let submitted = submitted_of(service_rb, block);
+    let mut submitted = submitted_of(service_rb, block);
+    submitted.extend(extra_submitted.iter().map(|s| (*s).to_string()));
     let names: Vec<&str> = submitted.iter().map(String::as_str).collect();
     let project = submitted
         .iter()
@@ -403,6 +410,7 @@ fn run_auth(
             "status" => params.status_id = Some(OPAQUE_MARKER),
             "priority" => params.priority_id = Some(OPAQUE_MARKER),
             "parent" => params.parent_id = Some(OPAQUE_MARKER),
+            "start_date" => params.start_date = Some(Default::default()),
             other => panic!("no service parameter for submitted attribute {other}"),
         }
     }
@@ -1008,7 +1016,15 @@ fn create_member_transition_is_executed_and_compared() {
     let default_perms = percent_i(&service_rb, "PERMISSIONS");
 
     // ── Authorization: EXECUTED ──────────────────────────────────────────
-    let member = run_auth(&svc, &contract, &service_rb, &default_perms, CASE, None);
+    let member = run_auth(
+        &svc,
+        &contract,
+        &service_rb,
+        &default_perms,
+        CASE,
+        None,
+        &[],
+    );
     let denied = run_auth(
         &svc,
         &contract,
@@ -1016,6 +1032,7 @@ fn create_member_transition_is_executed_and_compared() {
         &default_perms,
         DENIED_CASE,
         None,
+        &[],
     );
     eprintln!("== AUTHORIZATION (EXECUTED: op_services::CreateWorkPackageService::call -> op_contracts admission)");
     eprintln!(
@@ -1259,7 +1276,18 @@ fn create_member_transition_is_executed_and_compared() {
 
     // ── Negative control (b): flip one submitted attribute's guard ───────
     let facts = facts_of(analogue(&contract, member.user.label()));
-    let cols: Vec<String> = member.submitted.iter().map(|k| changed_column(k)).collect();
+    // No attribute the oracle submits on a create has a writable condition any more:
+    // `CreateContract` redeclares `status_id` without `writable:`, which shadows the
+    // base lambda (base_contract.rb:104-113, 182-190, 238-245). The control therefore
+    // submits one guarded attribute on top of the oracle's, and flips its guard.
+    assert!(
+        member
+            .submitted
+            .iter()
+            .all(|k| guard_facts(&changed_column(k)).is_empty()),
+        "an oracle-submitted attribute has a guard again; the control no longer needs an extra"
+    );
+    let cols = vec![changed_column(CONTROL_ATTRIBUTE)];
     let user = OracleUser {
         kind: member.user.clone(),
     };
@@ -1272,24 +1300,29 @@ fn create_member_transition_is_executed_and_compared() {
         &default_perms,
         CASE,
         Some(&perturbed),
+        &[CONTROL_ATTRIBUTE],
     );
+    // The member case does not submit the control attribute, so its own verdict has no
+    // entry for it: ask production for the unperturbed answer directly.
+    let unperturbed_writable = is_writable(&user, Some(CASE_PROJECT), &col, &facts);
     eprintln!("== control (b): perturb {col} by changing facts {changed:?}");
     eprintln!(
         "   verdict {:?} -> {:?}; writable {col}: {:?} -> {:?}; errors {:?}",
         member.admission.verdict,
         flipped.admission.verdict,
-        member.admission.writable[&col],
+        unperturbed_writable,
         flipped.admission.writable[&col],
         flipped.admission.errors
     );
-    // `status_id_change || !closed_version_and_status?`, helper inlined by ruff: the
-    // smallest flip is an unchanged status that is closed, in a closed version.
-    assert_eq!(changed.len(), 3, "unexpected minimal flip {changed:?}");
-    assert_ne!(member.admission.verdict, flipped.admission.verdict);
-    assert_ne!(
-        member.admission.writable[&col],
-        flipped.admission.writable[&col]
+    // `leaf? || schedule_manually?` (start_date): the smallest flip.
+    assert_eq!(col, "start_date");
+    assert_eq!(
+        changed.len(),
+        CONTROL_FLIP_FACTS,
+        "unexpected minimal flip {changed:?}"
     );
+    assert_ne!(member.admission.verdict, flipped.admission.verdict);
+    assert_ne!(unperturbed_writable, flipped.admission.writable[&col]);
     assert_eq!(
         flipped.admission.errors.get(&col),
         Some(&vec!["error_readonly"])

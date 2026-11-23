@@ -239,10 +239,12 @@ The resolver edits no code and no configuration.
 
 ## 9. One success, one deliberately unresolved
 
-**Success: the nine lowered `writable:` guards.** These are `author_id`, the three
-`derived_*`, `done_ratio`, `due_date`, `ignore_non_working_days`, `start_date` and
-`status_id`. All nine are `RESOLVED(DataWitness)` as in section 8, and all nine stay
-`Slag(RepresentedAsData)` structurally. `ADD_PERMISSION` is held as data too, but it
+**Success: the eight lowered `writable:` guards.** These are `author_id`, the three
+`derived_*`, `done_ratio`, `due_date`, `ignore_non_working_days` and `start_date`. All
+eight are `RESOLVED(DataWitness)` as in section 8, and all eight stay
+`Slag(RepresentedAsData)` structurally. (`status_id` was the ninth. `CreateContract`
+redeclares it with no `writable:` (`create_contract.rb:40-44`), which stores `nil` and
+shadows the base lambda, so a create has no status guard and the row is gone.) `ADD_PERMISSION` is held as data too, but it
 stays `EVIDENCED`. The drift check passes, and production admission authorizes with
 exactly the scanned permission and refuses with every other oracle permission (2/2).
 Its Ruby input is still the permission line scan, not parsed ORE. Once a ruff
@@ -307,18 +309,18 @@ Separate denominators. Before means #138 as it was; after means this change.
 
 | Measure | Before | After |
 |---|---|---|
-| Claims | 21 | 21 |
-| Ruby side inspected (fact or inspected absence) | 18 / 21 | 19 / 21 |
-| of those from a parser-backed extractor (ruff) | 9 / 18 | 10 / 19 |
-| Rust counterpart inspectable in the store | 18 / 21 | 18 / 21 |
+| Claims | 21 | 20 (the create `status_id` guard row is gone: `CreateContract` shadows the base condition) |
+| Ruby side inspected (fact or inspected absence) | 18 / 21 | 18 / 20 |
+| of those from a parser-backed extractor (ruff) | 9 / 18 | 9 / 18 |
+| Rust counterpart inspectable in the store | 18 / 21 | 17 / 20 |
 | Structural: Agreement / Disagreement | 4 / 0 | 5 / 0 |
 | Structural: RubyOnly / CharonOnly / NotComparable | 0 / 1 / 1 | 0 / 1 / 1 |
-| Slag rows | 15 | 14 (claim 9 is now Agreement) |
+| Slag rows | 15 | 13 (claim 9 is now Agreement; the status guard row is gone) |
 | Residuals open, by reason | not typed | RubySideNotHarvested 1, RustBodyNotStructured 3, RepresentedAsData 1 (op-api is in the store; claim 12 is now `RustBodyNotStructured`) |
 | Residuals open, by owner | not typed | ContractHarvest 1, RustExtraction 3, DataWitness 1 |
-| Resolved by extraction / data witness / semantic rule | 0 / 0 / 0 | 0 / 9 / 0 |
-| Lifecycle | none | RESOLVED(DataWitness) 9, EVIDENCED 1, OPEN 4 |
-| Runtime verdicts over the 21 claims | 10 executed (0 mismatches), 3 cited, 8 none | ExecutedAgreement 11, ExecutedDisagreement 0, Unverified 3, NotExecuted 7 |
+| Resolved by extraction / data witness / semantic rule | 0 / 0 / 0 | 0 / 8 / 0 |
+| Lifecycle | none | RESOLVED(DataWitness) 8, EVIDENCED 1, OPEN 4 |
+| Runtime verdicts over the claims | 10 executed (0 mismatches), 3 cited, 8 none | ExecutedAgreement 10, ExecutedDisagreement 0, Unverified 3, NotExecuted 7 (20 claims) |
 | Contract-rule items executed against the oracle (`create_transition_differential`) | 350, 0 mismatches | 350, 0 mismatches (unchanged; the new case is separate) |
 | Lowered guards against the oracle (`guard_differential`) | 84 pairs, 0 mismatches | 84, 0 |
 | `schedule_manually` block differential | not run | 1 discriminating record, 0 mismatches |
@@ -594,7 +596,7 @@ skipped branch was read in full.
 | 5 | Disable a data-witness rule | same; live run | `And`/`Or` swapped in the witness input: 5 guards fail, 4 (no connective) resolve; live: `eval_guard` reading `Or` as `And` fails both tests (5 of 9 resolve) |
 | 6 | Disable the Rust behaviour | live run only | `WritableRule::Never => Ok(true)` in `admission.rs`: `create_transition_differential` 30 mismatches; the data witness drops to 6/9; the store reports `admission.rs` stale, so Charon rows on it become `RustEvidenceStale`, not disagreements |
 | 7 | Add an unsupported generated callback | `ore_slag_negative_controls` | injected into WorkPackage's effective chain (160 to 161), it matches no journal entry and is classified `Silent::Unexplained`. `create_transition_differential` asserts that class is empty, so it is reported, not hidden |
-| 8 | Fail or remove the drift check | `ore_slag_negative_controls` | the truth table still passes, but all 9 guard rows stay `EVIDENCED` (a failing drift check is moved to `attempts`); the drift check is a required companion |
+| 8 | Fail or remove the drift check | `ore_slag_negative_controls` | the truth table still passes, but all 8 guard rows stay `EVIDENCED` (a failing drift check is moved to `attempts`); the drift check is a required companion |
 
 Live runs were made on a committed tree and restored with `git checkout`. The stale
 check of the lifecycle was disabled once as well: control 3 then fails.
