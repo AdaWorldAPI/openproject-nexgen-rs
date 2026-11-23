@@ -27,7 +27,10 @@ members = [
     "crates/ruff_openproject",
     "crates/web-login",
     "crates/op-desk",
+    "crates/polyfill-feed",
+    "crates/quack-shadow",
     "crates/rails-compiler",
+    "crates/rails-f000",
     "crates/rails-polyfill",
 ]
 

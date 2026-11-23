@@ -1,0 +1,37 @@
+[package]
+name = "rails-f000"
+description = "Rails scope transposition onto the lance-graph F000 polyfill lens: OGAR-derived class basis, classification with named refusals, and execution through DT64 BindStore + R2IL native plans."
+version.workspace = true
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+lance-graph-dt64 = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+lance-graph-r2il = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+lance-graph-mask-risc = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+ogar-vocab = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+ogar-from-ruff = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
+ruff_spo_triplet = { git = "https://github.com/AdaWorldAPI/ruff", branch = "main" }
+ruff_ruby_spo = { git = "https://github.com/AdaWorldAPI/ruff", branch = "main" }
+lib-ruby-parser = { version = "4.0", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rails-compiler = { path = "../rails-compiler" }
+rails-polyfill = { path = "../rails-polyfill" }
+regex = { workspace = true }
+
+[features]
+# Disable runs: each turns one gate off so the target test must fail.
+disable-ogar-identity = []
+disable-null-gate = []
+disable-type-gate = []
+disable-effect-gate = []
+disable-field-resolution = []
+disable-null-zeroing = []
+disable-lane-mapping = []
+disable-presence-operand = []
+
+[[bin]]
+name = "rails-f000-matrix"
+path = "src/bin/rails-f000-matrix.rs"

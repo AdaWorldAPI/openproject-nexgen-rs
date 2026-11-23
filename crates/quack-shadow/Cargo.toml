@@ -1,0 +1,85 @@
+[package]
+name = "quack-shadow"
+description = "Shadow runs of captured ActiveRecord count, exists and row-returning calls through lance-graph-quack, compared with the answers PostgreSQL recorded, rows materialized only for the answer."
+version.workspace = true
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+lance-graph-quack = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+lance-graph-mask-risc = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+lance-graph-dt64 = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+lance-graph-r2il = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+lance-graph-pg-row = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+rails-f000 = { path = "../rails-f000" }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+rails-compiler = { path = "../rails-compiler" }
+lance-graph-xlog = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+pg-parity-harness = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
+
+[features]
+# Disable runs: turns one gate off so the target test must fail.
+disable-sql-where = []
+# Disable runs: clamps the sibling counts of a join to 1, so it tracks only
+# existence and the bag test must fail.
+disable-join-multiplicity = []
+# Disable runs: a feed no longer advances the table's frame, so the stale-binding
+# test must fail.
+disable-frame-advance = []
+# Disable runs: the semijoin on the target's live plane is left out, so a
+# removed target row still joins and the removed-target test must fail.
+disable-target-presence = []
+# Disable runs: the key set of a dimension is taken over every position, dead
+# ones included, so a removed target row still joins and the removed-target
+# test must fail.
+disable-key-set-liveness = []
+# Disable runs: the query, not the intake, says which column of an ON pair is
+# the key, so an undeclared join is accepted and the undeclared-relation test must fail.
+disable-relation-lookup = []
+# Disable runs: a feed no longer advances the code table, so a new string
+# retires no older frame and the new-string test must fail.
+disable-code-advance = []
+# Disable runs: a text column's code space keeps the default class and the
+# "<table>.<column>" name, so the class-keying tests must fail.
+disable-class-code-space = []
+# Disable runs: a LIKE leaf matches nothing, so the LIKE tests must fail.
+disable-like-match = []
+# Disable runs: a feed renumbers a text column by its sorted live strings, as
+# before codes were stable, so the stable-code tests must fail.
+disable-stable-codes = []
+# Disable runs: every code renders as the text of member 0, so a returned text
+# column with more than one distinct value goes wrong and the render tests must fail.
+disable-codebook-render = []
+# Disable runs: the relation puts nothing under a named member, so only the
+# members themselves match and the relation tests must fail.
+disable-under-relation = []
+# Disable runs: the SQL name `AND` resolves to the `OR` position, so every
+# conjunction is read as a disjunction and the replays must fail.
+disable-word-lookup = []
+# Disable runs: a laned text column keeps its cells beside its lane, so the
+# lane-store tests must fail.
+disable-lane-store = []
+# Disable runs: the read takes row `i` of the lanes instead of row `positions[i]`,
+# so the selection's rows are not the ones read and the vrow_pg gate must fail.
+disable-vrow-local-index = []
+# Disable runs: a selection is readable under any frame of its table, so a read
+# after a feed touched the table is not refused and the foreign-frame test must fail.
+disable-vrow-foreign-frame = []
+# Disable runs: the read ignores the presence plane, so an absent cell renders
+# as 0 instead of NULL and the vrow_pg gate must fail. Binds in the reader.
+disable-vrow-presence = ["lance-graph-pg-row/disable-pg-row-presence"]
+# Disable runs: a selection issued in another row order reports the table's own,
+# so it is not refused with SelectionSpace and the row-order test must fail.
+disable-vrow-swap = []
+# Disable runs: the read no longer refuses a selection naming a row that is not
+# live, so a deleted row's old cells are returned and the dead-position test must fail.
+# Binds in the reader.
+disable-vrow-live = ["lance-graph-pg-row/disable-pg-row-live"]
+# Disable runs: a read of a table's lanes borrows them twice, so a call's lane
+# checks exceed the tables it read and the register census must fail.
+disable-census-double-check = []
+# Disable runs: the DR map places the key 1 one position off, so the placement is no longer a bijection and the cube bijectivity test must fail.
+disable-cube-placement = []

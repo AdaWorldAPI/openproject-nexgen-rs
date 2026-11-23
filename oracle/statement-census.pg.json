@@ -1,0 +1,41 @@
+{
+  "workload": "oracle/run.rb ticket scenario (8 steps), PostgreSQL 16.15",
+  "statements": 80,
+  "by_kind": {
+    "SELECT": 65,
+    "BEGIN": 5,
+    "COMMIT": 5,
+    "UPDATE": 3,
+    "INSERT": 2
+  },
+  "issued_by_a_recorded_count_or_exists_call": 0,
+  "select_shapes": {
+    "rows: where + limit": 31,
+    "rows: order + all rows": 16,
+    "rows: where + order + limit": 9,
+    "rows: join + where + all rows": 8,
+    "rows: where + order + all rows": 1
+  },
+  "select_fingerprints": {
+    "SELECT \"users\".* FROM \"users\" WHERE \"users\".\"id\" = ? LIMIT ?": 21,
+    "SELECT \"permissions\".\"name\" FROM \"permissions\" INNER JOIN \"permissions_roles\" ON \"permissions\".\"id\" = \"permissions_roles\".\"permission_id\" INNER JOIN \"roles\" ON \"permissions_roles\".\"role_id\" = \"roles\".\"id\" INNER JOIN \"roles_users\" ON \"roles\".\"id\" = \"roles_users\".\"role_id\" WHERE \"roles_users\".\"user_id\" = ? AND \"roles\".\"active\" = ? AND \"permissions\".\"active\" = ?": 8,
+    "SELECT \"ticket_articles\".* FROM \"ticket_articles\" ORDER BY \"ticket_articles\".\"id\" ASC": 8,
+    "SELECT \"tickets\".* FROM \"tickets\" ORDER BY \"tickets\".\"id\" ASC": 8,
+    "SELECT \"ticket_states\".* FROM \"ticket_states\" WHERE \"ticket_states\".\"id\" = ? ORDER BY \"ticket_states\".\"id\" ASC LIMIT ?": 7,
+    "SELECT \"tickets\".* FROM \"tickets\" WHERE \"tickets\".\"id\" = ? LIMIT ?": 4,
+    "SELECT \"ticket_state_types\".* FROM \"ticket_state_types\" WHERE \"ticket_state_types\".\"id\" = ? LIMIT ?": 3,
+    "SELECT \"groups\".* FROM \"groups\" WHERE \"groups\".\"id\" = ? LIMIT ?": 1,
+    "SELECT \"organizations\".* FROM \"organizations\" WHERE \"organizations\".\"id\" = ? ORDER BY \"organizations\".\"id\" ASC LIMIT ?": 1,
+    "SELECT \"ticket_articles\".* FROM \"ticket_articles\" WHERE \"ticket_articles\".\"ticket_id\" = ? ORDER BY \"ticket_articles\".\"created_at\" ASC, \"ticket_articles\".\"id\" ASC": 1,
+    "SELECT \"ticket_priorities\".* FROM \"ticket_priorities\" WHERE \"ticket_priorities\".\"default_create\" = ? LIMIT ?": 1,
+    "SELECT \"ticket_priorities\".* FROM \"ticket_priorities\" WHERE \"ticket_priorities\".\"id\" = ? LIMIT ?": 1,
+    "SELECT \"ticket_states\".* FROM \"ticket_states\" WHERE \"ticket_states\".\"default_create\" = ? ORDER BY \"ticket_states\".\"id\" ASC LIMIT ?": 1
+  },
+  "write_fingerprints": {
+    "INSERT INTO \"ticket_articles\" (\"ticket_id\", \"type_id\", \"sender_id\", \"detected_language\", \"from\", \"to\", \"cc\", \"subject\", \"reply_to\", \"message_id\", \"message_id_md5\", \"in_reply_to\", \"content_type\", \"body\", \"internal\", \"preferences\", \"updated_by_id\", \"created_by_id\", \"origin_by_id\", \"created_at\", \"updated_at\") VALUES (?…) RETURNING \"id\"": 1,
+    "INSERT INTO \"tickets\" (\"group_id\", \"priority_id\", \"state_id\", \"organization_id\", \"number\", \"title\", \"owner_id\", \"customer_id\", \"note\", \"first_response_at\", \"first_response_escalation_at\", \"first_response_in_min\", \"first_response_diff_in_min\", \"close_at\", \"close_escalation_at\", \"close_in_min\", \"close_diff_in_min\", \"update_escalation_at\", \"update_in_min\", \"update_diff_in_min\", \"last_close_at\", \"last_contact_at\", \"last_contact_agent_at\", \"last_contact_customer_at\", \"last_owner_update_at\", \"create_article_type_id\", \"create_article_sender_id\", \"article_count\", \"escalation_at\", \"pending_time\", \"type\", \"time_unit\", \"preferences\", \"ai_agent_running\", \"updated_by_id\", \"created_by_id\", \"created_at\", \"updated_at\", \"checklist_id\") VALUES (?…) RETURNING \"id\"": 1,
+    "UPDATE \"tickets\" SET \"owner_id\" = ?, \"last_owner_update_at\" = ?, \"updated_at\" = ? WHERE \"tickets\".\"id\" = ?": 1,
+    "UPDATE \"tickets\" SET \"state_id\" = ?, \"close_at\" = ?, \"last_close_at\" = ?, \"pending_time\" = ?, \"updated_at\" = ? WHERE \"tickets\".\"id\" = ?": 1,
+    "UPDATE \"tickets\" SET \"state_id\" = ?, \"last_owner_update_at\" = ?, \"pending_time\" = ?, \"updated_at\" = ? WHERE \"tickets\".\"id\" = ?": 1
+  }
+}

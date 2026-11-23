@@ -60,10 +60,10 @@ jobs:
       # Tests that need no OpenProject checkout. op-services and op-contracts hold
       # the production admission (`admit_create`, the project-scoped
       # `user_allowed_to_add`) that create_transition_differential drives.
-      # rails-polyfill and rails-compiler are copies from zammad-rs (see their
+      # rails-polyfill, rails-compiler, rails-f000, quack-shadow and polyfill-feed are copies from zammad-rs (see their
       # COPIED_FROM.md); not in the fmt list because they keep zammad-rs's formatting.
       - name: test
-        run: cargo test -p op-server -p ruff_openproject -p op-cli -p op-services -p op-contracts -p op-desk -p rails-polyfill -p rails-compiler
+        run: cargo test -p op-server -p ruff_openproject -p op-cli -p op-services -p op-contracts -p op-desk -p rails-polyfill -p rails-compiler -p rails-f000 -p quack-shadow -p polyfill-feed
       - name: Test web-login (sign-in, OIDC + PKCE)
         run: cargo test -p web-login --features reqwest,axum
       # The pinned OpenProject source the oracle traces were recorded against
