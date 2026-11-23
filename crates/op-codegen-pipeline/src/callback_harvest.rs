@@ -1765,6 +1765,24 @@ pub fn has_condition(d: &Declared) -> bool {
     })
 }
 
+/// The chains a model's recorded entries show ran: the chains of its fired
+/// entries, plus `validate` when both `validation` and `save` fired. A `save`
+/// that ran its callbacks passed `perform_validations`
+/// (activerecord-8.1.4.1/lib/active_record/validations.rb:47-48, :90-92), and
+/// a `before_validation` that fired means it was not `validate: false`, so
+/// `valid?` ran `run_validations!`, whose `validation` callbacks wrap the
+/// `validate` chain (activemodel-8.1.4.1/lib/active_model/validations/callbacks.rb:124-126,
+/// `_run_validation_callbacks { super }`; validations.rb:463-466,
+/// `_run_validate_callbacks`). A `validate` chain whose only callbacks were
+/// conditions that held false records nothing, though it ran.
+pub fn exercised_chains(fired: &BTreeSet<String>) -> BTreeSet<String> {
+    let mut out = fired.clone();
+    if fired.contains("validation") && fired.contains("save") {
+        out.insert("validate".to_string());
+    }
+    out
+}
+
 pub fn silent_reason(d: &Declared, fired_chains: &BTreeSet<String>) -> Silent {
     if d.filter == Filter::Block {
         return Silent::BlockOrLambdaFilter;

@@ -239,7 +239,7 @@ fn run(
     for (model, (n_source, decls)) in &declared {
         let empty = BTreeSet::new();
         let u = used.get(model).unwrap_or(&empty);
-        let chains = fired_chains.get(model).cloned().unwrap_or_default();
+        let chains = exercised_chains(&fired_chains.get(model).cloned().unwrap_or_default());
         for (i, d) in decls.iter().enumerate() {
             if !u.contains(&i) {
                 let row = format!(
@@ -973,6 +973,20 @@ fn fired_callbacks_are_matched_or_named_slag() {
     assert!(
         naive_rep.differing > 0,
         "the naive order agrees everywhere, so the order comparison proves nothing"
+    );
+}
+
+/// `validate` counts as run only when both `validation` and `save` fired:
+/// either alone does not show that `valid?` reached `run_validations!`.
+#[test]
+fn validate_is_exercised_only_when_validation_and_save_fired() {
+    let set = |c: &[&str]| -> BTreeSet<String> { c.iter().map(|s| (*s).to_string()).collect() };
+    assert!(exercised_chains(&set(&["validation", "save"])).contains("validate"));
+    assert!(!exercised_chains(&set(&["validation"])).contains("validate"));
+    assert!(!exercised_chains(&set(&["save", "create"])).contains("validate"));
+    assert_eq!(
+        exercised_chains(&set(&["save", "create"])),
+        set(&["save", "create"])
     );
 }
 
