@@ -795,3 +795,7 @@ fn create_admission_three_witness_reconciliation() {
         );
     }
 }
+
+// ORE/SLAG resolution over this reconciliation (same claims, same functions).
+#[path = "ore_slag/resolution.rs"]
+mod ore_slag;
