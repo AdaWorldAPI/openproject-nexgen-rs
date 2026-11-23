@@ -27,8 +27,8 @@ pub static TABLE: rp::TableSpec = rp::TableSpec {
         rp::Column { name: "id", ty: rp::ColumnType::Integer, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:7272
         rp::Column { name: "permission", ty: rp::ColumnType::String, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:7273
         rp::Column { name: "role_id", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:7274
-        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:7275
-        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:7276
+        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:7275
+        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:7276
     ],
 };
 

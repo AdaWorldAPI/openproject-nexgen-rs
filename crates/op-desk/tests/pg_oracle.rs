@@ -40,8 +40,16 @@ fn ident(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "\"\""))
 }
 
-/// A SQL literal for a snapshot cell of `column`, cast to its SQL type.
+/// The SQL type without its length or scale (`character varying(30)` →
+/// `character varying`): an explicit cast to `varchar(n)` truncates silently,
+/// where an assignment to the column would refuse.
+fn base_type(sql_type: &str) -> &str {
+    sql_type.split('(').next().unwrap_or(sql_type).trim()
+}
+
+/// A SQL literal for a snapshot cell of `column`, cast to its base SQL type.
 fn literal(cell: &J, ty: ColumnType, sql_type: &str) -> String {
+    let sql_type = base_type(sql_type);
     let lit = match (ty, cell) {
         (_, J::Null) => return "NULL".into(),
         (ColumnType::DateTime, J::Number(n)) => {
@@ -127,12 +135,17 @@ async fn answer(pool: &PgPool, read: &Read) -> J {
                 .find(|(n, _)| n == col)
                 .map(|(_, s)| s)
                 .expect("sql type");
+            // Rails' `where(col: nil)` is `IS NULL`, and Quack reads an eq with
+            // a null value the same way.
+            let predicate = if value.is_null() {
+                format!("{} IS NULL", ident(col))
+            } else {
+                format!("{} = {}", ident(col), literal(value, ty, &sql_type))
+            };
             rows_of(format!(
-                "SELECT {} FROM {} WHERE {} = {} ORDER BY id",
+                "SELECT {} FROM {} WHERE {predicate} ORDER BY id",
                 select_list(spec),
                 ident(t),
-                ident(col),
-                literal(value, ty, &sql_type)
             ))
             .await
         }

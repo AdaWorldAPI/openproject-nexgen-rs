@@ -194,6 +194,9 @@ pub fn canonical_type(t: &str) -> String {
     }
 }
 
+/// A `timestamp` declared without `(n)` keeps microseconds in PostgreSQL.
+pub const POSTGRESQL_TIMESTAMP_PRECISION: u32 = 6;
+
 /// The Rails column type ActiveRecord's PostgreSQL adapter reports for a SQL
 /// type: the vocabulary `rails-compiler`'s schema arm uses (`string`, `text`,
 /// `integer`, `bigint`, `boolean`, `datetime`, `date`, `float`, `decimal`,
@@ -208,6 +211,20 @@ pub fn rails_type(sql_type: &str) -> (String, Option<u32>) {
     {
         return ("string".into(), n.parse().ok());
     }
+    // A timestamp keeps PostgreSQL's precision: the `(n)` it was declared with,
+    // else 6. ActiveRecord takes a timestamp's precision only from the SQL type
+    // (`register_class_with_precision`, `extract_precision`); with none it is
+    // nil and `apply_seconds_precision` keeps every digit PostgreSQL stores.
+    if t.starts_with("timestamp") {
+        let p = t
+            .strip_prefix("timestamp(")
+            .and_then(|r| r.split(')').next())
+            .and_then(|n| n.parse().ok());
+        return (
+            "datetime".into(),
+            Some(p.unwrap_or(POSTGRESQL_TIMESTAMP_PRECISION)),
+        );
+    }
     let ty = match t {
         "character varying" => "string",
         "text" => "text",
@@ -219,7 +236,6 @@ pub fn rails_type(sql_type: &str) -> (String, Option<u32>) {
         "json" => "json",
         "jsonb" => "jsonb",
         "bytea" => "binary",
-        _ if t.starts_with("timestamp") => "datetime",
         _ if t.starts_with("numeric") => "decimal",
         other => other,
     };
@@ -306,6 +322,21 @@ mod tests {
             rails_default(Some("CURRENT_TIMESTAMP")),
             RailsDefault::Expr("CURRENT_TIMESTAMP".into())
         );
+    }
+
+    /// A timestamp's precision is the one it was declared with, else
+    /// PostgreSQL's 6; never the polyfill's millisecond default.
+    #[test]
+    fn a_timestamp_keeps_its_postgresql_precision() {
+        for (sql, p) in [
+            ("timestamp with time zone", 6),
+            ("timestamp without time zone", 6),
+            ("timestamp(6) with time zone", 6),
+            ("timestamp(0) with time zone", 0),
+            ("timestamp(3) without time zone", 3),
+        ] {
+            assert_eq!(rails_type(sql), ("datetime".into(), Some(p)), "{sql}");
+        }
     }
 
     #[test]

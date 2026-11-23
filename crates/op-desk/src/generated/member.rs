@@ -29,8 +29,8 @@ pub static TABLE: rp::TableSpec = rp::TableSpec {
         rp::Column { name: "id", ty: rp::ColumnType::Integer, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:5054
         rp::Column { name: "user_id", ty: rp::ColumnType::Integer, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:5055
         rp::Column { name: "project_id", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:5056
-        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:5057
-        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:5058
+        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:5057
+        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:5058
         rp::Column { name: "entity_type", ty: rp::ColumnType::String, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:5059
         rp::Column { name: "entity_id", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:5060
     ],

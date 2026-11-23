@@ -35,8 +35,8 @@ pub static TABLE: rp::TableSpec = rp::TableSpec {
         rp::Column { name: "is_default", ty: rp::ColumnType::Boolean, null: false, default: rp::Default::Bool(false), limit: None }, // db/structure.sql:7691
         rp::Column { name: "position", ty: rp::ColumnType::Integer, null: true, default: rp::Default::Int(1), limit: None }, // db/structure.sql:7692
         rp::Column { name: "default_done_ratio", ty: rp::ColumnType::Integer, null: false, default: rp::Default::Int(0), limit: None }, // db/structure.sql:7693
-        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:7694
-        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:7695
+        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:7694
+        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:7695
         rp::Column { name: "color_id", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:7696
         rp::Column { name: "is_readonly", ty: rp::ColumnType::Boolean, null: true, default: rp::Default::Bool(false), limit: None }, // db/structure.sql:7697
         rp::Column { name: "excluded_from_totals", ty: rp::ColumnType::Boolean, null: false, default: rp::Default::Bool(false), limit: None }, // db/structure.sql:7698

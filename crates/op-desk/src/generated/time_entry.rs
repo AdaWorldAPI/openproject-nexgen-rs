@@ -50,8 +50,8 @@ pub static TABLE: rp::TableSpec = rp::TableSpec {
         rp::Column { name: "tyear", ty: rp::ColumnType::Integer, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:7839
         rp::Column { name: "tmonth", ty: rp::ColumnType::Integer, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:7840
         rp::Column { name: "tweek", ty: rp::ColumnType::Integer, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:7841
-        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:7842
-        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: None }, // db/structure.sql:7843
+        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:7842
+        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: false, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:7843
         rp::Column { name: "overridden_costs", ty: rp::ColumnType::Decimal, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:7844
         rp::Column { name: "costs", ty: rp::ColumnType::Decimal, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:7845
         rp::Column { name: "rate_id", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:7846
