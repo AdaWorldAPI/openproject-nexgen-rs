@@ -1,0 +1,116 @@
+# Column-level differences between OpenProject's schema (db/structure.sql at the pinned
+# OpenProject revision) and nexgen's SQL migrations (crates/op-db/migrations/*.sql), for the
+# work-package journey tables (op_desk::JOURNEY_TABLES). Written by
+# crates/op-desk/tests/schema_divergence.rs; rewrite with UPDATE_SCHEMA_DIVERGENCE=1.
+# 111 differences
+enumerations.created_at: default OpenProject none / nexgen now()
+enumerations.name: type OpenProject character varying / nexgen text
+enumerations.position: nullability OpenProject NULL / nexgen NOT NULL
+enumerations.type: nullability OpenProject NULL / nexgen NOT NULL
+enumerations.type: type OpenProject character varying / nexgen text
+enumerations.updated_at: default OpenProject none / nexgen now()
+journals.cause: nullability OpenProject NULL / nexgen NOT NULL
+journals.created_at: default OpenProject none / nexgen now()
+journals.data_type: type OpenProject character varying / nexgen text
+journals.journable_id: nullability OpenProject NULL / nexgen NOT NULL
+journals.journable_type: nullability OpenProject NULL / nexgen NOT NULL
+journals.journable_type: type OpenProject character varying / nexgen text
+journals.reactions_changed_at: only in OpenProject (timestamp(6) with time zone NULL)
+journals.updated_at: nullability OpenProject NULL / nexgen NOT NULL
+members.created_at: nullability OpenProject NULL / nexgen NOT NULL
+members.entity_type: type OpenProject character varying / nexgen text
+non_working_days.created_at: default OpenProject none / nexgen now()
+non_working_days.updated_at: default OpenProject none / nexgen now()
+projects.created_at: default OpenProject none / nexgen now()
+projects.created_at: nullability OpenProject NULL / nexgen NOT NULL
+projects.identifier: type OpenProject character varying / nexgen text
+projects.lft: default OpenProject none / nexgen 0
+projects.lft: nullability OpenProject NULL / nexgen NOT NULL
+projects.name: type OpenProject character varying / nexgen text
+projects.rgt: default OpenProject none / nexgen 0
+projects.rgt: nullability OpenProject NULL / nexgen NOT NULL
+projects.settings: only in OpenProject (jsonb NOT NULL)
+projects.status_code: only in OpenProject (integer NULL)
+projects.status_explanation: only in OpenProject (text NULL)
+projects.template_id: only in OpenProject (bigint NULL)
+projects.templated: only in OpenProject (boolean NOT NULL)
+projects.updated_at: default OpenProject none / nexgen now()
+projects.updated_at: nullability OpenProject NULL / nexgen NOT NULL
+projects.workspace_type: only in OpenProject (character varying NOT NULL)
+projects.wp_sequence_counter: only in OpenProject (integer NOT NULL)
+projects_types: table only in nexgen
+relations.created_at: only in nexgen (timestamp with time zone NOT NULL)
+relations.from_id: type OpenProject integer / nexgen bigint
+relations.relation_type: nullability OpenProject NULL / nexgen NOT NULL
+relations.relation_type: type OpenProject character varying / nexgen text
+relations.to_id: type OpenProject integer / nexgen bigint
+relations.updated_at: only in nexgen (timestamp with time zone NOT NULL)
+role_permissions.created_at: default OpenProject none / nexgen now()
+role_permissions.permission: nullability OpenProject NULL / nexgen NOT NULL
+role_permissions.permission: type OpenProject character varying / nexgen text
+role_permissions.role_id: nullability OpenProject NULL / nexgen NOT NULL
+role_permissions.updated_at: default OpenProject none / nexgen now()
+roles.created_at: nullability OpenProject NULL / nexgen NOT NULL
+roles.name: type OpenProject character varying / nexgen text
+roles.position: nullability OpenProject NULL / nexgen NOT NULL
+roles.type: default OpenProject 'Role' / nexgen none
+roles.type: type OpenProject character varying(30) / nexgen text
+roles.updated_at: nullability OpenProject NULL / nexgen NOT NULL
+statuses.category: only in OpenProject (character varying NULL)
+statuses.created_at: default OpenProject none / nexgen now()
+statuses.is_closed: only in nexgen (boolean NOT NULL)
+statuses.is_readonly: nullability OpenProject NULL / nexgen NOT NULL
+statuses.name: type OpenProject character varying / nexgen text
+statuses.position: nullability OpenProject NULL / nexgen NOT NULL
+statuses.updated_at: default OpenProject none / nexgen now()
+types.allow_project_variants: only in OpenProject (boolean NOT NULL)
+types.created_at: default OpenProject none / nexgen now()
+types.is_default: only in nexgen (boolean NOT NULL)
+types.is_standard: only in nexgen (boolean NOT NULL)
+types.name: type OpenProject character varying / nexgen text
+types.position: nullability OpenProject NULL / nexgen NOT NULL
+types.updated_at: default OpenProject none / nexgen now()
+users.consented_at: only in OpenProject (timestamp with time zone NULL)
+users.created_at: nullability OpenProject NULL / nexgen NOT NULL
+users.failed_login_count: only in OpenProject (integer NULL)
+users.first_login: only in OpenProject (boolean NOT NULL)
+users.firstname: type OpenProject character varying / nexgen text
+users.force_password_change: only in OpenProject (boolean NULL)
+users.hashed_password: only in nexgen (text NULL)
+users.identity_url: only in OpenProject (character varying NULL)
+users.language: default OpenProject '' / nexgen none
+users.language: type OpenProject character varying(5) / nexgen text
+users.last_failed_login_on: only in OpenProject (timestamp with time zone NULL)
+users.lastname: type OpenProject character varying / nexgen text
+users.ldap_auth_source_id: only in OpenProject (bigint NULL)
+users.login: type OpenProject character varying(256) / nexgen text
+users.mail: type OpenProject character varying / nexgen text
+users.salt: only in nexgen (text NULL)
+users.type: only in OpenProject (character varying NULL)
+users.updated_at: nullability OpenProject NULL / nexgen NOT NULL
+users.webauthn_id: only in OpenProject (character varying NULL)
+watchers.user_id: nullability OpenProject NULL / nexgen NOT NULL
+watchers.watchable_type: type OpenProject character varying / nexgen text
+work_package_journals.backlog_bucket_id: only in OpenProject (bigint NULL)
+work_package_journals.budget_id: only in OpenProject (integer NULL)
+work_package_journals.ignore_non_working_days: default OpenProject none / nexgen false
+work_package_journals.project_phase_definition_id: only in OpenProject (bigint NULL)
+work_package_journals.sprint_id: only in OpenProject (bigint NULL)
+work_package_journals.subject: type OpenProject character varying / nexgen text
+work_packages.backlog_bucket_id: only in OpenProject (bigint NULL)
+work_packages.budget_id: only in OpenProject (integer NULL)
+work_packages.created_at: default OpenProject none / nexgen now()
+work_packages.created_at: nullability OpenProject NULL / nexgen NOT NULL
+work_packages.done_ratio: default OpenProject none / nexgen 0
+work_packages.done_ratio: nullability OpenProject NULL / nexgen NOT NULL
+work_packages.identifier: only in OpenProject (character varying NULL)
+work_packages.origin_host: only in OpenProject (character varying NULL)
+work_packages.origin_id: only in OpenProject (character varying NULL)
+work_packages.origin_source: only in OpenProject (character varying NULL)
+work_packages.origin_url: only in OpenProject (character varying NULL)
+work_packages.project_phase_definition_id: only in OpenProject (bigint NULL)
+work_packages.sequence_number: only in OpenProject (integer NULL)
+work_packages.sprint_id: only in OpenProject (bigint NULL)
+work_packages.subject: type OpenProject character varying / nexgen text
+work_packages.updated_at: default OpenProject none / nexgen now()
+work_packages.updated_at: nullability OpenProject NULL / nexgen NOT NULL

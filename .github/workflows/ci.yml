@@ -56,12 +56,12 @@ jobs:
       - run: rustup show active-toolchain
       - uses: Swatinem/rust-cache@v2
       - name: fmt
-        run: cargo fmt -p op-server -p op-codegen-pipeline -p ruff_openproject -p op-cli -- --check
+        run: cargo fmt -p op-server -p op-codegen-pipeline -p ruff_openproject -p op-cli -p op-desk -- --check
       # Tests that need no OpenProject checkout. op-services and op-contracts hold
       # the production admission (`admit_create`, the project-scoped
       # `user_allowed_to_add`) that create_transition_differential drives.
       - name: test
-        run: cargo test -p op-server -p ruff_openproject -p op-cli -p op-services -p op-contracts
+        run: cargo test -p op-server -p ruff_openproject -p op-cli -p op-services -p op-contracts -p op-desk
       - name: Test web-login (sign-in, OIDC + PKCE)
         run: cargo test -p web-login --features reqwest,axum
       # The pinned OpenProject source the oracle traces were recorded against
@@ -93,6 +93,14 @@ jobs:
           OP_CORPUS_SRC: ${{ github.workspace }}/openproject-src
           REQUIRE_SOURCES: "1"
         run: cargo test -p op-codegen-pipeline
+      # op-desk's generated specs against OpenProject's db/structure.sql: schema fidelity,
+      # the pinned divergence of nexgen's SQL migrations (oracle/op-desk-schema-divergence.txt)
+      # and a byte-identical regeneration through rails-compiler (openproject.toml).
+      - name: test op-desk against the pinned OpenProject
+        env:
+          OPENPROJECT_SRC: ${{ github.workspace }}/openproject-src
+          REQUIRE_SOURCES: "1"
+        run: cargo test -p op-desk
       # body_triage_probe takes RAILS_CORPUS_SRC plus a namespace. Scoped to its own
       # step because the other RAILS_CORPUS_SRC readers need other corpora.
       - name: test ruff_openproject body triage against the pinned OpenProject

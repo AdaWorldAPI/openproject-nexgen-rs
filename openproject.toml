@@ -1,0 +1,59 @@
+# The OpenProject slice for op-desk, in rails-compiler's config format
+# (zammad-rs: crates/rails-compiler/src/config.rs; zammad.toml is the Zammad one).
+# Everything application-specific is here; crates/op-desk/examples/generate.rs
+# reads this file and drives rails-compiler with it.
+#
+# Regenerate crates/op-desk/src/generated/:
+#   OPENPROJECT_SRC=<openproject checkout> cargo run -p op-desk --example generate
+# crates/op-desk/tests/regenerate.rs fails when the committed files differ.
+
+output = "crates/op-desk"
+
+[app]
+name = "openproject"
+namespace = "openproject"
+source_env = "OPENPROJECT_SRC"
+# config/application.rb: config.load_defaults 6.1
+rails_load_defaults = "6.1"
+# Zeitwerk roots for the slice models (all in core app/models).
+autoload_roots = ["app/models", "app/models/concerns", "lib/open_project"]
+# rails-compiler reads the schema from the create_table blocks of these
+# migrations. OpenProject has none it can read: the schema format is SQL
+# (config/application.rb:190, `config.active_record.schema_format = :sql`), so
+# the current schema is db/structure.sql, and the baseline tables
+# (db/migrate/tables/*.rb) are `Tables::X.table(migration)` classes that
+# rails-compiler's schema arm does not walk. The schema comes from
+# [op_desk].structure instead.
+migrations = []
+framework_roots = ["ActiveRecord::Base", "ApplicationRecord"]
+
+[slice]
+# The models of the tables the work-package journey reads and writes
+# (crates/op-server/src/board/executed_db.rs). projects_types, the remaining
+# journey table, has no model and no table in current OpenProject.
+models = [
+    "Enumeration",
+    "Journal",
+    "Journal::WorkPackageJournal",
+    "Member",
+    "MemberRole",
+    "NonWorkingDay",
+    "Project",
+    "Relation",
+    "Role",
+    "RolePermission",
+    "Status",
+    "Type",
+    "User",
+    "Watcher",
+    "WorkPackage",
+]
+# No callback body is compiled yet: the generated models carry no callbacks.
+verbatim_file = "crates/op-desk/verbatim.txt"
+
+[boundary]
+calls = []
+
+[op_desk]
+# The schema the specs follow: OpenProject's own, after every migration.
+structure = "db/structure.sql"
