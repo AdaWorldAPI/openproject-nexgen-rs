@@ -327,9 +327,8 @@ fn schedule_manually_differential() -> ScheduleDiff {
 }
 
 fn schedule_runtime(d: &ScheduleDiff) -> RuntimeEvidence {
-    // Only discriminating records are compared: Rust has no path that emits the code
-    // (`rust_fires` is empty), so agreement on a record where Ruby is silent would be
-    // vacuous.
+    // Only discriminating records are compared (those where either side fires):
+    // agreement on a record where both are silent would be vacuous.
     let compared = d.ruby_fires.len()
         + d.rust_fires
             .iter()
@@ -446,7 +445,7 @@ fn residual_for(
                 ),
                 op.clone(),
                 "Slag(RubySideNotHarvested) -> RubyOnly: Charon inspected admit_create (defined, structured, current) and it has no edge to such a validator; NOT_EVALUATED_VALIDATORS does not name it either",
-                "the harvested validator with its condition; the runtime axis already records ExecutedDisagreement on leaf_automatic",
+                "the harvested validator with its condition; the runtime axis records ExecutedAgreement on leaf_automatic: admit_create now evaluates the validator",
                 "a harvest that drops the `if model.schedule_automatically?` condition predicts the error on leaf_manual, where the oracle records none",
             ),
             "validator inside an attribute block; absent from the generated admission path and from NOT_EVALUATED_VALIDATORS".to_string(),
@@ -634,9 +633,9 @@ fn ore_slag_ledger_and_lifecycle() {
         .count();
     assert_eq!(rs.len(), slag, "every slag row has exactly one residual");
 
-    // The schedule_manually block: Ruby fires on exactly one record, Rust never
-    // (the can-it-fire check of the Rust side fails, so only discriminating records
-    // are compared), and the structural row stays an open RubySideNotHarvested.
+    // The schedule_manually block: Ruby fires on exactly one record and Rust fires on
+    // the same one (only discriminating records are compared), and the structural row
+    // stays an open RubySideNotHarvested: ruff still harvests no block.
     eprintln!(
         "schedule_manually block: {} CreateContract records; Ruby emits {SCHEDULE_CODE} on {:?}; Rust on {:?}; disagreements {:?}",
         diff.records, diff.ruby_fires, diff.rust_fires, diff.disagreements
@@ -646,10 +645,11 @@ fn ore_slag_ledger_and_lifecycle() {
         ["leaf_automatic"],
         "the oracle's discriminating record moved"
     );
-    assert!(
-        diff.rust_fires.is_empty(),
-        "Rust now emits {SCHEDULE_CODE}: re-measure this row"
+    assert_eq!(
+        diff.rust_fires, diff.ruby_fires,
+        "Rust must emit {SCHEDULE_CODE} on exactly the record Ruby does"
     );
+    assert!(diff.disagreements.is_empty(), "{:?}", diff.disagreements);
     let sched = rec.row(KEY_SCHEDULE).expect("row");
     assert_eq!(
         sched.verdict,
@@ -657,12 +657,12 @@ fn ore_slag_ledger_and_lifecycle() {
     );
     assert_eq!(
         RuntimeVerdict::of(&sched.runtime),
-        RuntimeVerdict::ExecutedDisagreement
+        RuntimeVerdict::ExecutedAgreement
     );
     assert!(
         !op_contracts::work_packages::not_evaluated_validators()
             .contains(&"validate_has_predecessors_or_children"),
-        "the validator is now declared not evaluated: re-measure"
+        "the validator is evaluated by admit_create, so it is not listed as not evaluated"
     );
     let sched_res = status_of(&rs, KEY_SCHEDULE);
     assert_eq!(sched_res.status, Lifecycle::Open, "the retained unknown");
@@ -720,7 +720,7 @@ fn ore_slag_ledger_and_lifecycle() {
 
     let card = Scorecard::of(&rec, &rs);
     eprintln!("== ORE/SLAG SCORECARD (WorkPackage create admission)\n{card}");
-    eprintln!("   schedule_manually differential: 1 discriminating record compared, 1 disagreement (separate from the 350 contract-rule items)");
+    eprintln!("   schedule_manually differential: 1 discriminating record compared, 0 disagreements (separate from the 350 contract-rule items)");
     eprintln!("   database effects performed here: 0 (EXECUTED_DB is cited: needs OP_TEST_DATABASE_URL); callback bodies executed: 0");
     eprintln!("   P3b gap: create is not transactional (a post-INSERT failure leaves the row committed), writes no journal, and authorize/write are not isolated");
     for r in &rs {

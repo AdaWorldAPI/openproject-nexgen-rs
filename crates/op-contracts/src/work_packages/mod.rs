@@ -15,7 +15,8 @@ mod update;
 mod delete;
 
 pub use admission::{
-    admit_create, changed_column, guard_facts, is_writable, not_evaluated_validators, AdmissionFacts,
+    admit_create, changed_column, CANNOT_BE_AUTOMATICALLY_SCHEDULED, FACT_HAS_CHILDREN,
+    FACT_HAS_SCHEDULING_PREDECESSORS, FACT_SCHEDULE_MANUALLY, guard_facts, is_writable, not_evaluated_validators, AdmissionFacts,
     AttrRule, CreateAdmission, Op, PermissionRule, Unresolved, Verdict, Writable, WritableRule,
 };
 pub use base::{WorkPackageBaseContract, WorkPackageData};

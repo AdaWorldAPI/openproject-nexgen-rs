@@ -12,10 +12,10 @@ crates/op-contracts/src/users/create.rs	e21767f889f3d843
 crates/op-contracts/src/users/delete.rs	27ce3d43a9c74e05
 crates/op-contracts/src/users/mod.rs	33c3d00f5c26631b
 crates/op-contracts/src/users/update.rs	3b956f1459ca2077
-crates/op-contracts/src/work_packages/admission.rs	bc4d0d8a6a10e947
+crates/op-contracts/src/work_packages/admission.rs	b9d9f87baa83ffa8
 crates/op-contracts/src/work_packages/base.rs	d49041f764fa83da
 crates/op-contracts/src/work_packages/create.rs	abac469260a1a4a1
 crates/op-contracts/src/work_packages/delete.rs	7f8edd4ae0f59834
 crates/op-contracts/src/work_packages/generated_create_admission.rs	26c83f1d0aaec607
-crates/op-contracts/src/work_packages/mod.rs	587b1cdc78c64a5d
+crates/op-contracts/src/work_packages/mod.rs	1b6a3856b81b568a
 crates/op-contracts/src/work_packages/update.rs	2e63560c7255ef49

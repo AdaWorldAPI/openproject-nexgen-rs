@@ -68,7 +68,14 @@ const FACT_ALIASES: &[(&str, &str)] = &[
         "effective_target_versions.any?(&:closed?)",
     ),
     ("model.status_id_change", "status_id_change_present"),
+    ("model.children.any?", "children.any?"),
 ];
+
+/// `Relation.used_for_scheduling_of(model.parent).any?`: the oracle builds every
+/// CreateContract record with `WorkPackage.new` and no parent
+/// (`oracle/work_package_contract.rb` `new_from`), and the scope is `[]` for no parent
+/// (`app/models/relations/scopes/used_for_scheduling_of.rb:45`).
+const NO_PARENT_PREDECESSORS_FACT: &str = "Relation.used_for_scheduling_of(model.parent).any?";
 
 /// Measured at OpenProject 2725194 on the committed traces.
 const FLOOR_CONTRACT_COMPARED: usize = 100;
@@ -274,6 +281,9 @@ struct TraceFacts(BTreeMap<String, Value>);
 
 impl AdmissionFacts for TraceFacts {
     fn fact(&self, name: &str) -> Option<bool> {
+        if name == NO_PARENT_PREDECESSORS_FACT {
+            return Some(false);
+        }
         let key = FACT_ALIASES.iter().find(|(f, _)| *f == name)?.1;
         match self.0.get(key)? {
             Value::Bool(b) => Some(*b),
