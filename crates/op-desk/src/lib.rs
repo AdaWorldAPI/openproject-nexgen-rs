@@ -18,6 +18,7 @@
 
 pub mod desk;
 pub mod reads;
+pub mod scopes;
 #[rustfmt::skip]
 pub mod generated;
 pub mod snapshot;
