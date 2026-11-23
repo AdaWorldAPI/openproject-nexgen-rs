@@ -28,6 +28,8 @@
 #   loop creates: pups=2 ["pup after_commit create p1", "pup after_commit create p2"]
 #   same row twice (first-saved=true): ["kit after_commit k1"]
 #   same row twice (first-saved=false): ["kit after_commit k2"]
+#   destroyed new save: returned=false rows=0 new_record=true ["before_validation", "before_save"]
+#   destroyed persisted save: returned=false rows=0 ["before_validation", "before_save"]
 B = File.join(ENV.fetch("OPENPROJECT_SRC"), "vendor/bundle/ruby/4.0.0/gems")
 %w[activerecord-8.1.4.1 activemodel-8.1.4.1 activesupport-8.1.4.1].each { |g| $LOAD_PATH.unshift("#{B}/#{g}/lib") }
 Dir["#{B}/{concurrent-ruby,i18n,tzinfo,minitest,base64,bigdecimal,connection_pool,drb,logger,securerandom,uri,benchmark,timeout,json}-*/lib"].each { |d| $LOAD_PATH.unshift(d) }
