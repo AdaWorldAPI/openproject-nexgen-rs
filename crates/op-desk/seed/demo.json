@@ -41,7 +41,7 @@
       {"id": 4, "name": "Milestone", "position": 4, "is_in_roadmap": true, "is_milestone": true, "allow_project_variants": true, "created_at": 1783507124000000, "updated_at": 1783507124000000}
     ],
     "projects": [
-      {"id": 1, "name": "Website Relaunch", "description": "Marketing site redesign and rebuild.", "identifier": "website-relaunch", "public": true, "lft": 1, "rgt": 2, "active": true, "templated": false, "settings": "{}", "workspace_type": "project", "wp_sequence_counter": 0, "created_at": 1783507124000000, "updated_at": 1783507124000000},
+      {"id": 1, "name": "Website Relaunch", "description": "Marketing site redesign and rebuild.", "identifier": "website-relaunch", "public": true, "lft": 1, "rgt": 2, "active": true, "templated": false, "settings": "{\"zeta\": 1, \"beta\": [1,2], \"a\": true}", "workspace_type": "project", "wp_sequence_counter": 0, "created_at": 1783507124000000, "updated_at": 1783507124000000},
       {"id": 2, "name": "Mobile App", "description": "Native iOS/Android client.", "identifier": "mobile-app", "public": true, "lft": 3, "rgt": 4, "active": true, "templated": false, "settings": "{}", "workspace_type": "project", "wp_sequence_counter": 0, "created_at": 1783507124000000, "updated_at": 1783507124000000},
       {"id": 3, "name": "Internal Tools", "description": "Internal tooling and developer platform.", "identifier": "internal-tools", "public": false, "lft": 5, "rgt": 6, "active": true, "templated": false, "settings": "{}", "workspace_type": "project", "wp_sequence_counter": 0, "created_at": 1783507124000000, "updated_at": 1783507124000000}
     ],
@@ -70,7 +70,7 @@
       {"id": 2, "type_id": 2, "project_id": 1, "subject": "Fix login redirect bug on Safari", "status_id": 2, "priority_id": 2, "author_id": 3, "lock_version": 0, "done_ratio": 40, "schedule_manually": true, "ignore_non_working_days": false, "created_at": 1783507124000000, "updated_at": 1783507124000000, "assigned_to_id": 4, "start_date": "2026-04-07", "due_date": "2026-04-21", "estimated_hours": 8.0},
       {"id": 3, "type_id": 3, "project_id": 1, "subject": "Design new homepage hero section", "status_id": 3, "priority_id": 3, "author_id": 4, "lock_version": 0, "done_ratio": 90, "schedule_manually": true, "ignore_non_working_days": false, "created_at": 1783507124000000, "updated_at": 1783507124000000, "assigned_to_id": 5, "start_date": "2026-04-10", "due_date": "2026-04-24", "estimated_hours": 16.0},
       {"id": 4, "type_id": 4, "project_id": 1, "subject": "Migrate CSS to Tailwind", "status_id": 4, "priority_id": 4, "author_id": 5, "lock_version": 0, "done_ratio": 100, "schedule_manually": true, "ignore_non_working_days": false, "created_at": 1783507124000000, "updated_at": 1783507124000000, "assigned_to_id": 2, "start_date": "2026-04-13", "due_date": "2026-04-27", "estimated_hours": 24.0},
-      {"id": 5, "type_id": 1, "project_id": 1, "subject": "Implement dark mode toggle", "status_id": 5, "priority_id": 1, "author_id": 2, "lock_version": 0, "done_ratio": 0, "schedule_manually": true, "ignore_non_working_days": false, "created_at": 1783507124000000, "updated_at": 1783507124000000, "assigned_to_id": 3},
+      {"id": 5, "type_id": 1, "project_id": 1, "subject": "Implement dark mode toggle", "status_id": 5, "priority_id": 1, "author_id": 2, "lock_version": 0, "done_ratio": 0, "schedule_manually": true, "ignore_non_working_days": false, "created_at": 1783507124000000, "updated_at": 1783507124123456, "assigned_to_id": 3},
       {"id": 6, "type_id": 2, "project_id": 1, "subject": "Optimize image loading with lazy-load", "status_id": 1, "priority_id": 2, "author_id": 3, "lock_version": 0, "done_ratio": 0, "schedule_manually": true, "ignore_non_working_days": false, "created_at": 1783507124000000, "updated_at": 1783507124000000},
       {"id": 7, "type_id": 3, "project_id": 1, "subject": "Fix broken contact form validation", "status_id": 2, "priority_id": 3, "author_id": 4, "lock_version": 0, "done_ratio": 40, "schedule_manually": true, "ignore_non_working_days": false, "created_at": 1783507124000000, "updated_at": 1783507124000000, "assigned_to_id": 5, "start_date": "2026-04-22", "due_date": "2026-05-06", "estimated_hours": 8.0},
       {"id": 8, "type_id": 4, "project_id": 1, "subject": "Add sitemap.xml generation", "status_id": 3, "priority_id": 4, "author_id": 5, "lock_version": 0, "done_ratio": 90, "schedule_manually": true, "ignore_non_working_days": false, "created_at": 1783507124000000, "updated_at": 1783507124000000, "assigned_to_id": 2, "start_date": "2026-04-25", "due_date": "2026-05-09", "estimated_hours": 16.0},
@@ -192,12 +192,12 @@
       {"id": 40, "type_id": 1, "project_id": 3, "subject": "Set up dependency vulnerability scanning", "status_id": 3, "priority_id": 1, "author_id": 2, "done_ratio": 90, "schedule_manually": true, "ignore_non_working_days": false, "assigned_to_id": 3, "start_date": "2026-07-30", "due_date": "2026-08-13", "estimated_hours": 16.0}
     ],
     "relations": [
-      {"id": 1, "from_id": 2, "to_id": 3, "lag": 0, "relation_type": "follows"},
-      {"id": 2, "from_id": 4, "to_id": 9, "relation_type": "relates"},
-      {"id": 3, "from_id": 16, "to_id": 17, "relation_type": "blocks"},
-      {"id": 4, "from_id": 19, "to_id": 15, "relation_type": "relates"},
+      {"id": 6, "from_id": 34, "to_id": 33, "relation_type": "duplicates"},
       {"id": 5, "from_id": 29, "to_id": 28, "lag": 0, "relation_type": "follows"},
-      {"id": 6, "from_id": 34, "to_id": 33, "relation_type": "duplicates"}
+      {"id": 4, "from_id": 19, "to_id": 15, "relation_type": "relates"},
+      {"id": 3, "from_id": 16, "to_id": 17, "relation_type": "blocks"},
+      {"id": 2, "from_id": 4, "to_id": 9, "relation_type": "relates"},
+      {"id": 1, "from_id": 2, "to_id": 3, "lag": 0, "relation_type": "follows"}
     ],
     "watchers": [
       {"id": 1, "watchable_type": "WorkPackage", "watchable_id": 1, "user_id": 2},
@@ -212,8 +212,8 @@
       {"id": 10, "watchable_type": "WorkPackage", "watchable_id": 10, "user_id": 3}
     ],
     "time_entries": [
-      {"id": 1, "project_id": 1, "user_id": 4, "hours": 3.5, "activity_id": 5, "spent_on": "2026-07-01", "tyear": 2026, "tmonth": 7, "tweek": 27, "logged_by_id": 4, "ongoing": false, "entity_type": "WorkPackage", "entity_id": 2, "created_at": 1783507124000000, "updated_at": 1783507124000000},
-      {"id": 2, "project_id": 1, "user_id": 2, "hours": 6.0, "activity_id": 6, "spent_on": "2026-07-02", "tyear": 2026, "tmonth": 7, "tweek": 27, "logged_by_id": 2, "ongoing": false, "entity_type": "WorkPackage", "entity_id": 3, "created_at": 1783507124000000, "updated_at": 1783507124000000},
+      {"id": 1, "project_id": 1, "user_id": 4, "hours": 3.5, "activity_id": 5, "spent_on": "2026-07-01", "tyear": 2026, "tmonth": 7, "tweek": 27, "logged_by_id": 4, "ongoing": false, "entity_type": "WorkPackage", "entity_id": 2, "created_at": 1783507124000000, "updated_at": 1783507124000000, "costs": 12.3456, "comments": "Überstunden \\ Nachtschicht – 100 % \"fertig\""},
+      {"id": 2, "project_id": 1, "user_id": 2, "hours": 6.0, "activity_id": 6, "spent_on": "2026-07-02", "tyear": 2026, "tmonth": 7, "tweek": 27, "logged_by_id": 2, "ongoing": false, "entity_type": "WorkPackage", "entity_id": 3, "created_at": 1783507124000000, "updated_at": 1783507124000000, "comments": ""},
       {"id": 3, "project_id": 1, "user_id": 3, "hours": 1.5, "activity_id": 5, "spent_on": "2026-07-06", "tyear": 2026, "tmonth": 7, "tweek": 28, "logged_by_id": 3, "ongoing": false, "entity_type": "WorkPackage", "entity_id": 7, "created_at": 1783507124000000, "updated_at": 1783507124000000},
       {"id": 4, "project_id": 1, "user_id": 4, "hours": 0.5, "activity_id": 6, "spent_on": "2026-07-07", "tyear": 2026, "tmonth": 7, "tweek": 28, "logged_by_id": 4, "ongoing": false, "entity_type": "WorkPackage", "entity_id": 12, "created_at": 1783507124000000, "updated_at": 1783507124000000},
       {"id": 5, "project_id": 2, "user_id": 4, "hours": 4.0, "activity_id": 5, "spent_on": "2026-07-01", "tyear": 2026, "tmonth": 7, "tweek": 27, "logged_by_id": 4, "ongoing": false, "entity_type": "WorkPackage", "entity_id": 16, "created_at": 1783507124000000, "updated_at": 1783507124000000},

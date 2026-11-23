@@ -31,8 +31,8 @@ pub static TABLE: rp::TableSpec = rp::TableSpec {
         rp::Column { name: "position", ty: rp::ColumnType::Integer, null: true, default: rp::Default::Int(1), limit: None }, // db/structure.sql:7306
         rp::Column { name: "builtin", ty: rp::ColumnType::Integer, null: false, default: rp::Default::Int(0), limit: None }, // db/structure.sql:7307
         rp::Column { name: "type", ty: rp::ColumnType::String, null: true, default: rp::Default::Str("Role"), limit: Some(30) }, // db/structure.sql:7308
-        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:7309
-        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:7310
+        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:7309
+        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:7310
     ],
 };
 

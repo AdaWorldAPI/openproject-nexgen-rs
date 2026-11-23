@@ -95,3 +95,32 @@ fn the_demo_seed_loads_and_every_count_matches() {
         "every row the filter returns is in project 1"
     );
 }
+
+/// The store holds every seeded cell as written: nothing is lost on the way in
+/// (a microsecond timestamp keeps its microseconds, a decimal its scale, text
+/// its bytes). The PostgreSQL oracle is loaded from the store, so this check is
+/// what keeps a loss on the way in from hiding in both sides.
+#[test]
+fn the_store_keeps_every_seeded_cell() {
+    let doc: J = serde_json::from_str(include_str!("../seed/demo.json")).expect("demo.json");
+    let desk = Desk::from_seed(&doc).expect("demo desk");
+    let mut cells = 0;
+    for (table, rows) in doc["seed"].as_object().expect("seed") {
+        let spec = op_desk::desk::table(table).expect("spec");
+        for row in rows.as_array().expect("rows") {
+            let id = row["id"].as_i64().expect("id");
+            let stored = desk
+                .store()
+                .find(spec, id)
+                .expect("table")
+                .expect("seeded row");
+            for (column, cell) in row.as_object().expect("row") {
+                let at = spec.index_of(column).expect("column");
+                let back = op_desk::snapshot::cell_json(stored.get(at), spec.columns[at].ty);
+                assert_eq!(&back, cell, "{table}#{id}.{column}");
+                cells += 1;
+            }
+        }
+    }
+    assert!(cells > 1000, "{cells} cells checked");
+}

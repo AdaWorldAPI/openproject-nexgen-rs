@@ -46,18 +46,18 @@ pub static TABLE: rp::TableSpec = rp::TableSpec {
         rp::Column { name: "mail", ty: rp::ColumnType::String, null: false, default: rp::Default::Str(""), limit: None }, // db/structure.sql:8332
         rp::Column { name: "admin", ty: rp::ColumnType::Boolean, null: false, default: rp::Default::Bool(false), limit: None }, // db/structure.sql:8333
         rp::Column { name: "status", ty: rp::ColumnType::Integer, null: false, default: rp::Default::Int(1), limit: None }, // db/structure.sql:8334
-        rp::Column { name: "last_login_on", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:8335
+        rp::Column { name: "last_login_on", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:8335
         rp::Column { name: "language", ty: rp::ColumnType::String, null: true, default: rp::Default::Str(""), limit: Some(5) }, // db/structure.sql:8336
         rp::Column { name: "ldap_auth_source_id", ty: rp::ColumnType::Integer, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:8337
-        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:8338
-        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:8339
+        rp::Column { name: "created_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:8338
+        rp::Column { name: "updated_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:8339
         rp::Column { name: "type", ty: rp::ColumnType::String, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:8340
         rp::Column { name: "identity_url", ty: rp::ColumnType::String, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:8341
         rp::Column { name: "first_login", ty: rp::ColumnType::Boolean, null: false, default: rp::Default::Bool(true), limit: None }, // db/structure.sql:8342
         rp::Column { name: "force_password_change", ty: rp::ColumnType::Boolean, null: true, default: rp::Default::Bool(false), limit: None }, // db/structure.sql:8343
         rp::Column { name: "failed_login_count", ty: rp::ColumnType::Integer, null: true, default: rp::Default::Int(0), limit: None }, // db/structure.sql:8344
-        rp::Column { name: "last_failed_login_on", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:8345
-        rp::Column { name: "consented_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:8346
+        rp::Column { name: "last_failed_login_on", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:8345
+        rp::Column { name: "consented_at", ty: rp::ColumnType::DateTime, null: true, default: rp::Default::None, limit: Some(6) }, // db/structure.sql:8346
         rp::Column { name: "webauthn_id", ty: rp::ColumnType::String, null: true, default: rp::Default::None, limit: None }, // db/structure.sql:8347
     ],
 };
