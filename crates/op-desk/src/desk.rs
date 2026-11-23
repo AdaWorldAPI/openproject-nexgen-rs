@@ -102,7 +102,15 @@ impl Desk {
             let rows = rows
                 .as_array()
                 .ok_or_else(|| DeskError::Seed(format!("{name} is not a list of rows")))?;
+            // `Store::insert` replaces a row with the same id, so a repeated id
+            // would silently drop a seed row.
+            let mut ids = std::collections::BTreeSet::new();
             for row in rows {
+                if let Some(id) = row.get("id").and_then(J::as_i64) {
+                    if !ids.insert(id) {
+                        return Err(DeskError::Seed(format!("{name}: id {id} appears twice")));
+                    }
+                }
                 let obj = row
                     .as_object()
                     .ok_or_else(|| DeskError::Seed(format!("a row of {name} is not an object")))?;

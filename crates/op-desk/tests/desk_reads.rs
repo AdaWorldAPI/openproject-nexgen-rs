@@ -51,6 +51,11 @@ fn a_table_or_column_outside_the_slice_is_refused() {
         Desk::from_seed(&unknown_table),
         Err(DeskError::Seed(_))
     ));
+    let duplicate_id = json!({"seed": {"statuses": [status(1, "New", 1), status(1, "Closed", 2)]}});
+    assert!(matches!(
+        Desk::from_seed(&duplicate_id),
+        Err(DeskError::Seed(_))
+    ));
     let unknown_column = json!({"seed": {"statuses": [{"id": 1, "nmae": "x"}]}});
     assert!(matches!(
         Desk::from_seed(&unknown_column),
@@ -82,4 +87,11 @@ fn the_demo_seed_loads_and_every_count_matches() {
         .read("work_packages", "project_id", json!(1))
         .expect("project 1");
     assert!(!project_1.rows.is_empty() && project_1.rows.len() < 40);
+    assert!(
+        project_1
+            .rows
+            .iter()
+            .all(|r| project_1.cell(r, "project_id") == Some(&json!(1))),
+        "every row the filter returns is in project 1"
+    );
 }
