@@ -37,9 +37,12 @@ use op_services::work_packages::mutation::{
 use op_services::work_packages::WorkPackageParams;
 use sqlx::PgPool;
 
-use super::{edit_form_core, update_core, WriteCtx};
+use super::WriteCtx;
 use crate::signin::Who;
-use crate::write_guard::{self, PgWpStore, WpStore, CSRF_FIELD};
+use crate::write_guard::{self, PgWpStore, CSRF_FIELD};
+
+mod capture;
+use capture::{RecFind, RecWrite};
 
 const URL_VAR: &str = "OP_TEST_DATABASE_URL";
 const SECRET: &[u8] = b"executed-db-csrf-secret-0123456789";
@@ -230,6 +233,7 @@ async fn seed(pool: &PgPool) {
     ];
     for s in statements {
         sqlx::query(&s).execute(pool).await.expect("seed statement");
+        capture::fixture("seed", serde_json::json!({ "sql": s }));
     }
 }
 
@@ -379,7 +383,7 @@ fn headers_with_cookie(cookie: &str) -> HeaderMap {
 /// (cookie, token, html) from the real response.
 async fn fetch_form(store: &PgWpStore, id: i64, who: &Who) -> (String, String, String) {
     let no_cookie = HeaderMap::new();
-    let resp = edit_form_core(store, id, &ctx(who, &no_cookie)).await;
+    let resp = capture::edit_form_core(store, id, &ctx(who, &no_cookie)).await;
     assert_eq!(resp.status(), StatusCode::OK, "edit form for {who:?}");
     let cookie = resp.headers()[header::SET_COOKIE]
         .to_str()
@@ -445,6 +449,7 @@ async fn journey(db_url: String) -> Tally {
     // Committed state is read on its own pool: another connection sees only what was committed.
     let verify = PgPool::connect(&db_url).await.expect("verification pool");
     let mut t = Tally::default();
+    capture::begin();
 
     // ── 1. fresh database from migrations, plus the fixture ──────────
     assert_eq!(
@@ -458,6 +463,12 @@ async fn journey(db_url: String) -> Tally {
         1
     );
     t.row();
+    capture::end_step(
+        &verify,
+        1,
+        "fresh database from migrations, plus the fixture",
+    )
+    .await;
     t.steps += 1;
 
     // ── 2. A creates in project 5 through the boundary ───────────────
@@ -469,7 +480,7 @@ async fn journey(db_url: String) -> Tally {
         .with_subject("Persisted journey")
         .with_description("Created by the EXECUTED_DB journey");
     params.project_id = Some(TARGET_PROJECT);
-    let created = mutation::create(&store, &caller_a, params)
+    let created = capture::create(&store, &caller_a, params)
         .await
         .expect("A may add work packages in project 5");
     let id = created.id;
@@ -606,12 +617,13 @@ async fn journey(db_url: String) -> Tally {
         "the creator becomes the one watcher"
     );
     t.rows += 4;
+    capture::end_step(&verify, 2, "A creates in project 5 through the boundary: the row, the creation journal, the creator watching").await;
     t.steps += 1;
 
     // ── 3. read it back through the page read path ───────────────────
     let page_store = PgWpStore { pool: pool.clone() };
     let read = page_store
-        .find_wp(id)
+        .rec_find_wp(id)
         .await
         .expect("read")
         .expect("the record is found by id");
@@ -634,6 +646,7 @@ async fn journey(db_url: String) -> Tally {
         )
     );
     assert_eq!(read.lock_version, lock_version);
+    capture::end_step(&verify, 3, "read it back through the page read path").await;
     t.steps += 1;
 
     // ── 4. A edits through the CSRF/RBAC form path ───────────────────
@@ -655,7 +668,7 @@ async fn journey(db_url: String) -> Tally {
     let mut missing = edit_form(&read, "forged edit", &token_a);
     missing.remove(CSRF_FIELD);
     for form in [edit_form(&read, "forged edit", &foreign_token), missing] {
-        let resp = update_core(&page_store, id, &ctx(&who_a, &headers_a), &form).await;
+        let resp = capture::update_core(&page_store, id, &ctx(&who_a, &headers_a), &form).await;
         assert_eq!(
             resp.status(),
             StatusCode::FORBIDDEN,
@@ -671,7 +684,7 @@ async fn journey(db_url: String) -> Tally {
     let j_before = journals(&verify, id).await;
     assert_eq!(j_before.len(), 1);
     let old_data_id = j_before[0].data_id;
-    let resp = update_core(
+    let resp = capture::update_core(
         &page_store,
         id,
         &ctx(&who_a, &headers_a),
@@ -751,9 +764,9 @@ async fn journey(db_url: String) -> Tally {
     // A no-op edit (the form resubmitted as it stands): nothing journaled changed, so the
     // `changes` CTE is empty and no CTE writes (create_service.rb:425-427, helpers.rb:54-60).
     // Control: the edit above changed the subject and DID rewrite the journal (a.data_id differs).
-    let current = page_store.find_wp(id).await.unwrap().unwrap();
+    let current = page_store.rec_find_wp(id).await.unwrap().unwrap();
     let state_before_noop = journal_state(&verify, id).await;
-    let resp = update_core(
+    let resp = capture::update_core(
         &page_store,
         id,
         &ctx(&who_a, &headers_a),
@@ -771,6 +784,7 @@ async fn journey(db_url: String) -> Tally {
         "a no-op edit writes no journal and touches no data row (byte-identical)"
     );
     t.rows += 1;
+    capture::end_step(&verify, 4, "A edits through the CSRF/RBAC form path: bad tokens refused, journal aggregation, no-op edit").await;
     t.steps += 1;
 
     // ── 5. B attempts the same edit: refused, the row is byte-identical
@@ -778,14 +792,14 @@ async fn journey(db_url: String) -> Tally {
     let before_b = row_json(&verify, id).await.unwrap();
     // B gets no edit form for a record in a project where B holds nothing.
     let no_cookie = HeaderMap::new();
-    let form_resp = edit_form_core(&page_store, id, &ctx(&who_b, &no_cookie)).await;
+    let form_resp = capture::edit_form_core(&page_store, id, &ctx(&who_b, &no_cookie)).await;
     assert_eq!(form_resp.status(), StatusCode::FORBIDDEN);
     // And a well-formed post with B's own valid token is refused too.
     let cookie_b = write_guard::new_cookie_value();
     let token_b = write_guard::token_for(SECRET, &cookie_b, LOGIN_B);
     let headers_b = headers_with_cookie(&cookie_b);
-    let current = page_store.find_wp(id).await.unwrap().unwrap();
-    let resp = update_core(
+    let current = page_store.rec_find_wp(id).await.unwrap().unwrap();
+    let resp = capture::update_core(
         &page_store,
         id,
         &ctx(&who_b, &headers_b),
@@ -803,13 +817,19 @@ async fn journey(db_url: String) -> Tally {
         "the committed row is byte-identical after B's attempt"
     );
     t.row();
+    capture::end_step(
+        &verify,
+        5,
+        "B attempts the same edit: refused, the row byte-identical",
+    )
+    .await;
     t.steps += 1;
 
     // ── 6. A attempts to create in project 1: refused, nothing inserted
     let total_before = count(&verify, "SELECT count(*) FROM work_packages").await;
     let mut foreign = WorkPackageParams::new().with_subject("Smuggled into project 1");
     foreign.project_id = Some(FOREIGN_PROJECT);
-    let r = mutation::create(&store, &caller_a, foreign).await;
+    let r = capture::create(&store, &caller_a, foreign).await;
     assert!(matches!(r, Err(MutationError::Forbidden)), "{r:?}");
     assert_eq!(
         count(&verify, "SELECT count(*) FROM work_packages").await,
@@ -825,6 +845,12 @@ async fn journey(db_url: String) -> Tally {
         0
     );
     t.rows += 2;
+    capture::end_step(
+        &verify,
+        6,
+        "A attempts to create in project 1: refused, nothing inserted",
+    )
+    .await;
     t.steps += 1;
 
     // ── 7. transactionality of the create ────────────────────────────
@@ -840,7 +866,7 @@ async fn journey(db_url: String) -> Tally {
     };
     let mut p = WorkPackageParams::new().with_subject("transaction probe");
     p.project_id = Some(TARGET_PROJECT);
-    let r = mutation::create(&probe, &caller_a, p).await;
+    let r = capture::create(&probe, &caller_a, p).await;
     assert!(matches!(r, Err(MutationError::Store(_))), "{r:?}");
     let survivors = count(
         &verify,
@@ -881,7 +907,7 @@ async fn journey(db_url: String) -> Tally {
     };
     let mut p = WorkPackageParams::new().with_subject("transaction control");
     p.project_id = Some(TARGET_PROJECT);
-    mutation::create(&control, &caller_a, p)
+    capture::create(&control, &caller_a, p)
         .await
         .expect("the control create succeeds");
     let committed = count(
@@ -915,6 +941,12 @@ async fn journey(db_url: String) -> Tally {
          {survivors} rows (control committed {committed})"
     );
     t.rows += 6;
+    capture::end_step(
+        &verify,
+        7,
+        "transactionality of the create: a failure after the insert rolls it back",
+    )
+    .await;
     t.steps += 1;
 
     // D may add work packages in project 5 but not view them: the create succeeds and D does
@@ -925,7 +957,7 @@ async fn journey(db_url: String) -> Tally {
     };
     let mut p = WorkPackageParams::new().with_subject("added by D");
     p.project_id = Some(TARGET_PROJECT);
-    let by_d = mutation::create(&store, &caller_d, p)
+    let by_d = capture::create(&store, &caller_d, p)
         .await
         .expect("D may add work packages in project 5");
     assert_eq!(
@@ -949,10 +981,10 @@ async fn journey(db_url: String) -> Tally {
     let v1_state = journal_state(&verify, id).await;
 
     // A stale lock_version is a conflict and rolls the whole unit back: no journal either.
-    let current = page_store.find_wp(id).await.unwrap().unwrap();
+    let current = page_store.rec_find_wp(id).await.unwrap().unwrap();
     let mut stale = patch_subject(&current, "stale write");
     stale.lock_version -= 1;
-    let r = mutation::update(&store_c, &caller_c, id, stale).await;
+    let r = capture::update(&store_c, &caller_c, id, stale).await;
     assert!(matches!(r, Err(MutationError::Conflict(_))), "{r:?}");
     assert_eq!(
         journal_state(&verify, id).await,
@@ -968,7 +1000,7 @@ async fn journey(db_url: String) -> Tally {
         login: LOGIN_B.into(),
     };
     let r = store_c
-        .update_unit_of_work(&caller_b, id, patch_subject(&current, "B, inside the unit"))
+        .rec_update_unit_of_work(&caller_b, id, patch_subject(&current, "B, inside the unit"))
         .await;
     assert!(matches!(r, Err(MutationError::Forbidden)), "{r:?}");
     assert_eq!(
@@ -980,7 +1012,7 @@ async fn journey(db_url: String) -> Tally {
 
     // C (another member of project 5) edits: a different user cannot aggregate
     // (`same_user?`, create_service.rb:611-613), so version 2 is added and version 1 is closed.
-    let r = mutation::update(
+    let r = capture::update(
         &store_c,
         &caller_c,
         id,
@@ -1020,7 +1052,7 @@ async fn journey(db_url: String) -> Tally {
         data_subject(&verify, n.data_id).await.as_deref(),
         Some("edited by C")
     );
-    let wp_row = page_store.find_wp(id).await.unwrap().unwrap();
+    let wp_row = page_store.rec_find_wp(id).await.unwrap().unwrap();
     let (nd_matches,): (bool,) = sqlx::query_as(
         "SELECT (d.type_id, d.project_id, d.status_id, d.author_id, d.done_ratio, d.priority_id, \
                  COALESCE(d.description, '')) \
@@ -1042,8 +1074,8 @@ async fn journey(db_url: String) -> Tally {
     // id/version/created_at/validity, a new data row, the old one deleted, version 1 untouched.
     let before_c2 = journals(&verify, id).await;
     let v1_json_before = journal_state(&verify, id).await.0[0].clone();
-    let current = page_store.find_wp(id).await.unwrap().unwrap();
-    mutation::update(
+    let current = page_store.rec_find_wp(id).await.unwrap().unwrap();
+    capture::update(
         &store_c,
         &caller_c,
         id,
@@ -1090,11 +1122,11 @@ async fn journey(db_url: String) -> Tally {
     // attempt: a statement that fails AFTER the UPDATE and the journal, on the same transaction
     // (`PgMutationStore::update_then`'s hook), must roll BOTH back
     // (service_context.rb:34-49 `raise ActiveRecord::Rollback if result.failure?`).
-    let current = page_store.find_wp(id).await.unwrap().unwrap();
+    let current = page_store.rec_find_wp(id).await.unwrap().unwrap();
     let wp_before_fail = row_json(&verify, id).await.unwrap();
     let state_before_fail = journal_state(&verify, id).await;
     let r = pg_store(&pool)
-        .update_then(
+        .rec_update_then(
             &caller_a,
             id,
             patch_subject(&current, "A after C"),
@@ -1116,7 +1148,7 @@ async fn journey(db_url: String) -> Tally {
     // Control: the same call without the failing statement commits, so the identity above is
     // the rollback, not an update that never writes. It is a new version 3 by A.
     pg_store(&pool)
-        .update_then(&caller_a, id, patch_subject(&current, "A after C"), None)
+        .rec_update_then(&caller_a, id, patch_subject(&current, "A after C"), None)
         .await
         .expect("the control update commits");
     let three = journals(&verify, id).await;
@@ -1150,8 +1182,12 @@ async fn journey(db_url: String) -> Tally {
     .execute(&pool)
     .await
     .expect("age the journal");
-    let current = page_store.find_wp(id).await.unwrap().unwrap();
-    mutation::update(
+    capture::fixture(
+        "age journal",
+        serde_json::json!({"id": three[2].id, "minutes": 10}),
+    );
+    let current = page_store.rec_find_wp(id).await.unwrap().unwrap();
+    capture::update(
         &store,
         &caller_a,
         id,
@@ -1176,8 +1212,12 @@ async fn journey(db_url: String) -> Tally {
         .execute(&pool)
         .await
         .expect("set a cause");
-    let current = page_store.find_wp(id).await.unwrap().unwrap();
-    mutation::update(
+    capture::fixture(
+        "set cause",
+        serde_json::json!({"id": four[3].id, "cause": "system_update"}),
+    );
+    let current = page_store.rec_find_wp(id).await.unwrap().unwrap();
+    capture::update(
         &store,
         &caller_a,
         id,
@@ -1194,6 +1234,7 @@ async fn journey(db_url: String) -> Tally {
     assert_eq!(five[4].cause, serde_json::json!({}));
     assert_eq!(five[3].hi, Some(five[4].created_at));
     t.rows += 3;
+    capture::end_step(&verify, 8, "the update journal: stale lock, other user, closed predecessor, aggregation window, cause, rollback").await;
     t.steps += 1;
 
     // ── 9. a work package that predates journalling gets a version-1 journal on its first edit
@@ -1212,9 +1253,13 @@ async fn journey(db_url: String) -> Tally {
     .fetch_one(&pool)
     .await
     .expect("a legacy work package without journals");
+    capture::fixture(
+        "insert legacy work package",
+        serde_json::json!({"subject": "legacy"}),
+    );
     assert!(journals(&verify, legacy).await.is_empty());
-    let row = page_store.find_wp(legacy).await.unwrap().unwrap();
-    mutation::update(
+    let row = page_store.rec_find_wp(legacy).await.unwrap().unwrap();
+    capture::update(
         &store,
         &caller_a,
         legacy,
@@ -1243,8 +1288,12 @@ async fn journey(db_url: String) -> Tally {
     .fetch_one(&verify)
     .await
     .unwrap();
-    let row = page_store.find_wp(legacy).await.unwrap().unwrap();
-    let r = mutation::update(
+    capture::fixture(
+        "journal ahead of the clock",
+        serde_json::json!({"id": lj[0].id, "hours": 1}),
+    );
+    let row = page_store.rec_find_wp(legacy).await.unwrap().unwrap();
+    let r = capture::update(
         &store,
         &caller_a,
         legacy,
@@ -1267,11 +1316,11 @@ async fn journey(db_url: String) -> Tally {
     // §2): with no `users.type`, the edit could not be journaled, so it is refused before any
     // lookup and nothing is written.
     let anon = Caller::Anonymous { allowed: true };
-    let current = page_store.find_wp(id).await.unwrap().unwrap();
+    let current = page_store.rec_find_wp(id).await.unwrap().unwrap();
     let wp_before = row_json(&verify, id).await.unwrap();
     let state_before = journal_state(&verify, id).await;
     let r = store
-        .update_unit_of_work(&anon, id, patch_subject(&current, "anonymous demo edit"))
+        .rec_update_unit_of_work(&anon, id, patch_subject(&current, "anonymous demo edit"))
         .await;
     assert!(matches!(r, Err(MutationError::Unauthenticated)), "{r:?}");
     assert_eq!(
@@ -1303,9 +1352,13 @@ async fn journey(db_url: String) -> Tally {
     .fetch_one(&pool)
     .await
     .expect("a work package without a priority");
-    let row = page_store.find_wp(no_priority).await.unwrap().unwrap();
+    capture::fixture(
+        "insert work package without priority",
+        serde_json::json!({"subject": "no priority"}),
+    );
+    let row = page_store.rec_find_wp(no_priority).await.unwrap().unwrap();
     let wp_before = row_json(&verify, no_priority).await.unwrap();
-    let r = mutation::update(
+    let r = capture::update(
         &store,
         &caller_a,
         no_priority,
@@ -1331,7 +1384,7 @@ async fn journey(db_url: String) -> Tally {
     );
     let mut with_priority = patch_subject(&row, "no priority, edited");
     with_priority.priority_id = Some(PRIORITY_DEFAULT);
-    mutation::update(&store, &caller_a, no_priority, with_priority)
+    capture::update(&store, &caller_a, no_priority, with_priority)
         .await
         .expect("the edit that sets a priority is applied");
     assert_eq!(
@@ -1340,6 +1393,7 @@ async fn journey(db_url: String) -> Tally {
         "and journaled"
     );
     t.rows += 4;
+    capture::end_step(&verify, 9, "a work package that predates journalling, touch_journable, anonymous refusal, blank priority").await;
     t.steps += 1;
 
     // ── 10. ancestor totals on create ────────────────────────────────
@@ -1361,6 +1415,10 @@ async fn journey(db_url: String) -> Tally {
     .execute(&pool)
     .await
     .expect("grant manage_subtasks");
+    capture::fixture(
+        "grant manage_subtasks",
+        serde_json::json!({"role_id": ROLE_A}),
+    );
     sqlx::query(
         "INSERT INTO statuses (id, name, is_default, position, excluded_from_totals) \
          VALUES ($1, 'Rejected', false, 3, true)",
@@ -1369,6 +1427,10 @@ async fn journey(db_url: String) -> Tally {
     .execute(&pool)
     .await
     .expect("a status excluded from totals");
+    capture::fixture(
+        "insert excluded status",
+        serde_json::json!({"id": STATUS_EXCLUDED}),
+    );
     let cause = |of: i64| serde_json::json!({"type": "work_package_children_changed_values", "work_package_id": of});
     // Hours of G (100 / 100), P (60 / 59), C1 (40 / 40), C2 (1000 / 0, excluded), C3 (10 / 5),
     // C5 (20 / 20). G > P > C*.
@@ -1729,13 +1791,28 @@ async fn journey(db_url: String) -> Tally {
     let row_a = mutation::create_in(&a, &caller_a, race("race A"))
         .await
         .expect("A inserts");
+    capture::call(
+        "PgCreateScope::create_in",
+        serde_json::json!({"scope": "A", "subject": "race A", "parent_id": p}),
+        serde_json::json!({"ok": {"id": row_a.id}}),
+    );
     a.update_ancestors_of_created(row_a.id, row_a.parent_id, USER_A)
         .await
         .expect("A saves P");
+    capture::call(
+        "PgCreateScope::update_ancestors_of_created",
+        serde_json::json!({"scope": "A", "id": row_a.id, "parent_id": row_a.parent_id}),
+        serde_json::json!("ok"),
+    );
     let b = PgCreateScope::begin(&pool).await.expect("B begins");
     let row_b = mutation::create_in(&b, &caller_a, race("race B"))
         .await
         .expect("B inserts");
+    capture::call(
+        "PgCreateScope::create_in",
+        serde_json::json!({"scope": "B", "subject": "race B", "parent_id": p}),
+        serde_json::json!({"ok": {"id": row_b.id}}),
+    );
     let b_task = tokio::spawn(async move {
         let r = b
             .update_ancestors_of_created(row_b.id, row_b.parent_id, USER_A)
@@ -1760,7 +1837,17 @@ async fn journey(db_url: String) -> Tally {
     }
     assert!(waiting, "B waits on P's row lock held by A");
     a.commit().await.expect("A commits");
+    capture::call(
+        "PgCreateScope::commit",
+        serde_json::json!({"scope": "A"}),
+        serde_json::json!("ok"),
+    );
     let r = b_task.await.expect("B's task");
+    capture::call(
+        "PgCreateScope::update_ancestors_of_created",
+        serde_json::json!({"scope": "B", "note": "B read P before A committed, then waited on P's row lock; B's scope is rolled back"}),
+        serde_json::json!({"err": format!("{r:?}")}),
+    );
     assert!(
         matches!(r, Err(StoreFailure::Conflict(_))),
         "B's stale save of P is a conflict, not a lost update: {r:?}"
@@ -1787,6 +1874,13 @@ async fn journey(db_url: String) -> Tally {
     );
     t.rows += 3;
 
+    capture::end_step(
+        &verify,
+        10,
+        "ancestor totals on create, rollback, and the concurrent-creates race",
+    )
+    .await;
+
     // ── 11. ancestor totals on update ────────────────────────────────
     // `WorkPackages::UpdateService#update_related_work_packages` (update_service.rb:54-81) runs
     // `UpdateAncestorsService` with the attributes the edit changed. The initiator, its ancestors
@@ -1798,10 +1892,10 @@ async fn journey(db_url: String) -> Tally {
         |id: i64, who: Caller, f: Box<dyn FnOnce(&mut op_db::UpdateWorkPackageDto) + Send>| {
             let store = pg_store(&pool);
             async move {
-                let cur = store.find_wp(id).await.unwrap().unwrap();
+                let cur = store.rec_find_wp(id).await.unwrap().unwrap();
                 let mut dto = patch_subject(&cur, &cur.subject);
                 f(&mut dto);
-                store.update_unit_of_work(&who, id, dto).await
+                store.rec_update_unit_of_work(&who, id, dto).await
             }
         };
 
@@ -2233,11 +2327,11 @@ async fn journey(db_url: String) -> Tally {
     };
     let all5 = [x, m2, r2, m1, r1];
     let frozen = snap(all5).await;
-    let cur = pg_store(&pool).find_wp(x).await.unwrap().unwrap();
+    let cur = pg_store(&pool).rec_find_wp(x).await.unwrap().unwrap();
     let mut dto = patch_subject(&cur, &cur.subject);
     dto.estimated_hours = Some(20.0);
     let failed = pg_store(&pool)
-        .update_then(&caller_a, x, dto, Some("SELECT 1 / 0"))
+        .rec_update_then(&caller_a, x, dto, Some("SELECT 1 / 0"))
         .await;
     assert!(matches!(failed, Err(MutationError::Store(_))), "{failed:?}");
     assert_eq!(
@@ -2245,11 +2339,11 @@ async fn journey(db_url: String) -> Tally {
         frozen,
         "the rollback leaves ancestors and journals untouched"
     );
-    let cur = pg_store(&pool).find_wp(x).await.unwrap().unwrap();
+    let cur = pg_store(&pool).rec_find_wp(x).await.unwrap().unwrap();
     let mut dto = patch_subject(&cur, &cur.subject);
     dto.estimated_hours = Some(20.0);
     pg_store(&pool)
-        .update_then(&caller_a, x, dto, Some("SELECT 1"))
+        .rec_update_then(&caller_a, x, dto, Some("SELECT 1"))
         .await
         .expect("the control commits");
     assert_eq!(
@@ -2289,10 +2383,14 @@ async fn journey(db_url: String) -> Tally {
         .execute(&pool)
         .await
         .expect("corrupt R2's derived estimate");
+    capture::fixture(
+        "corrupt derived estimate",
+        serde_json::json!({"id": r2, "derived_estimated_hours": 999}),
+    );
     let frozen = snap(all5).await;
-    let cur = pg_store(&pool).find_wp(x).await.unwrap().unwrap();
+    let cur = pg_store(&pool).rec_find_wp(x).await.unwrap().unwrap();
     pg_store(&pool)
-        .update_unit_of_work(&caller_a, x, patch_subject(&cur, "move X, renamed"))
+        .rec_update_unit_of_work(&caller_a, x, patch_subject(&cur, "move X, renamed"))
         .await
         .expect("a subject-only edit");
     let now = snap(all5).await;
@@ -2331,6 +2429,12 @@ async fn journey(db_url: String) -> Tally {
         "M2's ratio is unchanged"
     );
     t.rows += 5;
+    capture::end_step(
+        &verify,
+        11,
+        "ancestor totals on update: estimate, status, move, rollback, no-op edits",
+    )
+    .await;
     t.steps += 1;
 
     // ── 12. switch_to_automatic_mode and derive_ignore_non_working_days ──
@@ -2366,6 +2470,10 @@ async fn journey(db_url: String) -> Tally {
                 .execute(&pool)
                 .await
                 .expect("set schedule_manually");
+            capture::fixture(
+                "set schedule_manually",
+                serde_json::json!({"id": id, "manual": manual}),
+            );
         }
     };
     let set_ignore = |id: i64| {
@@ -2376,6 +2484,7 @@ async fn journey(db_url: String) -> Tally {
                 .execute(&pool)
                 .await
                 .expect("set ignore_non_working_days");
+            capture::fixture("set ignore_non_working_days", serde_json::json!({"id": id}));
         }
     };
     let follows = |from: i64, to: i64| {
@@ -2389,6 +2498,10 @@ async fn journey(db_url: String) -> Tally {
             .execute(&pool)
             .await
             .expect("a follows relation: `from` follows `to`");
+            capture::fixture(
+                "follows",
+                serde_json::json!({"from": from, "to": to, "lag": 0}),
+            );
         }
     };
 
@@ -2719,6 +2832,12 @@ async fn journey(db_url: String) -> Tally {
     assert_ne!(freeze(f2).await, frozen_f2, "the rescheduling wrote F2");
     assert_eq!(sched(&verify, n2).await, (false, true, 1));
     t.rows += 4;
+    capture::end_step(
+        &verify,
+        12,
+        "switch to automatic mode and ignore_non_working_days",
+    )
+    .await;
     t.steps += 1;
 
     // ── 13. reschedule_related ───────────────────────────────────────
@@ -2729,6 +2848,7 @@ async fn journey(db_url: String) -> Tally {
     // ── 14. the dates an edit and a create take before the save ──────
     Box::pin(dates_step(&pool, &verify, &mut t)).await;
 
+    eprintln!("EXECUTED_DB: {}", capture::conclude());
     verify.close().await;
     db.close().await;
     t
@@ -2748,10 +2868,10 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         |id: i64, who: Caller, f: Box<dyn FnOnce(&mut op_db::UpdateWorkPackageDto) + Send>| {
             let store = pg_store(&pool);
             async move {
-                let cur = store.find_wp(id).await.unwrap().unwrap();
+                let cur = store.rec_find_wp(id).await.unwrap().unwrap();
                 let mut dto = patch_subject(&cur, &cur.subject);
                 f(&mut dto);
-                store.update_unit_of_work(&who, id, dto).await
+                store.rec_update_unit_of_work(&who, id, dto).await
             }
         };
 
@@ -2791,6 +2911,10 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
             .execute(&pool)
             .await
             .expect("seed dates");
+            capture::fixture(
+                "seed dates",
+                serde_json::json!({"id": id, "start": start, "due": due, "duration": duration, "manual": manual}),
+            );
             id
         }
     };
@@ -2807,6 +2931,10 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
             .execute(&pool)
             .await
             .expect("a follows relation with a lag");
+            capture::fixture(
+                "follows",
+                serde_json::json!({"from": from, "to": to, "lag": lag}),
+            );
         }
     };
     let child_of = |child: i64, parent: i64| {
@@ -2818,16 +2946,20 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
                 .execute(&pool)
                 .await
                 .expect("set parent");
+            capture::fixture(
+                "set parent",
+                serde_json::json!({"child": child, "parent": parent}),
+            );
         }
     };
     let set_due = |id: i64, due: &'static str| {
         let store = pg_store(&pool);
         let caller = caller_c.clone();
         async move {
-            let cur = store.find_wp(id).await.unwrap().unwrap();
+            let cur = store.rec_find_wp(id).await.unwrap().unwrap();
             let mut dto = patch_subject(&cur, &cur.subject);
             dto.due_date = Some(due.parse().expect("a date"));
-            store.update_unit_of_work(&caller, id, dto).await
+            store.rec_update_unit_of_work(&caller, id, dto).await
         }
     };
     let freeze13 = |id: i64| {
@@ -2938,6 +3070,7 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         .execute(&pool)
         .await
         .expect("B2 ignores non-working days");
+    capture::fixture("set ignore_non_working_days", serde_json::json!({"id": b2}));
     follows_lag(b2, a2, 0).await;
     set_due(a2, "2026-03-06")
         .await
@@ -2966,6 +3099,10 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         .execute(&pool)
         .await
         .expect("a non-working day");
+    capture::fixture(
+        "insert non_working_day",
+        serde_json::json!({"name": "Holiday", "date": "2026-03-11"}),
+    );
     set_due(a3, "2026-03-06")
         .await
         .expect("C moves A3's due date");
@@ -2984,6 +3121,7 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         .execute(&pool)
         .await
         .expect("remove the holiday");
+    capture::fixture("delete non_working_days", serde_json::json!({}));
     t.rows += 1;
 
     // D. A parent takes its children's dates. P (automatic): children C1 Mon 16 .. Tue 17, C2 Wed
@@ -3117,7 +3255,7 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         .with_dates(day("2026-03-04"), day("2026-03-06"));
     params.project_id = Some(TARGET_PROJECT);
     params.parent_id = Some(pa13);
-    mutation::create(&store, &caller_a, params)
+    capture::create(&store, &caller_a, params)
         .await
         .expect("A creates E2 under PA");
     assert_eq!(
@@ -3202,7 +3340,7 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         .with_subject("resched S1")
         .with_dates(day("2026-03-09"), day("2026-03-12"));
     params.project_id = Some(TARGET_PROJECT);
-    let s1_13 = mutation::create(&store, &caller_a, params)
+    let s1_13 = capture::create(&store, &caller_a, params)
         .await
         .expect("A creates S1")
         .id;
@@ -3222,6 +3360,10 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         .execute(&pool)
         .await
         .expect("S1 is automatic");
+    capture::fixture(
+        "set schedule_manually",
+        serde_json::json!({"id": s1_13, "manual": false}),
+    );
     follows_lag(s1_13, x1_13, 2).await;
     set_due(x1_13, "2026-03-06")
         .await
@@ -3247,6 +3389,7 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         .execute(&pool)
         .await
         .expect("W2 ignores non-working days");
+    capture::fixture("set ignore_non_working_days", serde_json::json!({"id": w2}));
     set_due(w1, "2026-03-10").await.expect("C edits W1");
     assert_eq!(
         dates(&verify, w1).await,
@@ -3295,14 +3438,14 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
     let dto_for = |id: i64| {
         let store = pg_store(&pool);
         async move {
-            let cur = store.find_wp(id).await.unwrap().unwrap();
+            let cur = store.rec_find_wp(id).await.unwrap().unwrap();
             let mut dto = patch_subject(&cur, &cur.subject);
             dto.due_date = Some("2026-03-06".parse().expect("a date"));
             dto
         }
     };
     let failed = pg_store(&pool)
-        .update_then(&caller_c, ar13, dto_for(ar13).await, Some("SELECT 1 / 0"))
+        .rec_update_then(&caller_c, ar13, dto_for(ar13).await, Some("SELECT 1 / 0"))
         .await;
     assert!(matches!(failed, Err(MutationError::Store(_))), "{failed:?}");
     assert_eq!(
@@ -3311,7 +3454,7 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         "rolled back: rows and journals of AR and BR"
     );
     pg_store(&pool)
-        .update_then(&caller_c, ar13, dto_for(ar13).await, Some("SELECT 1"))
+        .rec_update_then(&caller_c, ar13, dto_for(ar13).await, Some("SELECT 1"))
         .await
         .expect("the control commits");
     assert_eq!(
@@ -3341,11 +3484,20 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         .execute(&pool)
         .await
         .expect("XR's due date");
+    capture::fixture(
+        "set due_date",
+        serde_json::json!({"id": xr13, "due_date": "2026-03-06"}),
+    );
     let one = PgCreateScope::begin(&pool).await.expect("1 begins");
     let saved = one
         .reschedule_related(&[xr13], &[], Some(xr13), USER_C)
         .await
         .expect("1 reschedules YR");
+    capture::call(
+        "PgCreateScope::reschedule_related",
+        serde_json::json!({"scope": "1", "ids": [xr13], "initiator": xr13, "user": USER_C}),
+        serde_json::json!({"ok": saved}),
+    );
     assert_eq!(saved, vec![yr13]);
     let two = PgCreateScope::begin(&pool).await.expect("2 begins");
     let two_task = tokio::spawn(async move {
@@ -3371,7 +3523,17 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
     }
     assert!(waiting, "2 waits on YR's row lock held by 1");
     one.commit().await.expect("1 commits");
+    capture::call(
+        "PgCreateScope::commit",
+        serde_json::json!({"scope": "1"}),
+        serde_json::json!("ok"),
+    );
     let r = two_task.await.expect("2's task");
+    capture::call(
+        "PgCreateScope::reschedule_related",
+        serde_json::json!({"scope": "2", "ids": [xr13], "initiator": xr13, "user": USER_C, "note": "2 loaded YR before 1 committed; 2's scope is rolled back"}),
+        serde_json::json!({"err": format!("{r:?}")}),
+    );
     assert!(
         matches!(r, Err(StoreFailure::Conflict(_))),
         "2's stale save of YR is a conflict, not a lost update: {r:?}"
@@ -3389,6 +3551,7 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
     );
     assert_eq!(journals(&verify, yr13).await.len(), 2, "2 wrote no journal");
     t.rows += 3;
+    capture::end_step(&verify, 13, "reschedule_related").await;
     t.steps += 1;
 }
 
@@ -3436,6 +3599,10 @@ async fn dates_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
             .execute(&pool)
             .await
             .expect("seed dates");
+            capture::fixture(
+                "seed dates",
+                serde_json::json!({"id": id, "start": start, "due": due, "duration": duration, "manual": manual}),
+            );
             id
         }
     };
@@ -3451,6 +3618,10 @@ async fn dates_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
             .execute(&pool)
             .await
             .expect("a follows relation");
+            capture::fixture(
+                "follows",
+                serde_json::json!({"from": from, "to": to, "lag": 0}),
+            );
         }
     };
     let child_of = |child: i64, parent: i64| {
@@ -3462,16 +3633,20 @@ async fn dates_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
                 .execute(&pool)
                 .await
                 .expect("set parent");
+            capture::fixture(
+                "set parent",
+                serde_json::json!({"child": child, "parent": parent}),
+            );
         }
     };
     // C edits `id`: the current values carried forward, a new subject and whatever `f` changes.
     let edit = |id: i64, f: Box<dyn FnOnce(&mut op_db::UpdateWorkPackageDto) + Send>| {
         let (store, caller) = (pg_store(&pool), caller_c.clone());
         async move {
-            let cur = store.find_wp(id).await.unwrap().unwrap();
+            let cur = store.rec_find_wp(id).await.unwrap().unwrap();
             let mut dto = patch_subject(&cur, "renamed by C");
             f(&mut dto);
-            store.update_unit_of_work(&caller, id, dto).await
+            store.rec_update_unit_of_work(&caller, id, dto).await
         }
     };
     let create_under = |subject: &'static str,
@@ -3485,7 +3660,7 @@ async fn dates_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
             p.parent_id = parent;
             p.start_date = start.map(|d| d.parse().expect("a date"));
             p.due_date = due.map(|d| d.parse().expect("a date"));
-            mutation::create(&store, &caller, p)
+            capture::create(&store, &caller, p)
                 .await
                 .map(|row| row.id)
                 .expect(subject)
@@ -3780,6 +3955,12 @@ async fn dates_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
     );
     assert_eq!(freeze(np).await, frozen_np, "NP is not saved");
     t.rows += 3;
+    capture::end_step(
+        &verify,
+        14,
+        "the dates an edit and a create take before the save",
+    )
+    .await;
     t.steps += 1;
 }
 
@@ -3801,7 +3982,7 @@ async fn create_hours<S: CreationStore>(
     p.project_id = Some(TARGET_PROJECT);
     p.parent_id = parent;
     p.status_id = status;
-    mutation::create(store, caller, p).await.map(|row| row.id)
+    capture::create(store, caller, p).await.map(|row| row.id)
 }
 
 /// Create a work package of project 5 under `parent` with no hours and the default status, so
@@ -3815,7 +3996,7 @@ async fn create_plain<S: CreationStore>(
     let mut p = WorkPackageParams::new().with_subject(subject);
     p.project_id = Some(TARGET_PROJECT);
     p.parent_id = parent;
-    mutation::create(store, caller, p).await.map(|row| row.id)
+    capture::create(store, caller, p).await.map(|row| row.id)
 }
 
 /// `(schedule_manually, ignore_non_working_days, lock_version)` of a work package, as committed.
@@ -4035,6 +4216,7 @@ impl CreationStore for FailAfterInsert {
         params: WorkPackageParams,
     ) -> Result<op_db::work_packages::WorkPackageRow, MutationError> {
         // The production transaction, with a failing statement after the insert when `fail`.
+        capture::annotate(serde_json::json!({"fail_after_insert": self.fail}));
         PgMutationStore {
             pool: self.pool.clone(),
         }

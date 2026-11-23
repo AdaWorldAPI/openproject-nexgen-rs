@@ -443,3 +443,20 @@ executed against `work-package-contract-trace.json`, and checks that
 `charon/reconcile-create-admission.md` is current (`UPDATE_RECONCILE_REPORT=1` rewrites it). The
 store's `files.tsv` hashes are compared with the checkout; a changed source file fails the test
 until the store is re-extracted.
+
+## EXECUTED_DB capture (`executed-db.pg.ndjson`)
+
+The record of what PostgreSQL answered to the 14-step `EXECUTED_DB` journey
+(`crates/op-server/src/board/executed_db.rs`): the oracle the storage that replaces SQLx is checked
+against (docs/decisions/0002-polyfill-quack-storage.md). One JSON line per step, after a header
+line: the step's `calls` (inputs and outcomes, fixture SQL included), its `reads` (answers of the
+production `find_wp`), and a `feed` in the change-feed shape (`columns` with PostgreSQL's SQL types,
+`upsert` full row images, `delete` primary keys), cells as PostgreSQL text. Only tables the step
+changed appear. The one normalization is timestamps, replaced by their rank among the file's
+instants (`ts#NNNN`); the header declares it. The module doc of `executed_db/capture.rs` is the
+format.
+
+`EXECUTED_DB_CAPTURE=<path>` also writes the capture there. With `REQUIRE_DB=1` the journey compares
+its capture with this file and fails with the first differing step and cell (the CI `executed-db`
+job); `UPDATE_EXECUTED_DB_CAPTURE=1` rewrites it, and the diff is then reviewed like any other.
+`EXECUTED_DB_CAPTURE_EXPECTED=<path>` compares against another file.
