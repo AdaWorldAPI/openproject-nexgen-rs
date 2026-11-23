@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use a2ui_layout::{LEFT_NAV_PX, LayoutMode, RIGHT_PANEL_PX, Region, ZONES_CSS};
+use a2ui_layout::{LayoutMode, RIGHT_SLIM_PX, Region, ZONES_CSS};
 use axum::extract::{Extension, Form, Path, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -2014,29 +2014,27 @@ fn page_shell(title: &str, body_html: &str) -> String {
 /// footer are gated by the mask. Zones use the shared `a2ui-layout`
 /// vocabulary: op `header` = `TopBar`, `left_menu` = `LeftNav`, `main` =
 /// `Center`, `right_menu` = `RightPanel`, `footer` = `BottomBar`.
-/// The `.a2-body` grid for the regions that actually render, overriding the
-/// shared `a2ui-layout` grid (which always reserves the 210px nav and the
-/// 270px rail). A column exists only when its region is on: with the right
-/// menu off there is no empty rail, and with the left menu off the center does
-/// not fall into the 210px slot. At 640px and below the side menu is hidden
-/// and the center takes the whole width; the top bar carries the same live
-/// links ([`nav::menu`]).
+/// Theme rules on top of the shared `a2ui-layout` grid. Pages use
+/// [`LayoutMode::MainWide`] (210px nav | center | 70px quick menu; at 1920px
+/// the center is 2 x 820). The shared grid only covers widths that fit the
+/// chrome; below that a wrap breakpoint is the theme's job (`Budget::for_viewport`
+/// docs): at 640px and below the side menu is hidden and the center is the
+/// only column, the top bar carrying the same live links ([`nav::menu`]). A
+/// page without the side menu would otherwise put its center into the 210px
+/// slot, so its grid drops that column.
 fn body_grid_css(regions: &WideFieldMask) -> String {
-    let left = layout::region_on(regions, "left_menu");
-    let right = layout::region_on(regions, "right_menu");
-    let mut cols = String::new();
-    if left {
-        cols.push_str(&format!("{LEFT_NAV_PX}px "));
+    let mut css = String::new();
+    if !layout::region_on(regions, "left_menu") {
+        css.push_str(&format!(
+            "  .a2-body.{} {{ grid-template-columns: minmax(0, 1fr) {RIGHT_SLIM_PX}px; }}\n",
+            LayoutMode::MainWide.class()
+        ));
     }
-    cols.push_str("minmax(0, 1fr)");
-    if right {
-        cols.push_str(&format!(" {RIGHT_PANEL_PX}px"));
-    }
-    format!(
-        "  .a2-body {{ grid-template-columns: {cols}; }}\n  \
-         @media (max-width: 640px) {{ .a2-body {{ grid-template-columns: minmax(0, 1fr); }} \
-         aside.sidemenu-region {{ display: none; }} }}\n"
-    )
+    css.push_str(
+        "  @media (max-width: 640px) { .a2-body, .a2-body.mode-main-wide { grid-template-columns: minmax(0, 1fr); } \
+         aside.sidemenu-region { display: none; } }\n",
+    );
+    css
 }
 
 fn page_shell_with(title: &str, body_html: &str, regions: &WideFieldMask) -> String {
@@ -2202,7 +2200,7 @@ fn page_shell_with(title: &str, body_html: &str, regions: &WideFieldMask) -> Str
 </html>"#,
         zones_css = ZONES_CSS,
         body_grid = body_grid_css(regions),
-        mode = LayoutMode::Standard.class(),
+        mode = LayoutMode::MainWide.class(),
         center = Region::Center.marker(),
         header = header_region,
         left_menu = left_menu_region,
@@ -2229,35 +2227,22 @@ mod executed_db;
 mod tests {
     use super::*;
 
-    /// The grid has a column only for regions that render: the default page
-    /// (no right menu) reserves no 270px rail, and a page without the side
-    /// menu does not put its center into the 210px slot. The shared
-    /// `a2ui-layout` grid always reserves both, which left the center 0px wide
-    /// on a 412px phone.
+    /// Pages use the shared main-wide layout: 210px nav, the center, a 70px
+    /// quick-menu rail (1920 = 210 + 2 x 820 + 70). No page-local column
+    /// override while the side menu renders; without it the center does not
+    /// fall into the 210px slot.
     #[test]
-    fn the_body_grid_has_a_column_only_for_regions_that_render() {
+    fn pages_use_the_main_wide_layout_and_own_no_columns_while_the_menu_renders() {
+        let html = page_shell("t", "<p>x</p>");
+        assert!(html.contains("<div class=\"a2-body mode-main-wide\">"), "{html}");
+        assert!(html.contains(".a2-body.mode-main-wide { grid-template-columns: 210px minmax(0, 1fr) 70px; }"));
         let default = body_grid_css(&layout::default_region_mask());
-        assert!(
-            default.contains(".a2-body { grid-template-columns: 210px minmax(0, 1fr); }"),
-            "{default}"
-        );
+        assert!(!default.contains("grid-template-columns: 210px"), "{default}");
         assert!(!default.contains("270px"), "{default}");
-
-        let with_right = body_grid_css(&layout::region_mask(&[
-            "global",
-            "header",
-            "left_menu",
-            "right_menu",
-            "main",
-        ]));
-        assert!(
-            with_right.contains("grid-template-columns: 210px minmax(0, 1fr) 270px;"),
-            "{with_right}"
-        );
 
         let no_left = body_grid_css(&layout::region_mask(&["global", "header", "main"]));
         assert!(
-            no_left.contains(".a2-body { grid-template-columns: minmax(0, 1fr); }"),
+            no_left.contains(".a2-body.mode-main-wide { grid-template-columns: minmax(0, 1fr) 70px; }"),
             "{no_left}"
         );
     }
@@ -2267,12 +2252,10 @@ mod tests {
     #[test]
     fn a_phone_width_page_is_one_column_and_the_override_follows_the_shared_grid() {
         let html = page_shell("t", "<p>x</p>");
-        let phone = "@media (max-width: 640px) { .a2-body { grid-template-columns: minmax(0, 1fr); } aside.sidemenu-region { display: none; } }";
+        let phone = "@media (max-width: 640px) { .a2-body, .a2-body.mode-main-wide { grid-template-columns: minmax(0, 1fr); } aside.sidemenu-region { display: none; } }";
         assert!(html.contains(phone), "{html}");
         let zones = html.find(ZONES_CSS).expect("shared grid present");
-        let ours = html
-            .find(".a2-body { grid-template-columns: 210px minmax(0, 1fr); }")
-            .expect("override present");
+        let ours = html.find(phone).expect("phone rule present");
         assert!(
             ours > zones,
             "the override must come after the shared grid to win"
