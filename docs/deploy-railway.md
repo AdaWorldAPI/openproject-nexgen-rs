@@ -1,10 +1,14 @@
-# Deploying to Railway
+# Deploying to Railway (the `sqlx` branch)
+
+This branch, `sqlx`, freezes the server with its SQLx/PostgreSQL storage as it was on
+`main` at `20e8d95`. `main` moves on to the Rails polyfill + Quack in lance-graph, with
+SQLx/PostgreSQL kept only as the oracle. Deploy this branch to see the current status.
 
 The repository root holds everything Railway needs:
 
-- `Dockerfile`: builds the `openproject-server` binary (crate `op-server`) in a Rust
+- `Dockerfile.sqlx`: builds the `openproject-server` binary (crate `op-server`) in a Rust
   1.99.0 image and runs it in a slim Debian image.
-- `railway.toml`: tells Railway to use that Dockerfile and to treat `/health/ready` as
+- `railway.toml`: tells Railway to use `Dockerfile.sqlx` and to treat `/health/ready` as
   the readiness check.
 
 On start the server connects to PostgreSQL and applies the schema migrations in
@@ -21,7 +25,8 @@ and project pages, and the OpenProject `/api/v3` JSON API.
 ## 1. Create the project
 
 1. In Railway: **New Project → Deploy from GitHub repo → `AdaWorldAPI/openproject-nexgen-rs`**.
-   Railway reads `railway.toml` and builds with the Dockerfile. Change no build
+   In the service's **Settings → Source**, set the branch to **`sqlx`**. Railway reads
+   this branch's `railway.toml` and builds with `Dockerfile.sqlx`. Change no other build
    settings.
 2. In the same project: **New → Database → PostgreSQL**.
 3. Connect the database to the service. Open the service's **Variables** tab and add
@@ -87,7 +92,7 @@ Store secrets as Railway variables (encrypted, and injected at runtime only), ne
 
 ## 4. Deploy and check
 
-Push to `main`, or click **Deploy**. The first build compiles the whole dependency
+Push to `sqlx`, or click **Deploy**. The first build compiles the whole dependency
 tree and takes a while; later builds reuse Railway's layer cache when nothing in the
 build context changed.
 
@@ -120,7 +125,7 @@ migrated but empty.
 ## Local run with the same image
 
 ```sh
-docker build -t openproject-nexgen .
+docker build -f Dockerfile.sqlx -t openproject-nexgen .
 docker run --rm -p 8080:8080 \
   -e DATABASE_URL=postgres://user:pass@host.docker.internal:5432/openproject \
   openproject-nexgen

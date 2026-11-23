@@ -1,4 +1,4 @@
-# OpenProject RS - Multi-stage Dockerfile
+# OpenProject RS - Multi-stage Dockerfile (the `sqlx` branch: SQLx/PostgreSQL storage)
 # Optimized for small image size and fast builds
 
 # =============================================================================
