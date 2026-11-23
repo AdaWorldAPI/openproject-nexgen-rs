@@ -6,6 +6,7 @@ use axum::{
     http::request::Parts,
 };
 use op_auth::permissions::CurrentUser;
+use op_services::work_packages::mutation::Caller;
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -82,6 +83,24 @@ where
         }
 
         Err(ApiError::unauthorized("Authentication required"))
+    }
+}
+
+impl AuthenticatedUser {
+    /// The identity a mutation is authorized as.
+    ///
+    /// FAIL CLOSED: an anonymous user (what `require_authentication = false` yields) is
+    /// [`Caller::Anonymous`] with `allowed: false`, whatever the configuration says. There is no
+    /// path from `require_authentication`, `OP_ALLOW_ANONYMOUS` or any other flag to an anonymous
+    /// caller that may write through the API. A verified person is named by their login.
+    pub fn mutation_caller(&self) -> Caller {
+        if self.0.is_anonymous {
+            Caller::anonymous_refused()
+        } else {
+            Caller::Actor {
+                login: self.0.login.clone(),
+            }
+        }
     }
 }
 

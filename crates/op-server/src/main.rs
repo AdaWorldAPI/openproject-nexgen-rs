@@ -386,7 +386,9 @@ fn build_router_with(
             // SECURE BY DEFAULT (5+3 council, S2-P0): authentication is
             // required unless the operator EXPLICITLY opens the instance with
             // `OP_ALLOW_ANONYMOUS=1` (the reality-check/demo posture: anonymous
-            // reads AND writes on the mock board). The old hardcoded `false`
+            // READS through this API, and anonymous edits on the pages). The API
+            // never accepts an anonymous MUTATION, whatever this flag says: every
+            // work-package write goes through `op_services::work_packages::mutation`. The old hardcoded `false`
             // meant every deploy shipped an anonymous write surface and only a
             // code change + rebuild could close it. Future single source:
             // derive this from op-core's `AuthConfig` when real auth lands.

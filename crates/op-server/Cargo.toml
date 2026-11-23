@@ -13,6 +13,7 @@ op-core = { path = "../op-core" }
 op-api = { path = "../op-api" }
 op-db = { path = "../op-db" }
 op-auth = { path = "../op-auth" }
+op-services = { path = "../op-services" }
 
 # OGAR render-bake pipeline: ClassView x FieldMask -> HtmlListView.
 ogar-render-askama = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
