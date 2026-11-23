@@ -16,6 +16,8 @@ pub struct Record {
     /// Values as last loaded or persisted. `changes_to_save` is the diff.
     original: Vec<Value>,
     new_record: bool,
+    /// `destroyed?`: the row was deleted through `destroy` / `delete`.
+    destroyed: bool,
     /// `saved_changes` after the last successful save.
     saved: Vec<(usize, Value, Value)>,
     /// Loaded `belongs_to` targets: `(association, foreign key at load, target)`.
@@ -51,6 +53,7 @@ impl Record {
             original: values.clone(),
             values,
             new_record: true,
+            destroyed: false,
             saved: Vec::new(),
             assoc_cache: Vec::new(),
             virtuals: Vec::new(),
@@ -65,6 +68,7 @@ impl Record {
             original: values.clone(),
             values,
             new_record: false,
+            destroyed: false,
             saved: Vec::new(),
             assoc_cache: Vec::new(),
             virtuals: Vec::new(),
@@ -76,9 +80,21 @@ impl Record {
         self.new_record
     }
 
+    /// `persisted?`: not new and not destroyed (persistence.rb:361-363).
     #[must_use]
     pub fn persisted(&self) -> bool {
-        !self.new_record
+        !(self.new_record || self.destroyed)
+    }
+
+    /// `destroyed?`.
+    #[must_use]
+    pub fn destroyed(&self) -> bool {
+        self.destroyed
+    }
+
+    /// `@destroyed = value`; `destroy` sets it, a rolled back destroy restores it.
+    pub(crate) fn set_destroyed(&mut self, value: bool) {
+        self.destroyed = value;
     }
 
     #[must_use]

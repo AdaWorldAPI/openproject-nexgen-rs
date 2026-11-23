@@ -88,6 +88,7 @@ impl std::fmt::Debug for ModelSpec {
 const SAVE_BEFORE: &[Phase] = &[Phase::BeforeSave, Phase::AroundSave];
 const CREATE_BEFORE: &[Phase] = &[Phase::BeforeCreate, Phase::AroundCreate];
 const UPDATE_BEFORE: &[Phase] = &[Phase::BeforeUpdate, Phase::AroundUpdate];
+const DESTROY_BEFORE: &[Phase] = &[Phase::BeforeDestroy, Phase::AroundDestroy];
 
 fn conds_pass(ctx: &mut Ctx, rec: &mut Record, conds: &[Cond]) -> Result<bool, Halt> {
     for cond in conds {
@@ -331,6 +332,85 @@ pub fn save_bang(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> 
     }
 }
 
+/// `record.destroy`: `true` when it ran to completion, `false` when a
+/// `before_destroy` threw `:abort`. A stale `lock_version` raises
+/// (`StaleObject`), after the rollback.
+///
+/// Nesting, outermost first, as in ActiveRecord: `Transactions#destroy` (a
+/// transaction; rollback on a false result) → `Callbacks#destroy`
+/// (`run_callbacks(:destroy) { … }`) → `Persistence#destroy` (the row delete,
+/// then `@destroyed = true`). `after_commit` runs only when a row was really
+/// deleted (`@_trigger_destroy_callback`, persistence.rb:456).
+pub fn destroy(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Result<bool, Halt> {
+    let was_destroyed = rec.destroyed();
+    let snapshot = ctx.store.begin();
+    let outer = ctx.txn_depth == 0;
+    ctx.txn_depth += 1;
+    let result = destroy_in_transaction(ctx, model, rec);
+    ctx.txn_depth -= 1;
+
+    let deleted = match result {
+        Ok(Some(deleted)) => deleted,
+        other => {
+            ctx.store.rollback(snapshot);
+            // A rolled back destroy restores `@destroyed`
+            // (transactions.rb:499).
+            rec.set_destroyed(was_destroyed);
+            if outer {
+                ctx.pending_commit.clear();
+                run_chain(ctx, model, &[Phase::AfterRollback], Action::Destroy, rec)?;
+            }
+            return other.map(|_| false);
+        }
+    };
+    ctx.store.release(snapshot);
+    if deleted {
+        ctx.pending_commit.push(PendingCommit {
+            model,
+            record: rec.clone(),
+            action: Action::Destroy,
+        });
+    }
+    if outer {
+        let pending = std::mem::take(&mut ctx.pending_commit);
+        for mut p in pending {
+            run_chain(ctx, p.model, &[Phase::AfterCommit], p.action, &mut p.record)?;
+        }
+    }
+    Ok(true)
+}
+
+/// `Some(deleted)` once the chain ran; `None` when a callback aborted.
+fn destroy_in_transaction(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Result<Option<bool>, Halt> {
+    let body = (|| {
+        run_chain(ctx, model, DESTROY_BEFORE, Action::Destroy, rec)?;
+        // Persistence#destroy: `persisted? && destroy_row > 0`.
+        let deleted = rec.persisted() && ctx.store.delete_locked(rec)?;
+        rec.set_destroyed(true);
+        run_chain(ctx, model, &[Phase::AfterDestroy], Action::Destroy, rec)?;
+        Ok(deleted)
+    })();
+    match body {
+        Ok(deleted) => Ok(Some(deleted)),
+        Err(Halt::Abort) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// `record.destroy!` — an aborted destroy is `RecordNotDestroyed`
+/// (persistence.rb:469-471, 981-987).
+pub fn destroy_bang(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Result<(), Halt> {
+    if destroy(ctx, model, rec)? {
+        Ok(())
+    } else {
+        Err(Halt::Raise(format!(
+            "ActiveRecord::RecordNotDestroyed: Failed to destroy {} with id={}",
+            model.name,
+            rec.id().map_or_else(|| "nil".to_string(), |id| id.to_string())
+        )))
+    }
+}
+
 /// `Model.create!(attrs)`.
 pub fn create_bang(ctx: &mut Ctx, model: &'static ModelSpec, attrs: &[(&str, Value)]) -> Result<Record, Halt> {
     let mut rec = build(ctx, model, attrs)?;
@@ -441,5 +521,188 @@ mod tests {
         assert_eq!(cmp_values(&Value::Date(-3), &Value::Date(2)), Ordering::Less);
         assert_eq!(cmp_values(&Value::Date(7), &Value::Date(7)), Ordering::Equal);
         assert_eq!(cmp_values(&Value::Date(9), &Value::Date(-9)), Ordering::Greater);
+    }
+
+    use crate::callbacks::On;
+    use crate::ctx::NoHost;
+    use crate::schema::{Column, ColumnType, Default as ColDefault};
+    use crate::store::StoreError;
+
+    const fn col(name: &'static str, ty: ColumnType, null: bool, default: ColDefault) -> Column {
+        Column { name, ty, null, default, limit: None }
+    }
+
+    static LOCKED: TableSpec = TableSpec {
+        name: "locked",
+        columns: &[
+            col("id", ColumnType::Integer, false, ColDefault::None),
+            col("name", ColumnType::String, true, ColDefault::None),
+            col("lock_version", ColumnType::Integer, false, ColDefault::Int(0)),
+        ],
+    };
+
+    static PLAIN: TableSpec = TableSpec {
+        name: "plain",
+        columns: &[
+            col("id", ColumnType::Integer, false, ColDefault::None),
+            col("name", ColumnType::String, true, ColDefault::None),
+        ],
+    };
+
+    fn rows_before(ctx: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
+        let n = ctx.store.count(&LOCKED) as i64;
+        ctx.settings.insert("rows_before".into(), Value::Int(n));
+        Ok(Value::Nil)
+    }
+
+    fn rows_after(ctx: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
+        let n = ctx.store.count(&LOCKED) as i64;
+        ctx.settings.insert("rows_after".into(), Value::Int(n));
+        Ok(Value::Nil)
+    }
+
+    fn noop(_: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
+        Ok(Value::Nil)
+    }
+
+    fn abort(_: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
+        Err(Halt::Abort)
+    }
+
+    fn boom(_: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
+        Err(Halt::Raise("boom".into()))
+    }
+
+    const fn cb(phase: Phase, name: &'static str, on: On, f: crate::callbacks::BodyFn) -> Callback {
+        Callback { phase, name, on, conds: &[], target: Target::Lowered(f), provenance: "test" }
+    }
+
+    static ORDERED: ModelSpec = ModelSpec {
+        name: "Ordered",
+        table: &LOCKED,
+        callbacks: &[
+            cb(Phase::BeforeDestroy, "before", On::ANY, rows_before),
+            cb(Phase::AroundDestroy, "around", On::ANY, noop),
+            cb(Phase::AfterDestroy, "after", On::ANY, rows_after),
+            cb(Phase::AfterCommit, "commit_destroy", On::DESTROY, noop),
+            cb(Phase::AfterCommit, "commit_create", On::CREATE, noop),
+        ],
+    };
+
+    static HALTING: ModelSpec = ModelSpec {
+        name: "Halting",
+        table: &LOCKED,
+        callbacks: &[
+            cb(Phase::BeforeDestroy, "veto", On::ANY, abort),
+            cb(Phase::AfterDestroy, "after", On::ANY, noop),
+        ],
+    };
+
+    static EXPLODING: ModelSpec = ModelSpec {
+        name: "Exploding",
+        table: &LOCKED,
+        callbacks: &[cb(Phase::AfterDestroy, "boom", On::ANY, boom)],
+    };
+
+    static WATCHED_PLAIN: ModelSpec = ModelSpec {
+        name: "WatchedPlain",
+        table: &PLAIN,
+        callbacks: &[cb(Phase::AfterCommit, "commit_destroy", On::DESTROY, noop)],
+    };
+
+    fn ctx_with(table: &'static TableSpec) -> Ctx {
+        let mut ctx = Ctx::new(Box::new(NoHost), 0);
+        ctx.store.register(table);
+        ctx
+    }
+
+    fn phases(ctx: &Ctx) -> Vec<Phase> {
+        ctx.journal.iter().map(|e| e.phase).collect()
+    }
+
+    fn seeded(ctx: &mut Ctx, model: &'static ModelSpec) -> Record {
+        let id = ctx.store.seed(model.table, &[("name", Value::str("a"))]).unwrap();
+        find(ctx, model, id).unwrap().unwrap()
+    }
+
+    #[test]
+    fn destroy_runs_before_then_around_then_after_around_the_row_delete() {
+        let mut ctx = ctx_with(&LOCKED);
+        let mut rec = seeded(&mut ctx, &ORDERED);
+        assert_eq!(destroy(&mut ctx, &ORDERED, &mut rec), Ok(true));
+        assert_eq!(
+            phases(&ctx),
+            [Phase::BeforeDestroy, Phase::AroundDestroy, Phase::AfterDestroy, Phase::AfterCommit],
+            "only the on: :destroy commit callback fires"
+        );
+        assert_eq!(ctx.journal[3].name, "commit_destroy");
+        assert_eq!(ctx.settings["rows_before"], Value::Int(1), "before_destroy sees the row");
+        assert_eq!(ctx.settings["rows_after"], Value::Int(0), "after_destroy sees it gone");
+        assert!(rec.destroyed() && !rec.persisted());
+        assert_eq!(ctx.store.count(&LOCKED), 0);
+    }
+
+    #[test]
+    fn a_halting_before_destroy_keeps_the_row_and_destroy_bang_raises() {
+        let mut ctx = ctx_with(&LOCKED);
+        let mut rec = seeded(&mut ctx, &HALTING);
+        assert_eq!(destroy(&mut ctx, &HALTING, &mut rec), Ok(false));
+        assert_eq!(ctx.store.count(&LOCKED), 1, "the row is still there");
+        assert!(!rec.destroyed() && rec.persisted());
+        assert_eq!(phases(&ctx), [Phase::BeforeDestroy], "no after_destroy after the veto");
+        let err = destroy_bang(&mut ctx, &HALTING, &mut rec).unwrap_err();
+        assert!(
+            matches!(&err, Halt::Raise(m) if m.starts_with("ActiveRecord::RecordNotDestroyed: Failed to destroy Halting with id=1")),
+            "{err:?}"
+        );
+        assert_eq!(ctx.store.count(&LOCKED), 1);
+    }
+
+    #[test]
+    fn a_stale_destroy_raises_after_rolling_back_and_deletes_nothing() {
+        let mut ctx = ctx_with(&LOCKED);
+        let mut stale_copy = seeded(&mut ctx, &ORDERED);
+        let mut writer = find(&mut ctx, &ORDERED, stale_copy.id().unwrap()).unwrap().unwrap();
+        writer.set_named("name", Value::str("b"));
+        assert!(save(&mut ctx, &ORDERED, &mut writer).unwrap().ok);
+        let err = destroy(&mut ctx, &ORDERED, &mut stale_copy).unwrap_err();
+        assert_eq!(err, Halt::Store(StoreError::StaleObject { table: "locked", id: 1 }));
+        assert_eq!(ctx.store.count(&LOCKED), 1);
+        assert!(!stale_copy.destroyed(), "a failed destroy is not destroyed");
+        // The current record destroys fine.
+        assert_eq!(destroy(&mut ctx, &ORDERED, &mut writer), Ok(true));
+        assert_eq!(ctx.store.count(&LOCKED), 0);
+    }
+
+    #[test]
+    fn an_exception_after_the_delete_rolls_the_row_and_destroyed_back() {
+        let mut ctx = ctx_with(&LOCKED);
+        let mut rec = seeded(&mut ctx, &EXPLODING);
+        assert_eq!(destroy(&mut ctx, &EXPLODING, &mut rec), Err(Halt::Raise("boom".into())));
+        assert_eq!(ctx.store.count(&LOCKED), 1, "the delete was rolled back");
+        assert!(!rec.destroyed() && rec.persisted(), "@destroyed is restored");
+    }
+
+    #[test]
+    fn destroying_a_row_that_is_already_gone_fires_no_commit_callback() {
+        let mut ctx = ctx_with(&PLAIN);
+        let mut rec = seeded(&mut ctx, &WATCHED_PLAIN);
+        ctx.store.delete(&PLAIN, rec.id().unwrap()).unwrap();
+        assert_eq!(destroy(&mut ctx, &WATCHED_PLAIN, &mut rec), Ok(true));
+        assert!(rec.destroyed());
+        assert!(phases(&ctx).is_empty(), "destroy_row > 0 was false: {:?}", ctx.journal);
+        // The control: a real delete does fire it.
+        let mut live = seeded(&mut ctx, &WATCHED_PLAIN);
+        assert_eq!(destroy(&mut ctx, &WATCHED_PLAIN, &mut live), Ok(true));
+        assert_eq!(phases(&ctx), [Phase::AfterCommit]);
+    }
+
+    #[test]
+    fn destroying_a_new_record_deletes_nothing_and_marks_it_destroyed() {
+        let mut ctx = ctx_with(&LOCKED);
+        let mut rec = build(&mut ctx, &ORDERED, &[("name", Value::str("n"))]).unwrap();
+        assert_eq!(destroy(&mut ctx, &ORDERED, &mut rec), Ok(true));
+        assert!(rec.destroyed() && rec.new_record());
+        assert!(phases(&ctx).contains(&Phase::BeforeDestroy), "callbacks still run");
     }
 }

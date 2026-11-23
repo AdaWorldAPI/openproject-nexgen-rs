@@ -13,3 +13,9 @@ of zammad-rs's workspace table) and `edition = "2024"`, which zammad-rs sets wor
 Not carried: `rails-compiler/tests/{baseline_nullability,inflections,parser_recovery}.rs`.
 They read zammad-rs's `oracle/` traces and a Zammad checkout (`ZAMMAD_SRC`),
 which do not exist in this repository. They keep running in zammad-rs.
+
+## Changes made here since the copy
+
+- Optimistic locking (`lock_version`) and `destroy` / `destroy!` with the
+  destroy callback chain, following ActiveRecord 8.1 (`locking/optimistic.rb`,
+  `persistence.rb`, `callbacks.rb`, `transactions.rb`). Not in zammad-rs.

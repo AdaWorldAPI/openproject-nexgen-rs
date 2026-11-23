@@ -474,6 +474,7 @@ pub fn phase_of(chain: Chain, slot: Slot) -> Option<Phase> {
         (Chain::Update, Slot::Around) => Phase::AroundUpdate,
         (Chain::Update, Slot::After) => Phase::AfterUpdate,
         (Chain::Destroy, Slot::Before) => Phase::BeforeDestroy,
+        (Chain::Destroy, Slot::Around) => Phase::AroundDestroy,
         (Chain::Destroy, Slot::After) => Phase::AfterDestroy,
         (Chain::Commit, Slot::After) => Phase::AfterCommit,
         (Chain::Rollback, Slot::After) => Phase::AfterRollback,

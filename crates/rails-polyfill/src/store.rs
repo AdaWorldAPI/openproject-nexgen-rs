@@ -83,6 +83,25 @@ pub enum StoreError {
         table: &'static str,
         id: i64,
     },
+    /// The record's `lock_version` was assigned nil: "For optimistic
+    /// locking, locking_column ('lock_version') can't be nil."
+    /// (locking/optimistic.rb:104-109).
+    NilLockVersion {
+        table: &'static str,
+        id: i64,
+    },
+    /// `ActiveRecord::StaleObjectError`: the UPDATE or DELETE guarded by
+    /// `lock_version` matched no row (locking/optimistic.rb:118-120, 134-136).
+    StaleObject {
+        table: &'static str,
+        id: i64,
+    },
+}
+
+/// `LockingType`: a `nil` lock version reads and writes as 0
+/// (locking/optimistic.rb:218-224).
+fn lock_int(v: &Value) -> i64 {
+    v.as_int().unwrap_or(0)
 }
 
 impl Store {
@@ -274,6 +293,13 @@ impl Store {
         if let Some(c) = id_col {
             rec.set(c, Value::Int(id));
         }
+        // `_create_record` always persists the locking column, and `nil`
+        // serializes as 0 (locking/optimistic.rb:78-85, 222-224).
+        if let Some(lc) = spec.locking_column()
+            && rec.get(lc).is_nil()
+        {
+            rec.set(lc, Value::Int(0));
+        }
         Self::check_not_null(spec, rec.values())?;
         let next_id = table.next_id;
         table.next_id = table.next_id.max(id + 1);
@@ -304,12 +330,43 @@ impl Store {
         // is no change, exactly as ActiveModel's cast-on-assignment sees it.
         let normalized = normalize(spec, rec.values());
         adopt(rec, &normalized);
-        let changed = rec.changed_columns();
+        let mut changed = rec.changed_columns();
         if changed.is_empty() {
+            // `_update_record` skips `_update_row` (and with it the lock
+            // increment) when no attribute changed (persistence.rb:935-937).
             rec.mark_persisted();
             return Ok(false);
         }
-        Self::check_not_null(spec, rec.values())?;
+        let mut values = normalized;
+        let lock = spec.locking_column();
+        if let Some(lc) = lock {
+            // `UPDATE ... SET ..., lock_version = v + 1 WHERE id = ? AND
+            // lock_version = v`: no matching row is a stale object, a row
+            // deleted underneath included (optimistic.rb:99-120). The record
+            // is left untouched on failure (optimistic.rb:124-128).
+            // A nil read from the row deserializes to 0 (LockingType), but a
+            // nil assigned in memory raises (optimistic.rb:104-109).
+            if *rec.get(lc) == Value::Nil && rec.changed(lc) {
+                return Err(StoreError::NilLockVersion { table: spec.name, id });
+            }
+            let wanted = lock_int(rec.get(lc));
+            let stored = self
+                .table(spec.name)?
+                .rows
+                .get(&id)
+                .map(|row| lock_int(&row[lc]));
+            if stored != Some(wanted) {
+                return Err(StoreError::StaleObject {
+                    table: spec.name,
+                    id,
+                });
+            }
+            values[lc] = Value::Int(wanted.saturating_add(1));
+            if !changed.contains(&lc) {
+                changed.push(lc);
+            }
+        }
+        Self::check_not_null(spec, &values)?;
         let table = self.table_mut(spec.name)?;
         let row = table.rows.get_mut(&id).ok_or(StoreError::MissingRow {
             table: spec.name,
@@ -317,7 +374,7 @@ impl Store {
         })?;
         let old = row.clone();
         for c in changed {
-            row[c] = normalized[c].clone();
+            row[c] = values[c].clone();
         }
         self.logged(Undo::Update {
             table: spec.name,
@@ -325,10 +382,14 @@ impl Store {
             row: old,
         });
         self.writes += 1;
+        if let Some(lc) = lock {
+            rec.set(lc, values[lc].clone());
+        }
         rec.mark_persisted();
         Ok(true)
     }
 
+    /// `DELETE` by id alone: no lock check, like `Model.delete(id)`.
     pub fn delete(&mut self, spec: &'static TableSpec, id: i64) -> Result<(), StoreError> {
         if let Some(row) = self.table_mut(spec.name)?.rows.remove(&id) {
             self.logged(Undo::Delete {
@@ -339,6 +400,38 @@ impl Store {
         }
         self.writes += 1;
         Ok(())
+    }
+
+    /// `destroy_row` for `rec`: the DELETE is guarded by the record's
+    /// `lock_version` when the table has one, and a miss is a
+    /// [`StoreError::StaleObject`] (optimistic.rb:131-139, 154-159). Without
+    /// a locking column a missing row deletes nothing and answers `false`
+    /// (`destroy_row > 0`, persistence.rb:456). `true` means a row was deleted.
+    pub fn delete_locked(&mut self, rec: &Record) -> Result<bool, StoreError> {
+        let spec = rec.table;
+        let id = rec.id().ok_or(StoreError::MissingRow {
+            table: spec.name,
+            id: 0,
+        })?;
+        let Some(lc) = spec.locking_column() else {
+            let existed = self.table(spec.name)?.rows.contains_key(&id);
+            self.delete(spec, id)?;
+            return Ok(existed);
+        };
+        let wanted = lock_int(rec.get(lc));
+        let stored = self
+            .table(spec.name)?
+            .rows
+            .get(&id)
+            .map(|row| lock_int(&row[lc]));
+        if stored != Some(wanted) {
+            return Err(StoreError::StaleObject {
+                table: spec.name,
+                id,
+            });
+        }
+        self.delete(spec, id)?;
+        Ok(true)
     }
 
     /// `Model.find_by(id: x)`.
@@ -667,5 +760,177 @@ mod tests {
         assert_eq!(row.get(2), &Value::Time(1_767_323_045_123_000), "default is milliseconds");
         assert!(s.find_by(&U, &[(1, t.clone())]).unwrap().is_some());
         assert!(s.find_by(&U, &[(2, t)]).unwrap().is_some(), "bound like the write");
+    }
+
+    static L: TableSpec = TableSpec {
+        name: "l",
+        columns: &[
+            Column {
+                name: "id",
+                ty: ColumnType::Integer,
+                null: false,
+                default: Default::None,
+                limit: None,
+            },
+            Column {
+                name: "x",
+                ty: ColumnType::Integer,
+                null: true,
+                default: Default::None,
+                limit: None,
+            },
+            Column {
+                name: "lock_version",
+                ty: ColumnType::Integer,
+                null: false,
+                default: Default::None,
+                limit: None,
+            },
+        ],
+    };
+
+    fn locked() -> (Store, i64) {
+        let mut s = Store::default();
+        s.register(&L);
+        let id = s.seed(&L, &[("x", Value::Int(1)), ("lock_version", Value::Int(0))]).unwrap();
+        (s, id)
+    }
+
+    fn stored(s: &Store, id: i64) -> (Value, Value) {
+        let r = s.find(&L, id).unwrap().unwrap();
+        (r.get(1).clone(), r.get(2).clone())
+    }
+
+    fn stale(id: i64) -> StoreError {
+        StoreError::StaleObject { table: "l", id }
+    }
+
+    #[test]
+    fn the_second_of_two_loaded_records_is_stale_and_writes_nothing() {
+        let (mut s, id) = locked();
+        let mut first = s.find(&L, id).unwrap().unwrap();
+        let mut second = s.find(&L, id).unwrap().unwrap();
+        first.set(1, Value::Int(10));
+        assert_eq!(s.update(&mut first), Ok(true));
+        assert_eq!(first.get(2), &Value::Int(1), "the record holds the incremented version");
+        assert!(first.persisted() && !first.has_changes_to_save());
+        assert_eq!(stored(&s, id), (Value::Int(10), Value::Int(1)));
+
+        let writes = s.writes;
+        second.set(1, Value::Int(20));
+        assert_eq!(s.update(&mut second), Err(stale(id)));
+        assert_eq!(stored(&s, id), (Value::Int(10), Value::Int(1)), "the row is unchanged");
+        assert_eq!(s.writes, writes);
+        assert_eq!(second.get(2), &Value::Int(0), "a failed update leaves lock_version as it was");
+        assert!(second.changed(1), "and the assignment stays pending");
+        // Reloading picks up the new version, and the retry succeeds.
+        let mut fresh = s.find(&L, id).unwrap().unwrap();
+        fresh.set(1, Value::Int(20));
+        assert_eq!(s.update(&mut fresh), Ok(true));
+        assert_eq!(stored(&s, id), (Value::Int(20), Value::Int(2)));
+    }
+
+    #[test]
+    fn a_stale_destroy_deletes_nothing_and_a_current_one_deletes() {
+        let (mut s, id) = locked();
+        let stale_copy = s.find(&L, id).unwrap().unwrap();
+        let mut writer = s.find(&L, id).unwrap().unwrap();
+        writer.set(1, Value::Int(2));
+        s.update(&mut writer).unwrap();
+        assert_eq!(s.delete_locked(&stale_copy), Err(stale(id)));
+        assert_eq!(s.count(&L), 1, "nothing was deleted");
+        assert_eq!(s.delete_locked(&writer), Ok(true));
+        assert_eq!(s.count(&L), 0);
+        // The row is gone underneath a record: with locking that is stale too.
+        assert_eq!(s.delete_locked(&writer), Err(stale(id)));
+    }
+
+    #[test]
+    fn a_table_without_lock_version_keeps_last_write_wins() {
+        let mut s = Store::default();
+        s.register(&T);
+        let id = s.seed(&T, &[("x", Value::Int(1))]).unwrap();
+        let mut a = s.find(&T, id).unwrap().unwrap();
+        let mut b = s.find(&T, id).unwrap().unwrap();
+        a.set(1, Value::Int(2));
+        b.set(1, Value::Int(3));
+        assert_eq!(s.update(&mut a), Ok(true));
+        assert_eq!(s.update(&mut b), Ok(true), "no lock_version, no staleness");
+        assert_eq!(s.find(&T, id).unwrap().unwrap().get(1), &Value::Int(3));
+        // A delete of a row that is gone is a no-op, not an error.
+        assert_eq!(s.delete_locked(&a), Ok(true));
+        assert_eq!(s.delete_locked(&a), Ok(false));
+        // And the update of a missing row is still MissingRow, not StaleObject.
+        b.set(1, Value::Int(4));
+        assert_eq!(s.update(&mut b), Err(StoreError::MissingRow { table: "t", id }));
+    }
+
+    #[test]
+    fn a_nil_lock_version_is_zero() {
+        let (mut s, id) = locked();
+        // A nil read from the row deserializes to 0 (LockingType).
+        s.table_mut("l").unwrap().rows.get_mut(&id).unwrap()[2] = Value::Nil;
+        let mut r = s.find(&L, id).unwrap().unwrap();
+        r.set(1, Value::Int(5));
+        assert_eq!(s.update(&mut r), Ok(true), "a stored nil matches as 0");
+        assert_eq!(stored(&s, id), (Value::Int(5), Value::Int(1)));
+        // A nil assigned in memory raises and writes nothing.
+        let mut r = s.find(&L, id).unwrap().unwrap();
+        r.set(1, Value::Int(6));
+        r.set(2, Value::Nil);
+        assert_eq!(s.update(&mut r), Err(StoreError::NilLockVersion { table: "l", id }));
+        assert_eq!(stored(&s, id), (Value::Int(5), Value::Int(1)));
+        // Insert persists the column even when nothing set it.
+        let mut n = Record::new(&L);
+        let nid = s.insert(&mut n).unwrap();
+        assert_eq!(n.get(2), &Value::Int(0));
+        assert_eq!(stored(&s, nid).1, Value::Int(0));
+    }
+
+    #[test]
+    fn an_update_that_changes_nothing_does_not_bump_the_version() {
+        let (mut s, id) = locked();
+        let mut r = s.find(&L, id).unwrap().unwrap();
+        assert_eq!(s.update(&mut r), Ok(false));
+        assert_eq!(stored(&s, id), (Value::Int(1), Value::Int(0)));
+        assert_eq!(r.get(2), &Value::Int(0));
+    }
+
+    #[test]
+    fn an_assigned_lock_version_is_what_the_update_is_matched_against() {
+        let (mut s, id) = locked();
+        let mut r = s.find(&L, id).unwrap().unwrap();
+        // `_lock_value_for_database` is the assigned value when it changed.
+        r.set(2, Value::Int(7));
+        assert_eq!(s.update(&mut r), Err(stale(id)));
+        assert_eq!(stored(&s, id), (Value::Int(1), Value::Int(0)));
+        r.set(2, Value::Int(0));
+        r.set(1, Value::Int(9));
+        assert_eq!(s.update(&mut r), Ok(true));
+    }
+
+    #[test]
+    fn a_row_deleted_underneath_an_update_is_stale() {
+        let (mut s, id) = locked();
+        let mut r = s.find(&L, id).unwrap().unwrap();
+        s.delete(&L, id).unwrap();
+        r.set(1, Value::Int(2));
+        assert_eq!(s.update(&mut r), Err(stale(id)));
+    }
+
+    #[test]
+    fn rolling_back_an_update_restores_the_version() {
+        let (mut s, id) = locked();
+        let snap = s.begin();
+        let mut r = s.find(&L, id).unwrap().unwrap();
+        r.set(1, Value::Int(2));
+        s.update(&mut r).unwrap();
+        assert_eq!(stored(&s, id), (Value::Int(2), Value::Int(1)));
+        s.rollback(snap);
+        assert_eq!(stored(&s, id), (Value::Int(1), Value::Int(0)));
+        // A record loaded after the rollback is current, not stale.
+        let mut again = s.find(&L, id).unwrap().unwrap();
+        again.set(1, Value::Int(3));
+        assert_eq!(s.update(&mut again), Ok(true));
     }
 }

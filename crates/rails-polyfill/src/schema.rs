@@ -60,6 +60,9 @@ pub const DEFAULT_TIME_PRECISION: u32 = 3;
 /// The most fractional-second digits a stored time has: microseconds.
 pub const MAX_TIME_PRECISION: u32 = 6;
 
+/// ActiveRecord's default `locking_column`.
+pub const LOCKING_COLUMN: &str = "lock_version";
+
 impl Column {
     /// The fractional-second digits a write to this `DateTime` column keeps:
     /// `limit` (0 to 6, as PostgreSQL's `timestamp(p)`), milliseconds when
@@ -107,5 +110,13 @@ impl TableSpec {
     #[must_use]
     pub fn has_column(&self, name: &str) -> bool {
         self.index_of(name).is_some()
+    }
+
+    /// The optimistic-locking column: `lock_version`, when the table has it
+    /// (`lock_optimistically` defaults to true and `locking_column` to
+    /// `"lock_version"`, locking/optimistic.rb:56,162-169).
+    #[must_use]
+    pub fn locking_column(&self) -> Option<usize> {
+        self.index_of(LOCKING_COLUMN)
     }
 }
