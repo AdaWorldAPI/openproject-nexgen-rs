@@ -38,3 +38,11 @@ oracle-file strings in text and match arms; they are carried as is.
   produce `WHERE active = TRUE AND rank = 7 ORDER BY id`). zammad-rs checks
   only the first (Codex, nexgen #166). Test:
   `a_filtering_second_default_scope_refuses_too`. Not in zammad-rs.
+- `ScopeCatalog`: `from_harvest` records each class's included modules and
+  superclass (`parents`, resolved through the nesting), and `default_scopes`
+  walks them, so a filtering default_scope on a concern or superclass refuses
+  the plan (checked against ActiveRecord 8.1.4.1: both produce
+  `WHERE active = TRUE AND rank = 7`). zammad-rs checks the class's own
+  declarations only (Codex, nexgen #166). Tests:
+  `a_filtering_default_scope_on_an_ancestor_refuses_too`,
+  `from_harvest_links_includes_and_superclass`. Not in zammad-rs.

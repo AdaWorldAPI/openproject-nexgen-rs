@@ -31,3 +31,12 @@ reads `zammad.toml` from the repository root, and
 `register_census.rs` writes `harvest/register-census-zammad.json`; neither
 `zammad.toml` nor `harvest/` exists in nexgen. Those paths are unchanged
 from zammad-rs.
+
+## Changes made here since the copy
+
+- `apply_entry`: a feed entry's cells are mapped onto the table's columns by
+  the entry's own `columns` declaration (by name), and a declaration naming
+  other columns is refused. zammad-rs reads them by position, so a feed
+  declaring `[id, a]` for a table built as `[a, id]` updated nothing and
+  invented a row (Codex, nexgen #166). Test: `tests/feed_column_order.rs`.
+  Not in zammad-rs.
