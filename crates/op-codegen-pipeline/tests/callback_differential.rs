@@ -49,21 +49,35 @@ use serde_json::Value;
 
 /// Distinct journal entries matched to a declaration, measured on the committed
 /// trace at OpenProject 2725194, as `(with vendor/bundle, without it)`. The
-/// harvest reads the gems the intake names (the Rails framework) only where
-/// `vendor/bundle` holds them; CI unpacks them with
+/// harvest reads the gems the intake names (the Rails framework, acts_as_list,
+/// closure_tree) only where `vendor/bundle` holds them; CI unpacks them with
 /// `scripts/fetch-oracle-gems.sh`.
 ///
-/// 91 before ruff PR #156 (`79ed2baa007d`), 115 after it. 117 with the Rails
-/// framework roots (the two `normalize_changed_in_place_attributes` entries
-/// come from `ActiveModel::Attributes::Normalization`).
+/// Pinned ruff: 91 before ruff PR #156 (`79ed2baa007d`), 115 after it. 117
+/// with the Rails framework roots (the two
+/// `normalize_changed_in_place_attributes` entries come from
+/// `ActiveModel::Attributes::Normalization`).
+#[cfg(not(feature = "ruff-macros"))]
 const MATCHED_FLOOR: (usize, usize) = (117, 115);
+/// With class-level macros read from their `def` and `has_and_belongs_to_many`
+/// middle associations decided from the host class (feature `ruff-macros`,
+/// against a ruff that has `macro_ore_from` and `derive_in`). Without
+/// `vendor/bundle` only the in-tree plugin macros (`lib_static`) are read.
+#[cfg(feature = "ruff-macros")]
+const MATCHED_FLOOR: (usize, usize) = (154, 132);
 
 /// Of those, entries that match only through a generated callback (67 before
 /// #156), as `(with vendor/bundle, without it)`.
+#[cfg(not(feature = "ruff-macros"))]
 const MATCHED_GENERATED_FLOOR: (usize, usize) = (89, 89);
+#[cfg(feature = "ruff-macros")]
+const MATCHED_GENERATED_FLOOR: (usize, usize) = (112, 99);
 
 /// Typed slag per reason as measured, and no more: a reason may fall, never
-/// grow. Only checked where `vendor/bundle` is installed.
+/// grow. Only checked where `vendor/bundle` is installed. The first table is
+/// the pinned ruff (framework roots only), the second ruff with class-level
+/// macros and host-aware `has_and_belongs_to_many`.
+#[cfg(not(feature = "ruff-macros"))]
 const SLAG_CEILINGS: &[(Slag, usize)] = &[
     (Slag::AssociationFromPlugin, 3),
     (Slag::AssociationNotInCheckout, 15),
@@ -73,10 +87,41 @@ const SLAG_CEILINGS: &[(Slag, usize)] = &[
     (Slag::ChainFileNotHarvested, 2),
     (Slag::GeneratedUndecided, 4),
 ];
+/// Left: paper_trail's `has_many :paper_trail_audits`, named by a config value
+/// (`config/initializers/paper_trail.rb:31-35`, `has_paper_trail_defaults`
+/// `versions: { name: :paper_trail_audits }`) the macro merges at runtime, not
+/// by source the harvest reads; and the journals validation, whose `validate:`
+/// may come from `**has_many_journals_options`, a method's computed hash
+/// (`lib_static/plugins/acts_as_journalized/lib/acts_as_journalized.rb:82`).
+#[cfg(feature = "ruff-macros")]
+const SLAG_CEILINGS: &[(Slag, usize)] = &[
+    (Slag::AssociationNotInCheckout, 2),
+    (Slag::GeneratedUndecided, 1),
+];
 
 /// Order groups that must be DEFINITE and agree with the recording, as
-/// `(with vendor/bundle, without it)`.
+/// `(with vendor/bundle, without it)`. With class-level macros a group is
+/// UNKNOWN when one of its entries is registered in a macro body that leaves a
+/// conditional registration unread (`ModelCtx::order_unknown_scopes`).
+#[cfg(not(feature = "ruff-macros"))]
 const ORDER_DEFINITE_FLOOR: (usize, usize) = (19, 19);
+#[cfg(feature = "ruff-macros")]
+const ORDER_DEFINITE_FLOOR: (usize, usize) = (16, 6);
+
+/// Order groups that must stay DEFINITE and agree on the harvest WITHOUT
+/// class-level macros: the population the order gate was first measured on.
+const ORDER_GROUPS_WITHOUT_MACROS_FLOOR: usize = 19;
+
+/// Callbacks the harvest predicts that never fired in the recording and that
+/// the harvest without class-level macros does not predict, as `(with
+/// vendor/bundle, without it)`. Each is explained (a chain the cases do not
+/// run, an `on:` they do not take, a condition that is not evaluated); an
+/// unexplained one fails the test on its own. A rise means a rule predicts
+/// more than it did when measured.
+#[cfg(not(feature = "ruff-macros"))]
+const EXTRA_PREDICTIONS_CEILING: (usize, usize) = (0, 0);
+#[cfg(feature = "ruff-macros")]
+const EXTRA_PREDICTIONS_CEILING: (usize, usize) = (16, 5);
 
 /// Distinct patch modules the intake applies to `WorkPackage` (include only),
 /// measured on the checkout at the trace's revision (4 before #156 rendered
@@ -459,12 +504,18 @@ fn fired_callbacks_are_matched_or_named_slag() {
     let (entries_total, entries) = fired_entries();
     let models: BTreeSet<String> = entries.keys().map(|(m, _, _)| m.clone()).collect();
     let cfg = intake_cfg();
-    // The framework roots and the gem constants live in `vendor/bundle`.
-    // Without it they are unread, and the floors are the ones from before
-    // they existed.
+    // The framework roots, the gem macros and the gem constants live in
+    // `vendor/bundle`. Without it they are unread, and the floors are the
+    // ones from before they existed.
     let vendor = src.join("vendor/bundle").is_dir();
-    if !vendor {
-        eprintln!("UNVERIFIED: no vendor/bundle in the checkout; gem roots are not read (scripts/fetch-oracle-gems.sh)");
+    if vendor {
+        let bad = verify_macro_cites(&src, &cfg);
+        assert!(
+            bad.is_empty(),
+            "macro rules the checkout does not bear out: {bad:#?}"
+        );
+    } else {
+        eprintln!("UNVERIFIED: no vendor/bundle in the checkout; gem roots, gem macros and their cites are not read");
     }
     let pick = |(with, without): (usize, usize)| if vendor { with } else { without };
     let matched_floor = pick(MATCHED_FLOOR);
@@ -473,6 +524,12 @@ fn fired_callbacks_are_matched_or_named_slag() {
     let patches = discover_patches(&src, &cfg, &mut h);
     let (ctxs, unresolved) = contexts(&mut h, &models, &patches);
     let ev = scan_tree(&src, &models);
+    let mut logged = BTreeSet::new();
+    for l in &h.macro_log {
+        if logged.insert(l.clone()) {
+            eprintln!("  macro: {l}");
+        }
+    }
 
     eprintln!(
         "intake: {} engines, {} patch calls matched by a rule, {} (call, target) jobs, {} applied, {} typed or noted",
@@ -601,6 +658,27 @@ fn fired_callbacks_are_matched_or_named_slag() {
             assert!(n <= ceiling, "slag {s:?}: {n}, ceiling {ceiling}");
         }
     }
+    // Every macro rule runs on the traced models, and no rule or hand-over
+    // names a file the checkout does not have.
+    #[cfg(feature = "ruff-macros")]
+    if vendor {
+        for rule in &cfg.macros.rules {
+            assert!(
+                h.macro_log
+                    .iter()
+                    .any(|l| l.contains(&format!("#{} (", rule.def_name))),
+                "macro rule `{}` was never expanded on a traced model",
+                rule.dsl
+            );
+        }
+        assert!(
+            h.macro_log
+                .iter()
+                .all(|l| !l.contains("is not in the checkout")),
+            "a macro names a file the checkout does not have: {:?}",
+            h.macro_log
+        );
+    }
     // A declared, unconditioned callback on an exercised chain that never fired
     // would be a real discrepancy, not slag.
     assert!(
@@ -675,6 +753,76 @@ fn fired_callbacks_are_matched_or_named_slag() {
         "the intake lost matches: {} with, {} without",
         o.matched,
         bare.matched
+    );
+    // Attribution: the same run without class-level macros. Macros may only add
+    // matches, and the order claim made before they existed must still hold on
+    // that population: its groups stay definite and agree.
+    h.macros_enabled = false;
+    let (nomacro_ctxs, _) = contexts(&mut h, &models, &patches);
+    h.macros_enabled = true;
+    let nomacro = run(&nomacro_ctxs, &entries, &ev, Clone::clone);
+    let nomacro_order = order_report(
+        |m| nomacro_ctxs[m].effective.as_slice(),
+        |m| &nomacro_ctxs[m].order_unknown_scopes,
+        3,
+    );
+    eprintln!(
+        "without class-level macros: matched {} of {}, via generated {}",
+        nomacro.matched, nomacro.total, nomacro.matched_generated
+    );
+    for s in Slag::all() {
+        eprintln!(
+            "  without macros, slag {s:?}: {}",
+            nomacro.slag.get(s).map_or(0, Vec::len)
+        );
+    }
+    print_order("without class-level macros", &nomacro_order);
+    assert!(
+        o.matched >= nomacro.matched,
+        "macros lost matches: {} with, {} without",
+        o.matched,
+        nomacro.matched
+    );
+    // Extra predictions: callbacks that never fired and that only the macros
+    // predict. Each carries its silent reason; `Unexplained` is already a
+    // failure above, so what is left here is counted and capped.
+    let never_fired = |o: &Outcome| -> BTreeMap<String, Silent> {
+        o.silent
+            .iter()
+            .chain(o.generated_silent.iter())
+            .flat_map(|(s, rows)| rows.iter().map(move |r| (r.clone(), *s)))
+            .collect()
+    };
+    let without = never_fired(&nomacro);
+    let extra: Vec<(String, Silent)> = never_fired(&o)
+        .into_iter()
+        .filter(|(r, _)| !without.contains_key(r))
+        .collect();
+    let mut extra_by: BTreeMap<Silent, usize> = BTreeMap::new();
+    for (_, s) in &extra {
+        *extra_by.entry(*s).or_default() += 1;
+    }
+    eprintln!(
+        "extra predictions (never fired, predicted only with class-level macros): {} {extra_by:?}",
+        extra.len()
+    );
+    for (r, s) in &extra {
+        eprintln!("     {s:?}: {r}");
+    }
+    let extra_ceiling = pick(EXTRA_PREDICTIONS_CEILING);
+    assert!(
+        extra.len() <= extra_ceiling,
+        "{} extra predictions, ceiling {extra_ceiling}",
+        extra.len()
+    );
+    assert!(
+        nomacro_order.definite() >= ORDER_GROUPS_WITHOUT_MACROS_FLOOR,
+        "without macros: {} definite order groups, floor {ORDER_GROUPS_WITHOUT_MACROS_FLOOR}",
+        nomacro_order.definite()
+    );
+    assert_eq!(
+        nomacro_order.differing, 0,
+        "without macros the reconstructed order differs from the recording"
     );
     // Conservation per (call, target). A call can name several targets, some
     // applied and some typed, so `calls` (one per call) cannot be compared with
@@ -970,10 +1118,60 @@ fn fired_callbacks_are_matched_or_named_slag() {
         effective.differing, 0,
         "the reconstructed registration order differs from the recording"
     );
+    // A group made UNKNOWN by an unread conditional is not a difference, but it
+    // must not be one either: its reconstruction, ignoring what was unread,
+    // still has to agree with the recording.
+    assert_eq!(
+        effective.unknown_differing, 0,
+        "an UNKNOWN order group would differ from the recording"
+    );
     assert!(
         naive_rep.differing > 0,
         "the naive order agrees everywhere, so the order comparison proves nothing"
     );
+}
+
+/// The cite check is a check: a wrong line, a wrong needle and a missing file
+/// are each reported, and an untouched rule is not.
+#[test]
+fn macro_cites_are_checked_against_the_checkout() {
+    let Some(src) = source() else { return };
+    let ok = intake_cfg();
+    // The in-tree plugin rules need no vendored gem.
+    let in_tree: Vec<_> = ok
+        .macros
+        .rules
+        .iter()
+        .filter(|r| r.file.starts_with("lib_static/"))
+        .map(|r| r.dsl.clone())
+        .collect();
+    assert!(!in_tree.is_empty());
+    let bad = verify_macro_cites(&src, &ok);
+    assert!(
+        bad.iter()
+            .all(|b| !in_tree.iter().any(|d| b.starts_with(d.as_str()))),
+        "an untouched in-tree rule was reported: {bad:?}"
+    );
+    for (what, edit) in [("needle", 0usize), ("line", 1), ("file", 2), ("def", 3)] {
+        let mut cfg = intake_cfg();
+        let rule = cfg
+            .macros
+            .rules
+            .iter_mut()
+            .find(|r| r.dsl == "acts_as_attachable")
+            .expect("rule");
+        match edit {
+            0 => rule.verify[0].contains = "not in that line".into(),
+            1 => rule.verify[0].line += 1,
+            2 => rule.verify[0].file = "lib_static/plugins/nope/init.rb".into(),
+            _ => rule.def_name = "acts_as_nothing".into(),
+        }
+        let bad = verify_macro_cites(&src, &cfg);
+        assert!(
+            bad.iter().any(|b| b.starts_with("acts_as_attachable")),
+            "a wrong {what} was not reported: {bad:?}"
+        );
+    }
 }
 
 /// `validate` counts as run only when both `validation` and `save` fired:
@@ -1021,4 +1219,173 @@ fn intake_argument_forms() {
         ),
         "X::Y::Patches::ZPatch"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Macro option splats
+// ─────────────────────────────────────────────────────────────────────────
+
+mod splats {
+    use op_codegen_pipeline::callback_harvest::{resolve_splats, OP_RAILS_DEFAULTS};
+    use ruff_ruby_spo::events::{DeclOrigin, RailsEvent, RailsKind};
+    use ruff_ruby_spo::rails_generated::{derive, Filter, Generated};
+    use ruff_ruby_spo::Declaration;
+    use ruff_spo_triplet::{AssocDecl, AssocKind, OptionSplat};
+
+    fn assoc(options: &[(&str, &str)], splats: &[(&str, usize)]) -> AssocDecl {
+        AssocDecl {
+            kind: AssocKind::HasMany,
+            name: "attachments".into(),
+            options: options
+                .iter()
+                .map(|(k, v)| ((*k).into(), (*v).into()))
+                .collect(),
+            option_splats: splats
+                .iter()
+                .map(|(s, b)| OptionSplat {
+                    source: (*s).into(),
+                    before: *b,
+                })
+                .collect(),
+        }
+    }
+
+    fn call(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).into(), (*v).into()))
+            .collect()
+    }
+
+    fn keys(a: &AssocDecl) -> Vec<&str> {
+        a.options.iter().map(|(k, _)| k.as_str()).collect()
+    }
+
+    fn last<'a>(a: &'a AssocDecl, key: &str) -> Option<&'a str> {
+        a.options
+            .iter()
+            .rev()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+    }
+
+    #[test]
+    fn the_options_parameter_stands_for_the_calls_options() {
+        let mut a = assoc(&[], &[("**options", 0)]);
+        resolve_splats(
+            &mut a,
+            "options",
+            Some(&call(&[("order", "\"f\""), ("extract_tsv", "true")])),
+        );
+        assert_eq!(keys(&a), ["order", "extract_tsv"]);
+        assert!(a.option_splats.is_empty());
+    }
+
+    /// `reverse_merge!` keeps the call's value where both give a key, `merge`
+    /// takes the argument's: the later pair wins in the result.
+    #[test]
+    fn merge_and_reverse_merge_decide_which_value_wins() {
+        let c = call(&[("as", ":mine"), ("order", "1")]);
+        let mut rm = assoc(
+            &[],
+            &[(
+                "**options.reverse_merge!(as: :container, dependent: :destroy)",
+                0,
+            )],
+        );
+        resolve_splats(&mut rm, "options", Some(&c));
+        assert_eq!(last(&rm, "as"), Some(":mine"));
+        assert_eq!(last(&rm, "dependent"), Some(":destroy"));
+        assert_eq!(last(&rm, "order"), Some("1"));
+
+        let mut m = assoc(&[], &[("**options.merge(as: :container)", 0)]);
+        resolve_splats(&mut m, "options", Some(&c));
+        assert_eq!(last(&m, "as"), Some(":container"));
+    }
+
+    /// Explicit options keep their place around the resolved ones, and a splat
+    /// that stays keeps its position among them.
+    #[test]
+    fn explicit_options_keep_their_place_around_a_resolved_splat() {
+        let mut a = assoc(
+            &[("a", "1"), ("b", "2"), ("c", "3")],
+            &[("**options", 1), ("**unknown", 2)],
+        );
+        resolve_splats(&mut a, "options", Some(&call(&[("x", "9")])));
+        assert_eq!(keys(&a), ["a", "x", "b", "c"]);
+        assert_eq!(a.option_splats.len(), 1);
+        assert_eq!(a.option_splats[0].source, "**unknown");
+        assert_eq!(a.option_splats[0].before, 3);
+    }
+
+    /// The silence twin: every splat the rule cannot read is left alone, so the
+    /// association's rules still report it undecided.
+    #[test]
+    fn a_splat_it_cannot_read_stays() {
+        let c = call(&[("order", "1")]);
+        for source in [
+            "**other",
+            "**options_more",
+            "**options.merge(defaults)",
+            "**options.merge(:as => :container)",
+            "**options.slice(:order)",
+            "**options.merge(as: :container).merge(x: 1)",
+            "**<expr>",
+        ] {
+            let mut a = assoc(&[("a", "1")], &[(source, 1)]);
+            resolve_splats(&mut a, "options", Some(&c));
+            assert_eq!(keys(&a), ["a"], "{source}");
+            assert_eq!(a.option_splats.len(), 1, "{source}");
+        }
+        // Without the call's options nothing is known about the splat.
+        let mut a = assoc(&[], &[("**options", 0)]);
+        resolve_splats(&mut a, "options", None);
+        assert_eq!(a.option_splats.len(), 1);
+    }
+
+    fn collection_validation(call_options: &[(&str, &str)]) -> (bool, bool) {
+        let mut a = assoc(
+            &[],
+            &[(
+                "**options.reverse_merge!(as: :container, dependent: :destroy)",
+                0,
+            )],
+        );
+        resolve_splats(&mut a, "options", Some(&call(call_options)));
+        let events = [RailsEvent {
+            seq: 0,
+            kind: RailsKind::Association,
+            decl: Declaration::Association(a),
+            anchor: 0,
+            origin: DeclOrigin::Body,
+        }];
+        let got = derive(&events, OP_RAILS_DEFAULTS);
+        let validates = got.iter().any(|g| {
+            matches!(g, Generated::Callback(c)
+                if matches!(&c.filter, Filter::Method(m) if m.starts_with("validate_associated_records_for_")))
+        });
+        let undecided = got.iter().any(|g| matches!(g, Generated::Undecided(_)));
+        (validates, undecided)
+    }
+
+    /// Resolved, the association is decided: a call that gives no `validate:`
+    /// leaves the collection's validation callback, one that gives
+    /// `validate: false` removes it. Unresolved, it is undecided either way.
+    #[test]
+    fn a_resolved_splat_decides_the_validation_callback_both_ways() {
+        assert_eq!(collection_validation(&[("order", "1")]), (true, false));
+        assert_eq!(
+            collection_validation(&[("validate", "false")]),
+            (false, false)
+        );
+        assert_eq!(
+            collection_validation(&[("validate", "true")]),
+            (true, false)
+        );
+        // A value the rule cannot read as a literal is undecided, not guessed.
+        assert_eq!(
+            collection_validation(&[("validate", "flag?")]),
+            (false, true)
+        );
+    }
 }

@@ -23,6 +23,16 @@ required-features = ["ogar-emit"]
 
 [features]
 default = []
+# Expands class-level macros (`acts_as_*`, `has_closure_tree`, ...) from the
+# macro's own `def` body and decides a `has_and_belongs_to_many` middle
+# association from its host class. Needs ruff's `events::macro_ore_from`,
+# `Unharvested::hidden` and `rails_generated::derive_in`, which are not in the
+# pinned ruff (79ed2baa) yet: they are ruff branch `claude/ruby-p1-residuals`,
+# head a071b9f048592c6d0324ee3e4396b4c668335a81. Off by default so the crate
+# compiles at the pin. When that ruff PR merges, bump RUFF_REV and every
+# `rev =` to the merge commit, make this feature default (then drop it and the
+# cfgs), and run the callback differential with it.
+ruff-macros = []
 # The §5 steps 4-5 consumer path: source -> ruff -> OGAR lift/mint ->
 # adapter emit, alongside (not replacing) the native
 # ruff -> op-surreal-ast -> SurrealQL path above. Off by default so the
