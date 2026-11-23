@@ -1,8 +1,8 @@
 //! Three-witness reconciliation of OpenProject `WorkPackage` create admission:
 //!
 //! 1. the Ruby structural witness: what `WorkPackages::CreateContract` declares, as the
-//!    existing extractors produce it (`admission_gen`'s permission scan, ruff's
-//!    `extract_contract_guards`), with spans located in the checkout;
+//!    existing extractors produce it (`admission_gen`'s contract declaration scan,
+//!    ruff's `extract_contract_guards`), with spans located in the checkout;
 //! 2. the Charon structural witness: the frozen store in `oracle/charon/`
 //!    (op-contracts and op-services only; see `PROVENANCE.txt`);
 //! 3. the runtime axis: production Rust executed against the frozen contract trace in
@@ -170,7 +170,7 @@ fn not_harvested(why: &str) -> RubyEvidence {
     RubyEvidence::NotHarvested { why: why.into() }
 }
 
-const SCAN: &str = "admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan)";
+const SCAN: &str = "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)";
 const LOCATED: &str = "literal located in the source (no parse)";
 const RUFF: &str = "ruff_ruby_spo::extract_contract_guards";
 

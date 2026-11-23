@@ -1,3 +1,3 @@
 #version 1
 #schema subject	effect	kind	file	start	end
-op_contracts::work_packages::admission::run_program::{impl FnOnce<()> for op_contracts::work_packages::admission::run_program::{closure}<'_0, '_1, U>[TraitClause0, TraitClause1]}::call_once	DEREF_WRITE	Local	crates/op-contracts/src/work_packages/admission.rs	4883	4894
+op_contracts::work_packages::admission::run_program::{impl FnOnce<()> for op_contracts::work_packages::admission::run_program::{closure}<'_0, '_1, U>[TraitClause0, TraitClause1]}::call_once	DEREF_WRITE	Local	crates/op-contracts/src/work_packages/admission.rs	5554	5565
