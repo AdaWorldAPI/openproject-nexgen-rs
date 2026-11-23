@@ -31,8 +31,8 @@ use axum::http::{header, HeaderMap, StatusCode};
 use http_body_util::BodyExt as _;
 use op_db::{Database, DatabaseConfig};
 use op_services::work_packages::mutation::{
-    self, Caller, CreationStore, MutationError, MutationStore, PgMutationStore, Principal,
-    StoreFailure,
+    self, Caller, CreationStore, MutationError, MutationStore, PgCreateScope, PgMutationStore,
+    Principal, StoreFailure,
 };
 use op_services::work_packages::WorkPackageParams;
 use sqlx::PgPool;
@@ -72,6 +72,9 @@ const TYPE_FEATURE: i64 = 32;
 const STATUS_NEW: i64 = 40;
 /// The one status with `is_default`.
 const STATUS_DEFAULT: i64 = 41;
+/// A status with `excluded_from_totals`: its work packages are left out of an ancestor's totals.
+/// Inserted by step 10, so no earlier step sees it.
+const STATUS_EXCLUDED: i64 = 42;
 /// An `IssuePriority` that is not the default, and the active default one.
 const PRIORITY_LOW: i64 = 60;
 const PRIORITY_DEFAULT: i64 = 61;
@@ -144,7 +147,7 @@ async fn executed_db_work_package_journey() {
 
     match outcome {
         Ok(tally) => eprintln!(
-            "EXECUTED_DB: journey steps {}/9, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7), update journal: YES (steps 4, 8, 9: no-op, aggregated, new version, closed predecessor, rollback)",
+            "EXECUTED_DB: journey steps {}/10, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7), update journal: YES (steps 4, 8, 9: no-op, aggregated, new version, closed predecessor, rollback), ancestor totals: YES (step 10: derived hours and done ratio up a 3-level chain, excluded status, caused journals, aggregation, rollback)",
             tally.steps, tally.rows
         ),
         Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
@@ -1325,9 +1328,508 @@ async fn journey(db_url: String) -> Tally {
     t.rows += 4;
     t.steps += 1;
 
+    // ── 10. ancestor totals on create ────────────────────────────────
+    // `WorkPackages::CreateService#after_create` runs `multi_update_ancestors`
+    // (create_service.rb:75-77): `UpdateAncestorsService` derives, for each ancestor of the new
+    // work package, `derived_estimated_hours`, `derived_remaining_hours` (the sum over the
+    // ancestor and its descendants whose status is not `excluded_from_totals`,
+    // update_ancestors_service.rb:219-228) and `derived_done_ratio` (work-weighted average:
+    // `((estimated - remaining) / estimated * 100).round`, :129-138), saves only an ancestor whose
+    // values changed (:62-69) and journals it with cause `work_package_children_changed_values`
+    // (:99-102, caused_by_work_package_child_values_change.rb).
+    //
+    // Setting a parent needs `manage_subtasks` (`parent`, generated_create_admission.rs): the
+    // member role of project 5 gets it here, and the add-only member D still does not have it.
+    sqlx::query(
+        "INSERT INTO role_permissions (role_id, permission) VALUES ($1, 'manage_subtasks')",
+    )
+    .bind(ROLE_A)
+    .execute(&pool)
+    .await
+    .expect("grant manage_subtasks");
+    sqlx::query(
+        "INSERT INTO statuses (id, name, is_default, position, excluded_from_totals) \
+         VALUES ($1, 'Rejected', false, 3, true)",
+    )
+    .bind(STATUS_EXCLUDED)
+    .execute(&pool)
+    .await
+    .expect("a status excluded from totals");
+    let cause = |of: i64| serde_json::json!({"type": "work_package_children_changed_values", "work_package_id": of});
+    // Hours of G (100 / 100), P (60 / 59), C1 (40 / 40), C2 (1000 / 0, excluded), C3 (10 / 5),
+    // C5 (20 / 20). G > P > C*.
+    let g = create_hours(&store, &caller_a, "ancestor G", None, 100.0, 100.0, None)
+        .await
+        .expect("G");
+    assert_eq!(
+        derived(&verify, g).await,
+        Derived {
+            est: None,
+            rem: None,
+            ratio: None,
+            lock_version: 0
+        },
+        "a work package with no descendants has no derived values"
+    );
+    // D may not set a parent: `parent` needs `manage_subtasks`. Nothing is stored.
+    let wps_before = count(&verify, "SELECT count(*) FROM work_packages").await;
+    let refused = create_hours(&store, &caller_d, "D's child", Some(g), 1.0, 1.0, None).await;
+    assert!(
+        matches!(refused, Err(MutationError::Invalid(_))),
+        "a parent without manage_subtasks is refused: {refused:?}"
+    );
+    assert_eq!(
+        count(&verify, "SELECT count(*) FROM work_packages").await,
+        wps_before,
+        "the refused child is not stored"
+    );
+    t.rows += 3;
+
+    // P under G, both by A. G: estimated 100 + 60 = 160, remaining 100 + 59 = 159, done ratio
+    // round(1 / 160 * 100) = round(0.625) = 1. G's journal 1 is A's, empty cause, seconds old:
+    // aggregated (same user, within the window, `only_one_or_same_cause?` since the predecessor's
+    // cause is empty): rewritten in place with the new cause, still one journal.
+    let p = create_hours(&store, &caller_a, "ancestor P", Some(g), 60.0, 59.0, None)
+        .await
+        .expect("P under G");
+    assert_eq!(
+        derived(&verify, g).await,
+        Derived {
+            est: Some(160.0),
+            rem: Some(159.0),
+            ratio: Some(1),
+            lock_version: 1
+        },
+        "G: 100 + 60, 100 + 59, round(0.625) = 1; saved once"
+    );
+    let gj = journals(&verify, g).await;
+    assert_eq!(
+        gj.len(),
+        1,
+        "same user, empty predecessor cause: aggregated"
+    );
+    assert_eq!((gj[0].version, gj[0].user_id, gj[0].hi), (1, USER_A, None));
+    assert_eq!(
+        gj[0].cause,
+        cause(p),
+        "the rewritten journal takes the new cause"
+    );
+    assert_eq!(
+        data_derived(&verify, gj[0].data_id).await,
+        (Some(160.0), Some(159.0), Some(1)),
+        "its snapshot carries the derived values"
+    );
+    assert_eq!(
+        derived(&verify, p).await,
+        Derived {
+            est: None,
+            rem: None,
+            ratio: None,
+            lock_version: 0
+        },
+        "the new work package itself has no descendants: nothing derived"
+    );
+    assert_eq!(journals(&verify, p).await.len(), 1);
+    t.rows += 6;
+
+    // C1 under P, by A. P: 60 + 40 = 100, 59 + 40 = 99, round(1 / 100 * 100) = 1 (P's journal
+    // is A's with an empty cause: aggregated). G: 100 + 60 + 40 = 200, 100 + 59 + 40 = 199,
+    // round(1 / 200 * 100) = round(0.5) = 1: Ruby's `Float#round` goes half AWAY from zero (a
+    // half-to-even rounding would give 0). G's last journal is A's with the cause of P, which
+    // differs from the cause of C1 and is not mergeable (`Base#merge_into` is nil): NOT
+    // aggregated, so G gets version 2 and version 1 is closed.
+    let c1 = create_hours(&store, &caller_a, "ancestor C1", Some(p), 40.0, 40.0, None)
+        .await
+        .expect("C1 under P");
+    assert_eq!(
+        derived(&verify, p).await,
+        Derived {
+            est: Some(100.0),
+            rem: Some(99.0),
+            ratio: Some(1),
+            lock_version: 1
+        },
+        "P: 60 + 40, 59 + 40, round(1.0) = 1"
+    );
+    assert_eq!(
+        derived(&verify, g).await,
+        Derived {
+            est: Some(200.0),
+            rem: Some(199.0),
+            ratio: Some(1),
+            lock_version: 2
+        },
+        "G, the grandparent, is updated too: 200, 199, round(0.5) = 1 (half away from zero)"
+    );
+    let pj = journals(&verify, p).await;
+    assert_eq!(pj.len(), 1, "P's journal is aggregated");
+    assert_eq!(pj[0].cause, cause(c1));
+    let gj2 = journals(&verify, g).await;
+    assert_eq!(
+        gj2.len(),
+        2,
+        "a predecessor with a different cause is not aggregated into"
+    );
+    assert_eq!((gj2[1].version, gj2[1].user_id), (2, USER_A));
+    assert_eq!(gj2[1].cause, cause(c1));
+    assert_eq!(gj2[0].cause, cause(p), "version 1 keeps its cause");
+    assert_eq!(
+        gj2[0].hi,
+        Some(gj2[1].created_at),
+        "version 1 is closed at version 2's start"
+    );
+    assert_eq!(
+        data_derived(&verify, gj2[0].data_id).await,
+        (Some(160.0), Some(159.0), Some(1)),
+        "version 1 still snapshots the totals before C1"
+    );
+    assert_eq!(
+        data_derived(&verify, gj2[1].data_id).await,
+        (Some(200.0), Some(199.0), Some(1))
+    );
+    assert_eq!(
+        derived(&verify, c1).await,
+        Derived {
+            est: None,
+            rem: None,
+            ratio: None,
+            lock_version: 0
+        }
+    );
+    t.rows += 10;
+
+    // C2 under P by C, in a status excluded from totals (1000 / 0): left out of every total, so
+    // P's and G's derived values are unchanged, nothing is saved and nothing is journaled
+    // (byte-identical rows). Two-sided with C3 below, which does count.
+    let (p_row, g_row) = (
+        row_json(&verify, p).await.unwrap(),
+        row_json(&verify, g).await.unwrap(),
+    );
+    let (p_state, g_state) = (
+        journal_state(&verify, p).await,
+        journal_state(&verify, g).await,
+    );
+    let c2 = create_hours(
+        &store,
+        &caller_c,
+        "ancestor C2 (excluded)",
+        Some(p),
+        1000.0,
+        0.0,
+        Some(STATUS_EXCLUDED),
+    )
+    .await
+    .expect("C2 under P");
+    assert_eq!(row_json(&verify, p).await.unwrap(), p_row, "P is not saved");
+    assert_eq!(row_json(&verify, g).await.unwrap(), g_row, "G is not saved");
+    assert_eq!(
+        journal_state(&verify, p).await,
+        p_state,
+        "P is not journaled"
+    );
+    assert_eq!(
+        journal_state(&verify, g).await,
+        g_state,
+        "G is not journaled"
+    );
+    assert_eq!(
+        journals(&verify, c2).await.len(),
+        1,
+        "C2 has its own creation journal"
+    );
+    t.rows += 5;
+
+    // C3 under P by C (10 / 5, default status). P: 60 + 40 + 10 = 110, 59 + 40 + 5 = 104,
+    // round(6 / 110 * 100) = round(5.45) = 5. P's last journal is A's: C is another user, so
+    // version 2. G: 100 + 60 + 40 + 10 = 210, 100 + 59 + 40 + 5 = 204, round(6 / 210 * 100) =
+    // round(2.86) = 3; G's last journal (version 2) is A's: version 3 by C.
+    let c3 = create_hours(&store, &caller_c, "ancestor C3", Some(p), 10.0, 5.0, None)
+        .await
+        .expect("C3 under P");
+    assert_eq!(
+        derived(&verify, p).await,
+        Derived {
+            est: Some(110.0),
+            rem: Some(104.0),
+            ratio: Some(5),
+            lock_version: 2
+        },
+        "P: C2 (excluded) is not summed; 110, 104, round(5.45) = 5"
+    );
+    assert_eq!(
+        derived(&verify, g).await,
+        Derived {
+            est: Some(210.0),
+            rem: Some(204.0),
+            ratio: Some(3),
+            lock_version: 3
+        },
+        "G: 210, 204, round(2.86) = 3"
+    );
+    let pj = journals(&verify, p).await;
+    assert_eq!(pj.len(), 2, "another user's change adds version 2");
+    assert_eq!((pj[1].version, pj[1].user_id), (2, USER_C));
+    assert_eq!(pj[1].cause, cause(c3));
+    assert_eq!(pj[0].hi, Some(pj[1].created_at));
+    assert_eq!(
+        data_derived(&verify, pj[1].data_id).await,
+        (Some(110.0), Some(104.0), Some(5))
+    );
+    assert_eq!(
+        data_derived(&verify, pj[0].data_id).await,
+        (Some(100.0), Some(99.0), Some(1)),
+        "P's version 1 keeps the totals it was aggregated with"
+    );
+    let gj3 = journals(&verify, g).await;
+    assert_eq!(gj3.len(), 3);
+    assert_eq!((gj3[2].version, gj3[2].user_id), (3, USER_C));
+    assert_eq!(gj3[2].cause, cause(c3));
+    assert_eq!(
+        data_derived(&verify, gj3[2].data_id).await,
+        (Some(210.0), Some(204.0), Some(3))
+    );
+    t.rows += 11;
+
+    // The ancestor update is on the create's transaction: a failure after it (the hook runs
+    // after the ancestors and the watcher) leaves P and G, their journals, and the child exactly as
+    // they were.
+    let (p_row, g_row) = (
+        row_json(&verify, p).await.unwrap(),
+        row_json(&verify, g).await.unwrap(),
+    );
+    let (p_state, g_state) = (
+        journal_state(&verify, p).await,
+        journal_state(&verify, g).await,
+    );
+    let failing = FailAfterInsert {
+        fail: true,
+        pool: pool.clone(),
+    };
+    let r = create_hours(
+        &failing,
+        &caller_a,
+        "ancestor C4 (rolled back)",
+        Some(p),
+        50.0,
+        50.0,
+        None,
+    )
+    .await;
+    assert!(matches!(r, Err(MutationError::Store(_))), "{r:?}");
+    assert_eq!(
+        row_json(&verify, p).await.unwrap(),
+        p_row,
+        "P is unchanged after the rollback"
+    );
+    assert_eq!(
+        row_json(&verify, g).await.unwrap(),
+        g_row,
+        "G is unchanged after the rollback"
+    );
+    assert_eq!(
+        journal_state(&verify, p).await,
+        p_state,
+        "no P journal after the rollback"
+    );
+    assert_eq!(
+        journal_state(&verify, g).await,
+        g_state,
+        "no G journal after the rollback"
+    );
+    assert_eq!(
+        count(
+            &verify,
+            "SELECT count(*) FROM work_packages WHERE subject = 'ancestor C4 (rolled back)'"
+        )
+        .await,
+        0,
+        "the child is not stored"
+    );
+    // Control: the same wrapper without the failure commits, so the identity above is the
+    // rollback. C5 (20 / 20) by A: P 130 / 124, round(6 / 130 * 100) = round(4.6) = 5, P version
+    // 3 (the last journal is C's); G 230 / 224, round(6 / 230 * 100) = round(2.6) = 3, version 4.
+    let control = FailAfterInsert {
+        fail: false,
+        pool: pool.clone(),
+    };
+    let c5 = create_hours(
+        &control,
+        &caller_a,
+        "ancestor C5",
+        Some(p),
+        20.0,
+        20.0,
+        None,
+    )
+    .await
+    .expect("the control create commits");
+    assert_eq!(
+        derived(&verify, p).await,
+        Derived {
+            est: Some(130.0),
+            rem: Some(124.0),
+            ratio: Some(5),
+            lock_version: 3
+        },
+        "the control changes P"
+    );
+    assert_eq!(
+        derived(&verify, g).await,
+        Derived {
+            est: Some(230.0),
+            rem: Some(224.0),
+            ratio: Some(3),
+            lock_version: 4
+        },
+        "the control changes G"
+    );
+    let (pj, gj) = (journals(&verify, p).await, journals(&verify, g).await);
+    assert_eq!((pj.len(), gj.len()), (3, 4));
+    assert_eq!(
+        (pj[2].version, pj[2].user_id, &pj[2].cause),
+        (3, USER_A, &cause(c5))
+    );
+    assert_eq!(
+        (gj[3].version, gj[3].user_id, &gj[3].cause),
+        (4, USER_A, &cause(c5))
+    );
+    t.rows += 12;
+    t.steps += 1;
+
+    // Two creates under P at the same time. A recomputes P's totals and saves P, holding its row
+    // lock until A commits; B has read P (and P's descendants, without A's uncommitted child)
+    // before that and then waits on the lock. ActiveRecord's optimistic locking makes B's save
+    // `UPDATE ... WHERE lock_version = <as loaded>` find no row once A commits, and
+    // `StaleObjectError` fails B: B must not overwrite P with totals that miss A's child.
+    let p_before = derived(&verify, p).await;
+    let race = |subject: &str| {
+        let mut params = WorkPackageParams::new()
+            .with_subject(subject)
+            .with_estimated_hours(8.0)
+            .with_remaining_hours(8.0);
+        params.project_id = Some(TARGET_PROJECT);
+        params.parent_id = Some(p);
+        params
+    };
+    let a = PgCreateScope::begin(&pool).await.expect("A begins");
+    let row_a = mutation::create_in(&a, &caller_a, race("race A"))
+        .await
+        .expect("A inserts");
+    a.update_ancestors_of_created(row_a.id, row_a.parent_id, USER_A)
+        .await
+        .expect("A saves P");
+    let b = PgCreateScope::begin(&pool).await.expect("B begins");
+    let row_b = mutation::create_in(&b, &caller_a, race("race B"))
+        .await
+        .expect("B inserts");
+    let b_task = tokio::spawn(async move {
+        let r = b
+            .update_ancestors_of_created(row_b.id, row_b.parent_id, USER_A)
+            .await;
+        b.rollback().await;
+        r
+    });
+    // Wait until B is blocked on P's row lock, so B has loaded P before A commits.
+    let mut waiting = false;
+    for _ in 0..200 {
+        let n = count(
+            &verify,
+            "SELECT count(*) FROM pg_stat_activity \
+             WHERE wait_event_type = 'Lock' AND datname = current_database()",
+        )
+        .await;
+        if n > 0 {
+            waiting = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(waiting, "B waits on P's row lock held by A");
+    a.commit().await.expect("A commits");
+    let r = b_task.await.expect("B's task");
+    assert!(
+        matches!(r, Err(StoreFailure::Conflict(_))),
+        "B's stale save of P is a conflict, not a lost update: {r:?}"
+    );
+    assert_eq!(
+        derived(&verify, p).await,
+        // 130 + 8, 124 + 8; round((138 - 132) / 138 * 100) = round(4.35) = 4.
+        Derived {
+            est: Some(138.0),
+            rem: Some(132.0),
+            ratio: Some(4),
+            lock_version: p_before.lock_version + 1
+        },
+        "P carries A's child (saved once, by A) and nothing of B's"
+    );
+    assert_eq!(
+        count(
+            &verify,
+            "SELECT count(*) FROM work_packages WHERE subject = 'race B'"
+        )
+        .await,
+        0,
+        "B rolled back"
+    );
+    t.rows += 3;
+
     verify.close().await;
     db.close().await;
     t
+}
+
+/// Create a work package of project 5 under `parent` with the given hours (and status) through the
+/// boundary.
+async fn create_hours<S: CreationStore>(
+    store: &S,
+    caller: &Caller,
+    subject: &str,
+    parent: Option<i64>,
+    estimated: f64,
+    remaining: f64,
+    status: Option<i64>,
+) -> Result<i64, MutationError> {
+    let mut p = WorkPackageParams::new()
+        .with_subject(subject)
+        .with_estimated_hours(estimated)
+        .with_remaining_hours(remaining);
+    p.project_id = Some(TARGET_PROJECT);
+    p.parent_id = parent;
+    p.status_id = status;
+    mutation::create(store, caller, p).await.map(|row| row.id)
+}
+
+/// The derived columns of a work package and its `lock_version`, as committed.
+#[derive(Debug, PartialEq, sqlx::FromRow)]
+struct Derived {
+    est: Option<f64>,
+    rem: Option<f64>,
+    ratio: Option<i32>,
+    lock_version: i32,
+}
+
+async fn derived(verify: &PgPool, id: i64) -> Derived {
+    sqlx::query_as(
+        "SELECT derived_estimated_hours AS est, derived_remaining_hours AS rem, \
+                derived_done_ratio AS ratio, lock_version \
+         FROM work_packages WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(verify)
+    .await
+    .expect("derived values")
+}
+
+/// The derived columns a journal data row snapshots.
+async fn data_derived(verify: &PgPool, data_id: i64) -> (Option<f64>, Option<f64>, Option<i32>) {
+    sqlx::query_as(
+        "SELECT derived_estimated_hours, derived_remaining_hours, derived_done_ratio \
+         FROM work_package_journals WHERE id = $1",
+    )
+    .bind(data_id)
+    .fetch_one(verify)
+    .await
+    .expect("journal data derived values")
 }
 
 /// The users watching work package `id`, by id.

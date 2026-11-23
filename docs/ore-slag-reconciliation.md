@@ -318,7 +318,7 @@ Separate denominators. Before means #138 as it was; after means this change.
 | Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | AssociationNotInCheckout 2, GeneratedUndecided 1 |
 | Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 29 definite, 0 UNKNOWN, 0 differ (ruff ce96aae `hidden_complete`; 16 / 13 between the #140 review fix and this change) |
 | Callback bodies executed | 0 | 0 |
-| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 9/9, 70 rows asserted; create transactional, creation journal, default priority; update transactional with its journal (no-op, aggregated, new version, rollback); cited by the reconciliation, run separately |
+| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 10/10, 120 rows asserted; create transactional, creation journal, default priority, creator as watcher, ancestor totals (derived hours and done ratio, excluded status, caused journals, rollback, concurrent create caught by lock_version); update transactional with its journal (no-op, aggregated, new version, rollback); cited by the reconciliation, run separately |
 
 The P3b gaps are reported, not hidden:
 
@@ -362,8 +362,41 @@ The P3b gaps are reported, not hidden:
   (watcher written), the add-only member before step 8 (none), and step 7 (rolled back with
   the create) assert each case. Not ported: the `WATCHER_ADDED` notification (sent with
   `send_notifications: false`), non-member access to public projects, module checks.
-- Open: the rest of Ruby's `after_create` (ancestor updates, `apply_patterns`,
-  reschedule) is not ported.
+- Closed: `after_create`'s `multi_update_ancestors` (create_service.rb:75-77) for a work
+  package created with a parent. On the create's transaction, between the creation
+  journal and the watcher (Ruby's order), each ancestor, parent first, derives
+  `derived_estimated_hours` and `derived_remaining_hours` (the sum of the non-null values
+  over the ancestor and all its descendants whose status is not `excluded_from_totals`;
+  `nil` with no descendants or no value, `update_ancestors_service.rb:219-228`,
+  `WorkPackage#included_in_totals_calculation?`, work_package.rb:295-297) and
+  `derived_done_ratio` (work-weighted average,
+  `round((estimated - remaining) / estimated * 100)`, `nil` when either total is `nil`, the
+  estimate is zero or there are no descendants, :129-138; `Float#round` is half away from
+  zero, so the value is computed in Rust, not with Postgres' half-to-even `round`; the sum
+  is Ruby's compensated `Array#sum`). Only an ancestor whose values changed is saved
+  (`lock_version` and `updated_at` bump) and journaled with cause
+  `{"type": "work_package_children_changed_values", "work_package_id": <new id>}`, as the
+  acting user, through the update journal's rules (create_service.rb:595-627): the journal is
+  written even with no other change, the last journal is rewritten in place when it is the
+  same user's, within the window, with an empty cause or this very cause (the rewrite takes
+  the new cause), and a predecessor with a different non-empty cause is never aggregated
+  into (`Base#merge_into` is `nil`). New columns in migration 0003:
+  `work_packages.derived_*` and `statuses.excluded_from_totals`; the journal snapshot copies
+  and compares the derived columns. The create now also accepts `remaining_hours`. The mode
+  is the constant `TOTAL_PERCENT_COMPLETE_MODE` (`work_weighted_average`, the default of
+  `total_percent_complete_mode`, definition.rb:279-283) because there is no settings
+  table. EXECUTED_DB step 10 asserts, on a three-level chain G > P > C: P and G derived
+  values by hand (G: 200 / 199 hours, `round(0.5) = 1`), the grandparent updated too, an
+  excluded-status child leaving every row and journal byte-identical, the caused journal
+  aggregated for the same user and not aggregated across a different cause, a new version
+  for another user, the journal data rows carrying the derived values, and a failure after
+  the ancestor update leaving ancestors, their journals and the child untouched (with a
+  committing control). Not ported: `switch_to_automatic_mode` (needs scheduling
+  relations), `derive_ignore_non_working_days`, `simple_average` and status-based modes,
+  former ancestors (only a change of parent has any), notifications, and the update path:
+  an edit does not recompute ancestors yet. Like Ruby's create it takes no lock on the
+  ancestors.
+- Open: the rest of Ruby's `after_create` (`apply_patterns`, reschedule) is not ported.
 
 A committed row in that journey is evidence about the Rust paths, not Rails
 persistence parity.

@@ -26,6 +26,7 @@ pub struct WorkPackageEntity {
     pub start_date: Option<chrono::NaiveDate>,
     pub due_date: Option<chrono::NaiveDate>,
     pub estimated_hours: Option<f64>,
+    pub remaining_hours: Option<f64>,
     pub done_ratio: i32,
     pub parent_id: Option<Id>,
     pub version_id: Option<Id>,
@@ -49,6 +50,7 @@ impl WorkPackageEntity {
             start_date: None,
             due_date: None,
             estimated_hours: None,
+            remaining_hours: None,
             done_ratio: 0,
             parent_id: None,
             version_id: None,
@@ -176,6 +178,9 @@ impl<'a, U: UserContext> SetAttributesService<'a, U> {
         }
         if let Some(estimated_hours) = params.estimated_hours {
             self.model.estimated_hours = Some(estimated_hours);
+        }
+        if let Some(remaining_hours) = params.remaining_hours {
+            self.model.remaining_hours = Some(remaining_hours);
         }
         if let Some(done_ratio) = params.done_ratio {
             self.model.done_ratio = done_ratio;

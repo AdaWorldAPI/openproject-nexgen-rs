@@ -33,6 +33,7 @@ BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgMutationStore}::upd
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::begin
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::commit
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::rollback
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::update_ancestors_of_created
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::add_creator_as_watcher
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::write_creation_journal
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::update_in
@@ -40,6 +41,7 @@ BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::lock_
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::acting_user_id
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::update_row
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::write_update_journal
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::write_journal
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::execute
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_MutationStore_for_PgCreateScope::find_wp
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::impl_MutationStore_for_PgCreateScope::project_active
