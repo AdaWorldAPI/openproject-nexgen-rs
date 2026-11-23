@@ -26,6 +26,8 @@
 #   create then destroy: blips=0 destroyed=true ["blip after_commit any", "blip after_commit destroy"]
 #   rescued save: cubs=1 ["rescued cub boom", "cub after_commit c"]
 #   loop creates: pups=2 ["pup after_commit create p1", "pup after_commit create p2"]
+#   same row twice (first-saved=true): ["kit after_commit k1"]
+#   same row twice (first-saved=false): ["kit after_commit k2"]
 B = File.join(ENV.fetch("OPENPROJECT_SRC"), "vendor/bundle/ruby/4.0.0/gems")
 %w[activerecord-8.1.4.1 activemodel-8.1.4.1 activesupport-8.1.4.1].each { |g| $LOAD_PATH.unshift("#{B}/#{g}/lib") }
 Dir["#{B}/{concurrent-ruby,i18n,tzinfo,minitest,base64,bigdecimal,connection_pool,drb,logger,securerandom,uri,benchmark,timeout,json}-*/lib"].each { |d| $LOAD_PATH.unshift(d) }
@@ -162,3 +164,31 @@ class Litter < ActiveRecord::Base
 end
 Litter.create!(name: "l")
 puts "loop creates: pups=#{Pup.count} #{$log.inspect}"
+
+# Two instances of one existing row, both saved in one transaction.
+# ActiveRecord picks one callback recipient per equal record (same class
+# and id); with run_commit_callbacks_on_first_saved_instances_in_transaction
+# (default true, and OpenProject's effective value under load_defaults 6.1)
+# it is the first instance saved.
+ActiveRecord::Schema.define do
+  create_table(:kits) { |t| t.string :name }
+  create_table(:shelves) { |t| t.string :name }
+end
+$log = []
+class Kit < ActiveRecord::Base
+  after_commit { $log << "kit after_commit #{name}" }
+end
+class Shelf < ActiveRecord::Base
+  after_save do
+    a = Kit.find($kit_id); b = Kit.find($kit_id)
+    a.update!(name: "k1"); b.update!(name: "k2")
+  end
+end
+$kit_id = Kit.create!(name: "k0").id
+$log = []
+Shelf.create!(name: "s")
+puts "same row twice (first-saved=#{Kit.run_commit_callbacks_on_first_saved_instances_in_transaction}): #{$log.inspect}"
+Kit.run_commit_callbacks_on_first_saved_instances_in_transaction = false
+$log = []
+Shelf.create!(name: "s2")
+puts "same row twice (first-saved=false): #{$log.inspect}"

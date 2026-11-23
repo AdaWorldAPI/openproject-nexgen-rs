@@ -123,10 +123,23 @@ fn settle(ctx: &mut Ctx, slot: usize, rec: &Record, action: Option<Action>) {
 }
 
 /// Runs each participating record's after_commit chain once, in join order.
+/// Runs after_commit once per row: participants are objects, but
+/// `prepare_instances_to_run_callbacks_on` picks one callback recipient per
+/// equal record (same class, id present). With
+/// `run_commit_callbacks_on_first_saved_instances_in_transaction` at its
+/// default (true; OpenProject's effective value under `load_defaults 6.1`)
+/// the recipient is the first participant, in enrollment order, that
+/// triggers. A record without an id is equal only to itself.
 fn dispatch_commits(ctx: &mut Ctx) -> Result<(), Halt> {
     let pending = std::mem::take(&mut ctx.pending_commit);
+    let mut claimed: std::collections::BTreeSet<(&'static str, i64)> = std::collections::BTreeSet::new();
     for mut p in pending {
         let Some(did) = p.action else { continue };
+        if let Some(id) = p.record.id() {
+            if !claimed.insert((p.model.name, id)) {
+                continue;
+            }
+        }
         let action = match did {
             Action::Destroy => Action::Destroy,
             _ if p.created => Action::Create,
@@ -1072,6 +1085,49 @@ mod tests {
         assert_eq!(save(&mut ctx, &LOOPER, &mut looper).map(|s| s.ok), Ok(true));
         assert_eq!(ctx.store.count(&PLAIN), 0);
         assert_eq!(commits(&ctx), ["tot_commit_destroy", "tot_commit_destroy"]);
+    }
+
+    fn kit_commit_seen(ctx: &mut Ctx, rec: &mut Record) -> Result<Value, Halt> {
+        ctx.settings.insert("kit_commit_seen".into(), rec.get(1).clone());
+        Ok(Value::Nil)
+    }
+
+    static KIT: ModelSpec = ModelSpec {
+        name: "Kit",
+        table: &PLAIN,
+        callbacks: &[cb(Phase::AfterCommit, "kit_commit", On::ANY, kit_commit_seen)],
+    };
+
+    fn save_one_row_through_two_instances(ctx: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
+        let mut a = find(ctx, &KIT, 1)?.expect("kit row");
+        let mut b = find(ctx, &KIT, 1)?.expect("kit row");
+        a.set(1, Value::str("k1"));
+        save(ctx, &KIT, &mut a)?;
+        b.set(1, Value::str("k2"));
+        save(ctx, &KIT, &mut b)?;
+        Ok(Value::Nil)
+    }
+
+    static SHELF: ModelSpec = ModelSpec {
+        name: "Shelf",
+        table: &OUTERS,
+        callbacks: &[cb(Phase::AfterSave, "save_one_row_through_two_instances", On::ANY, save_one_row_through_two_instances)],
+    };
+
+    /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, same-row scenario):
+    /// two instances of one row, both saved in one transaction, are two
+    /// participants, but after_commit runs once, on the first instance saved
+    /// (`run_commit_callbacks_on_first_saved_instances_in_transaction`,
+    /// default true and OpenProject's effective value).
+    #[test]
+    fn two_instances_of_one_row_run_after_commit_once_on_the_first() {
+        let mut ctx = ctx_with(&PLAIN);
+        ctx.store.register(&OUTERS);
+        ctx.store.seed(&PLAIN, &[("name", Value::str("k0"))]).unwrap();
+        let mut shelf = build(&mut ctx, &SHELF, &[("name", Value::str("s"))]).unwrap();
+        assert_eq!(save(&mut ctx, &SHELF, &mut shelf).map(|s| s.ok), Ok(true));
+        assert_eq!(commits(&ctx), ["kit_commit"]);
+        assert_eq!(ctx.settings["kit_commit_seen"], Value::str("k1"));
     }
 
     fn create_cub_rescuing(ctx: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
