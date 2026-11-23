@@ -81,8 +81,9 @@ fn date_and_double_columns_keep_their_types() {
             }
         }
     }
-    // work_packages (2 + 4), work_package_journals (2 + 4), non_working_days (1 date).
-    assert_eq!((dates, floats), (5, 8));
+    // work_packages (2 + 4), work_package_journals (2 + 4), non_working_days (1 date),
+    // time_entries (spent_on + hours).
+    assert_eq!((dates, floats), (6, 9));
 }
 
 /// Every journey table OpenProject has is generated, and the one it lacks
@@ -90,23 +91,25 @@ fn date_and_double_columns_keep_their_types() {
 #[test]
 fn every_journey_table_in_openproject_is_generated() {
     let schema = common::structure();
-    for t in op_desk::JOURNEY_TABLES {
+    for t in op_desk::JOURNEY_TABLES.iter().chain(op_desk::READ_TABLES) {
         let generated = MODELS.iter().any(|m| m.table.name == *t);
         assert_eq!(generated, schema.contains_key(*t), "{t}");
     }
     assert!(!schema.contains_key("projects_types"));
 }
 
-/// Without the source: the generated slice covers the journey tables, once each.
+/// Without the source: the generated slice covers the journey and read tables, once each.
 #[test]
 fn generated_slice_covers_the_journey_tables_once() {
     let mut names: Vec<&str> = MODELS.iter().map(|m| m.table.name).collect();
     names.sort_unstable();
-    let want: Vec<&str> = op_desk::JOURNEY_TABLES
+    let mut want: Vec<&str> = op_desk::JOURNEY_TABLES
         .iter()
+        .chain(op_desk::READ_TABLES)
         .copied()
         .filter(|t| *t != "projects_types")
         .collect();
+    want.sort_unstable();
     assert_eq!(names, want);
     assert!(
         MODELS.iter().all(|m| m.callbacks.is_empty()),

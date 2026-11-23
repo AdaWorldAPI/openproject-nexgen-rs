@@ -14,6 +14,7 @@ pub mod relation;
 pub mod role;
 pub mod role_permission;
 pub mod status;
+pub mod time_entry;
 pub mod r#type;
 pub mod user;
 pub mod watcher;
@@ -33,6 +34,7 @@ pub static MODELS: &[&rails_polyfill::ModelSpec] = &[
     &role::MODEL,
     &role_permission::MODEL,
     &status::MODEL,
+    &time_entry::MODEL,
     &r#type::MODEL,
     &user::MODEL,
     &watcher::MODEL,

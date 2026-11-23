@@ -108,8 +108,8 @@ pub fn generate(cfg_path: &Path) -> Result<BTreeMap<String, String>, String> {
         let table = asm
             .explicit_table_name(m)
             .unwrap_or_else(|| table_name(m, &is_model, &h.irregulars));
-        if !op_desk::JOURNEY_TABLES.contains(&table.as_str()) {
-            return Err(format!("{m}: table {table} is not a journey table"));
+        if !op_desk::is_slice_table(&table) {
+            return Err(format!("{m}: table {table} is not a journey or read table"));
         }
         let t = dump
             .get(&table)
