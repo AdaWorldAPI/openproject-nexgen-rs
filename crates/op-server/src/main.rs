@@ -492,6 +492,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn readiness_fails_without_a_database_while_liveness_stays_up() {
+        // Railway's healthcheckPath is /health/ready: a deploy whose DATABASE_URL is
+        // missing or wrong must not go live, while /health (the container's liveness
+        // probe) keeps answering.
+        let ready = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/health/ready")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ready.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let live = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(live.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
     async fn test_api_root() {
         let app = test_app();
 

@@ -4,15 +4,20 @@
 # =============================================================================
 # Stage 1: Build
 # =============================================================================
-# Toolchain MUST match rust-toolchain.toml (1.98.1);
+# Toolchain MUST match rust-toolchain.toml (1.99.0);
 # an older base (this was pinned at 1.85) fails the build outright.
 FROM rust:1.99.0-slim-bookworm AS builder
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
+# Install build dependencies. `git` lets cargo fetch the AdaWorldAPI git
+# dependencies (OGAR, a2ui-rs, lance-graph, ndarray, ...) with the system git
+# client; they are public, so no credentials are used or needed.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
+    git \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 
 WORKDIR /app
 
@@ -22,7 +27,11 @@ WORKDIR /app
 # ruff_openproject were all missing → the toml-only cache layer was already
 # broken). A single COPY is correct and drift-proof; Railway's layer cache
 # still skips this step when nothing under the build context changed.
-COPY Cargo.toml Cargo.lock ./
+#
+# There is no Cargo.lock in the repository (it is gitignored on purpose: the
+# workspace compiles from the latest resolution, commit 27f2c1b), so only
+# Cargo.toml is copied. Copying Cargo.lock would fail on a fresh clone.
+COPY Cargo.toml ./
 COPY crates/ crates/
 
 # SQLx is used in *offline* mode (no DB reachable at build time). The query
@@ -30,8 +39,9 @@ COPY crates/ crates/
 # against the checked-in ./crates/op-db/migrations, not a live DB.
 ENV SQLX_OFFLINE=true
 
-# Build the server binary (release).
-RUN cargo build --release --package op-server
+# Build the server binary (release) and strip its debug symbols.
+RUN cargo build --release --package op-server \
+    && strip target/release/openproject-server
 
 # =============================================================================
 # Stage 2: Runtime
@@ -75,8 +85,10 @@ EXPOSE 8080
 # Railway's job via `railway.toml` healthcheckPath, and coupling container
 # liveness to the DB would make the container restart-loop during a transient
 # DB blip instead of staying up to serve `/health/ready` = not-ready.
+# It probes `$PORT`, the port the server binds when Railway injects one, and
+# falls back to 8080 for a local `docker run`.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD curl -fsS "http://localhost:${PORT:-8080}/health" || exit 1
 
 # Use tini as init process for proper signal handling
 ENTRYPOINT ["/usr/bin/tini", "--"]
