@@ -281,6 +281,7 @@ impl AuthorizedUpdate {
         store: &S,
         dto: UpdateWorkPackageDto,
     ) -> Result<WorkPackageRow, MutationError> {
+        validate_update(&self.existing, &dto)?;
         store
             .update_unit_of_work(&self.caller, self.existing.id, dto)
             .await
@@ -301,6 +302,35 @@ impl AuthorizedDelete {
     pub async fn commit<S: DeleteStore>(self, store: &S) -> Result<(), MutationError> {
         Ok(store.delete_wp(self.existing.id).await?)
     }
+}
+
+/// `edit_work_packages` on record `id`, refusing the anonymous caller before any lookup, demo
+/// posture or not: an anonymous edit cannot be journaled here (no `users.type`, so no
+/// `AnonymousUser` row), and an edit the history cannot attribute is not applied
+/// (docs/decisions/0001-journaled-edits.md §2, a deliberate divergence from OpenProject).
+async fn authorize_edit<S: MutationStore>(
+    store: &S,
+    caller: &Caller,
+    id: Id,
+) -> Result<WorkPackageRow, MutationError> {
+    if matches!(caller, Caller::Anonymous { .. }) {
+        return Err(MutationError::Unauthenticated);
+    }
+    authorize_record(store, caller, id, EDIT_WORK_PACKAGES).await
+}
+
+/// The model validation an update can newly fail: `validates :priority, presence: true`
+/// (`app/models/work_package/validations.rb:34`, run by `ModelContract#valid?`,
+/// `app/contracts/model_contract.rb:85-88`). A work package stored without a priority, edited
+/// without setting one, is refused with `priority: blank` before any write
+/// (docs/decisions/0001-journaled-edits.md §1).
+fn validate_update(existing: &WorkPackageRow, dto: &UpdateWorkPackageDto) -> Result<(), MutationError> {
+    if dto.priority_id.or(existing.priority_id).is_none() {
+        let mut errors = ValidationErrors::new();
+        errors.add("priority", "blank");
+        return Err(MutationError::Invalid(errors));
+    }
+    Ok(())
 }
 
 async fn authorize_record<S: MutationStore>(
@@ -324,7 +354,7 @@ pub async fn authorize_update<S: MutationStore>(
     caller: &Caller,
     id: Id,
 ) -> Result<AuthorizedUpdate, MutationError> {
-    let existing = authorize_record(store, caller, id, EDIT_WORK_PACKAGES).await?;
+    let existing = authorize_edit(store, caller, id).await?;
     Ok(AuthorizedUpdate {
         existing,
         caller: caller.clone(),
@@ -947,22 +977,20 @@ impl PgCreateScope {
         aggregation_minutes: i64,
     ) -> Result<WorkPackageRow, MutationError> {
         self.lock_work_package(id).await?;
-        authorize_record(self, caller, id, EDIT_WORK_PACKAGES).await?;
+        let existing = authorize_edit(self, caller, id).await?;
+        validate_update(&existing, &dto)?;
         let user_id = self.acting_user_id(caller).await?;
         let mut row = self.update_row(id, dto).await?;
-        if let Some(user_id) = user_id {
-            self.write_update_journal(id, user_id, aggregation_minutes)
-                .await?;
-            // `touch_journable` may have advanced `updated_at` past the UPDATE's value: answer
-            // with the committed timestamp, the one the journal carries.
-            let mut tx = self.tx.lock().await;
-            row.updated_at =
-                sqlx::query_scalar("SELECT updated_at FROM work_packages WHERE id = $1")
-                    .bind(id)
-                    .fetch_one(&mut **tx)
-                    .await
-                    .map_err(db_failure)?;
-        }
+        self.write_update_journal(id, user_id, aggregation_minutes)
+            .await?;
+        // `touch_journable` may have advanced `updated_at` past the UPDATE's value: answer with
+        // the committed timestamp, the one the journal carries.
+        let mut tx = self.tx.lock().await;
+        row.updated_at = sqlx::query_scalar("SELECT updated_at FROM work_packages WHERE id = $1")
+            .bind(id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(db_failure)?;
         Ok(row)
     }
 
@@ -977,14 +1005,15 @@ impl PgCreateScope {
     }
 
     /// `users.id` of the person the update is journaled for: `User.current` in the Ruby service
-    /// (`User.execute_as user`, `service_context.rb:66-70`), `None` when there is no such row to
-    /// name. A verified actor is their `users` row. The demo posture's anonymous caller would be
-    /// OpenProject's `AnonymousUser` row (`users.type = 'AnonymousUser'`), but this schema has no
-    /// `users.type` column and so no way to identify one: that update is written as before this
-    /// port, without a journal. (Not ported: journaling the anonymous demo editor.)
-    async fn acting_user_id(&self, caller: &Caller) -> Result<Option<Id>, StoreFailure> {
+    /// (`User.execute_as user`, `service_context.rb:66-70`), a verified actor's `users` row. The
+    /// anonymous caller never gets here ([`authorize_edit`] refuses it,
+    /// docs/decisions/0001-journaled-edits.md §2); if one did, the update is refused rather than
+    /// written without a journal.
+    async fn acting_user_id(&self, caller: &Caller) -> Result<Id, StoreFailure> {
         let Caller::Actor { login } = caller else {
-            return Ok(None);
+            return Err(StoreFailure::Other(
+                "an anonymous update has no users row to journal it as".into(),
+            ));
         };
         let mut tx = self.tx.lock().await;
         let found: Option<Id> = sqlx::query_scalar("SELECT id FROM users WHERE login = $1")
@@ -992,7 +1021,7 @@ impl PgCreateScope {
             .fetch_optional(&mut **tx)
             .await
             .map_err(db_failure)?;
-        found.map(Some).ok_or_else(|| {
+        found.ok_or_else(|| {
             StoreFailure::Other("no users row to attribute the journal of this update to".into())
         })
     }
@@ -1491,7 +1520,7 @@ mod tests {
             project_id,
             type_id: 1,
             status_id: 1,
-            priority_id: None,
+            priority_id: Some(1),
             author_id: 1,
             assigned_to_id: None,
             responsible_id: None,
@@ -1700,12 +1729,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_demo_anonymous_opt_in_edits_but_never_creates() {
+    async fn the_demo_anonymous_opt_in_neither_edits_nor_creates() {
+        // docs/decisions/0001-journaled-edits.md §2: no anonymous edit, demo posture or not.
         let store = Fake::new();
         let demo = Caller::Anonymous { allowed: true };
-        assert!(update(&store, &demo, 100, UpdateWorkPackageDto::default())
-            .await
-            .is_ok());
+        assert!(matches!(
+            update(&store, &demo, 100, UpdateWorkPackageDto::default()).await,
+            Err(MutationError::Unauthenticated)
+        ));
+        assert_eq!(
+            store.find_calls.load(Ordering::SeqCst),
+            0,
+            "refused before any lookup"
+        );
         assert!(matches!(
             create(&store, &demo, new_wp(Some(MEMBER_PROJECT))).await,
             Err(MutationError::Unauthenticated)
@@ -1909,6 +1945,33 @@ mod tests {
         let updates = store.updates.lock().unwrap();
         assert_eq!(updates.len(), 1);
         assert_eq!(updates[0].0, 100);
+    }
+
+    #[tokio::test]
+    async fn an_edit_of_a_work_package_without_a_priority_needs_one() {
+        // `validates :priority, presence: true` (work_package/validations.rb:34) via
+        // ModelContract#valid?: refused with `priority: blank`, nothing written.
+        let mut store = Fake::new().member(MEMBER_PROJECT, &[EDIT_WORK_PACKAGES]);
+        store.wps.get_mut(&100).unwrap().priority_id = None;
+        let subject_only = UpdateWorkPackageDto {
+            subject: Some("new".into()),
+            ..Default::default()
+        };
+        match update(&store, &alice(), 100, subject_only).await {
+            Err(MutationError::Invalid(errors)) => {
+                assert_eq!(errors.get("priority"), Some(&vec!["blank".to_string()]))
+            }
+            r => panic!("expected priority: blank, got {r:?}"),
+        }
+        assert_eq!(store.writes(), 0, "nothing written");
+        // The same edit that sets a priority is accepted.
+        let with_priority = UpdateWorkPackageDto {
+            subject: Some("new".into()),
+            priority_id: Some(8),
+            ..Default::default()
+        };
+        assert!(update(&store, &alice(), 100, with_priority).await.is_ok());
+        assert_eq!(store.writes(), 1);
     }
 
     #[tokio::test]

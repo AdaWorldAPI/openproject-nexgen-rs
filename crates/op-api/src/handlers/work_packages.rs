@@ -393,7 +393,7 @@ mod tests {
             project_id,
             type_id: 1,
             status_id: 1,
-            priority_id: None,
+            priority_id: Some(1),
             author_id: 1,
             assigned_to_id: Some(9),
             responsible_id: Some(8),

@@ -318,7 +318,7 @@ Separate denominators. Before means #138 as it was; after means this change.
 | Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | AssociationNotInCheckout 2, GeneratedUndecided 1 |
 | Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 29 definite, 0 UNKNOWN, 0 differ (ruff ce96aae `hidden_complete`; 16 / 13 between the #140 review fix and this change) |
 | Callback bodies executed | 0 | 0 |
-| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 9/9, 61 rows asserted; create transactional, creation journal, default priority; update transactional with its journal (no-op, aggregated, new version, rollback); cited by the reconciliation, run separately |
+| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 9/9, 65 rows asserted; create transactional, creation journal, default priority; update transactional with its journal (no-op, aggregated, new version, rollback); cited by the reconciliation, run separately |
 
 The P3b gaps are reported, not hidden:
 
@@ -348,10 +348,13 @@ The P3b gaps are reported, not hidden:
   a rollback after the journal, a stale `lock_version`, and a work package with no
   journal yet. Not ported: the association rows, notifications, notes and causes,
   `skip_aggregation`, journaling of the anonymous demo editor (this schema has no
-  `users.type`, so that update is applied without a journal as before), and Rails' skipped
+  `users.type`, so the anonymous caller may not edit at all: a deliberate divergence,
+  docs/decisions/0001-journaled-edits.md §2), and Rails' skipped
   UPDATE for a no-op save (a no-op edit still bumps `lock_version` and `updated_at`;
   it writes no journal). The aggregation window is a constant because there is no
-  settings table.
+  settings table. An edit of a work package stored without a priority, that does not set
+  one, is refused with `priority: blank` (`validates :priority, presence: true`,
+  work_package/validations.rb:34, via `ModelContract#valid?`), as in OpenProject.
 - Open: the rest of Ruby's `after_create` (watchers, ancestor updates,
   `apply_patterns`, reschedule) is not ported.
 
