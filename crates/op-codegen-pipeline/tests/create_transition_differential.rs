@@ -616,7 +616,12 @@ fn harvest(src: &Path, svc: &Value) -> Harvested {
         .flat_map(|c| c["journal"].as_array().expect("journal").iter())
         .map(|e| e["model"].as_str().expect("model").to_string())
         .collect();
-    let (ctxs, _unresolved) = cb::contexts(src, &models);
+    // The same intake `callback_differential` uses: engine patches included into the
+    // model, in the order the engines load.
+    let cfg = cb::intake_cfg();
+    let mut h = cb::harvest_for(src, &cfg);
+    let patches = cb::discover_patches(src, &cfg, &mut h);
+    let (ctxs, _unresolved) = cb::contexts(&mut h, &models, &patches);
     let ev = cb::scan_tree(src, &models);
     Harvested { ctxs, ev }
 }

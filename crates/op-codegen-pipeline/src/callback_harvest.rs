@@ -15,9 +15,7 @@ use ruff_ruby_spo::rails_generated::{
 };
 use ruff_ruby_spo::Declaration;
 use ruff_spo_triplet::{AssocKind, ConcernKind, ValidationKind};
-
-/// Directories (relative to the checkout) a Zeitwerk constant is looked up in.
-pub const WALKED_ROOTS: &[&str] = &["app/models", "app/models/concerns", "lib"];
+use serde::Deserialize;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Reasons
@@ -83,6 +81,13 @@ pub enum Slag {
     /// The record's class has no file to harvest: it is generated at runtime
     /// (closure_tree's `WorkPackageHierarchy`). Stage: Rails/gem polyfill.
     ModelWithoutClassFile,
+    /// The association or validator is spelled by a line in a file that IS in
+    /// the harvested chain (a patch module the intake applied), yet the harvest
+    /// produced no declaration for it: the file registers it in a body shape
+    /// ruff does not walk (`def self.included(base) ... base.class_eval do`, or
+    /// a `validates_*_of` helper, which `walk` sends to the `DslCall`
+    /// catch-all). Stage: ruff extension (walk those shapes).
+    ChainFileNotHarvested,
     /// `rails_generated::derive` returned `Undecided` for the association that
     /// causes this callback: a rule applies but an option or application
     /// setting is not a literal (a `has_and_belongs_to_many` middle model's
@@ -106,6 +111,7 @@ impl Slag {
             Slag::ValidatorFromFramework,
             Slag::ValidatesWithUndeclared,
             Slag::ModelWithoutClassFile,
+            Slag::ChainFileNotHarvested,
             Slag::GeneratedUndecided,
         ]
     }
@@ -192,6 +198,8 @@ pub struct Ancestor {
 
 pub struct Harvest {
     pub src: PathBuf,
+    /// Zeitwerk roots in lookup order (`oracle/intake.json`, `*` expanded).
+    pub roots: Vec<String>,
     /// File -> every class and module in it (`source_ore_from`: modules carry
     /// their `included do` declarations, `includes` and `superclass`).
     pub cache: BTreeMap<String, Vec<ClassOre>>,
@@ -200,9 +208,10 @@ pub struct Harvest {
 }
 
 impl Harvest {
-    pub fn new(src: &Path) -> Self {
+    pub fn new(src: &Path, roots: Vec<String>) -> Self {
         Harvest {
             src: src.to_path_buf(),
+            roots,
             cache: BTreeMap::new(),
             unresolved: Vec::new(),
         }
@@ -221,7 +230,7 @@ impl Harvest {
     /// Find constant `name` in the walked roots.
     pub fn find(&mut self, name: &str) -> Option<(String, ClassOre)> {
         let path = format!("{}.rb", underscore(name));
-        for root in WALKED_ROOTS {
+        for root in self.roots.clone() {
             let rel = format!("{root}/{path}");
             if self.src.join(&rel).is_file() {
                 let hit = self.load(&rel).iter().find(|o| o.name == name).cloned();
@@ -304,6 +313,413 @@ impl Harvest {
             }
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Intake: engine patches (`oracle/intake.json`)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// OpenProject plugin modules change core models through a DSL, not by where
+// their files sit: `patches %i[WorkPackage]` in an engine's class body queues
+// `WorkPackage.include(<Plugin>::Patches::WorkPackagePatch)` for `to_prepare`
+// (`lib/open_project/plugins/acts_as_op_engine.rb:105-114`). The rules that say
+// which call includes which module are data in `oracle/intake.json`; this code
+// interprets them and names no OpenProject module.
+//
+// The calls come from ruff: `Declaration::DslCall` carries every class-body
+// call it does not promote, in source order, with its arguments rendered.
+
+#[derive(Debug, Deserialize)]
+pub struct IntakeCfg {
+    pub roots: RootsCfg,
+    pub engines: EnginesCfg,
+    pub engine_order: EngineOrderCfg,
+    pub patch_rules: Vec<PatchRule>,
+    pub phase: PhaseCfg,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RootsCfg {
+    pub list: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EnginesCfg {
+    pub search: Vec<String>,
+    pub file_name: String,
+    pub superclass: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EngineOrderCfg {
+    pub file: String,
+    pub line_marker: String,
+    pub line_marker_end: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PhaseCfg {
+    pub applies: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchRule {
+    pub call: String,
+    /// `symbol_array` (`[:A,:B]`), `symbol_path` (`:A, :B, :C`) or `module_into`
+    /// (`"Mod", into: ...`).
+    pub args: String,
+    /// Constant name templates tried in order: `{plugin_module}`, `{class}`,
+    /// `{qualified}`, `{module}`.
+    pub patch: Vec<String>,
+    pub how: String,
+    pub cite: String,
+}
+
+pub fn intake_cfg() -> IntakeCfg {
+    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../oracle/intake.json");
+    let cfg: IntakeCfg = serde_json::from_str(&std::fs::read_to_string(p).expect("intake.json"))
+        .expect("intake.json parses");
+    assert_eq!(
+        cfg.phase.applies, "after_class_body",
+        "the splice below implements only after_class_body"
+    );
+    cfg
+}
+
+pub fn join_rel(base: &str, seg: &str) -> String {
+    if base.is_empty() {
+        seg.to_string()
+    } else {
+        format!("{base}/{seg}")
+    }
+}
+
+/// Directories matching `pattern` (a `*` segment is one directory).
+pub fn expand_dirs(src: &Path, pattern: &str) -> Vec<String> {
+    let mut cur = vec![String::new()];
+    for seg in pattern.split('/') {
+        let mut next = Vec::new();
+        for base in &cur {
+            if seg == "*" {
+                let mut names: Vec<String> = std::fs::read_dir(src.join(base))
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .filter(|e| e.path().is_dir())
+                    .map(|e| e.file_name().to_string_lossy().to_string())
+                    .collect();
+                names.sort();
+                next.extend(names.iter().map(|n| join_rel(base, n)));
+            } else {
+                next.push(join_rel(base, seg));
+            }
+        }
+        cur = next;
+    }
+    cur.into_iter().filter(|d| src.join(d).is_dir()).collect()
+}
+
+pub fn files_named(src: &Path, dir: &str, name: &str, out: &mut Vec<String>) {
+    let mut entries: Vec<_> = std::fs::read_dir(src.join(dir))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .collect();
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for e in entries {
+        let n = e.file_name().to_string_lossy().to_string();
+        let rel = join_rel(dir, &n);
+        if e.path().is_dir() {
+            files_named(src, &rel, name, out);
+        } else if n == name {
+            out.push(rel);
+        }
+    }
+}
+
+/// Module directories in the order `file` lists them.
+pub fn engine_order(src: &Path, cfg: &EngineOrderCfg) -> Vec<String> {
+    let text = std::fs::read_to_string(src.join(&cfg.file)).unwrap_or_default();
+    let mut out = Vec::new();
+    for line in text.lines() {
+        if let Some((_, rest)) = line.split_once(cfg.line_marker.as_str()) {
+            if let Some((name, _)) = rest.split_once(cfg.line_marker_end.as_str()) {
+                out.push(name.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// `[:A,:B]` -> `["A", "B"]`.
+pub fn parse_symbol_array(args: &str) -> Option<Vec<String>> {
+    let inner = args.trim().strip_prefix('[')?.strip_suffix(']')?;
+    inner
+        .split(',')
+        .map(|t| t.trim().strip_prefix(':').map(str::to_string))
+        .collect()
+}
+
+/// `:A, :B` -> `["A", "B"]`.
+pub fn parse_symbol_path(args: &str) -> Option<Vec<String>> {
+    args.split(',')
+        .map(|t| t.trim().strip_prefix(':').map(str::to_string))
+        .collect()
+}
+
+/// `"Mod", <rest>` -> (`Mod`, targets in `rest`). Ruff renders keyword
+/// arguments it does not know as `<expr>`; with no readable target the result
+/// is `Err`.
+pub fn parse_module_into(args: &str) -> Result<(String, Vec<String>), String> {
+    let rest = args
+        .trim()
+        .strip_prefix('"')
+        .ok_or("first argument is not a string")?;
+    let (module, rest) = rest.split_once('"').ok_or("unterminated module string")?;
+    if rest.contains("<expr>") {
+        return Err("ruff renders the `into:` keyword argument as <expr>".into());
+    }
+    let targets: Vec<String> = rest
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .collect();
+    if targets.is_empty() {
+        return Err("no `into:` target in the rendered arguments".into());
+    }
+    Ok((module.to_string(), targets))
+}
+
+pub fn fill(template: &str, vars: &[(&str, &str)]) -> String {
+    let mut out = template.to_string();
+    for (k, v) in vars {
+        out = out.replace(&format!("{{{k}}}"), v);
+    }
+    out
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum How {
+    Include,
+    Prepend,
+}
+
+/// A patch the intake resolved to a file in the roots.
+#[derive(Debug, Clone)]
+pub struct AppliedPatch {
+    pub module_dir: String,
+    pub engine: String,
+    pub call: String,
+    pub seq: u32,
+    pub target: String,
+    pub how: How,
+    pub patch_name: String,
+    pub patch_file: String,
+    pub cite: String,
+}
+
+/// Why a patch call has no (readable) patch module. Closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PatchSlag {
+    /// The call's arguments do not have the shape the rule expects.
+    ArgsUnreadable,
+    /// The call names a patch module but ruff renders its target (`into:`) as
+    /// `<expr>`. Stage: ruff extension (render keyword arguments in
+    /// `walk::render_node`, which today handles `Hash` and not `Kwargs`).
+    TargetUnreadable,
+    /// No file in the roots defines the module the rule derives.
+    PatchFileNotFound,
+    /// The module's file exists, but it registers its declarations in
+    /// `def self.included(base) ... base.class_eval do ... end`, which
+    /// `module_ore` does not walk (only a direct `included do`). Stage: ruff
+    /// extension (walk `base.class_eval` bodies inside `self.included`).
+    BodyUnreadable,
+}
+
+impl PatchSlag {
+    pub fn all() -> &'static [PatchSlag] {
+        &[
+            PatchSlag::ArgsUnreadable,
+            PatchSlag::TargetUnreadable,
+            PatchSlag::PatchFileNotFound,
+            PatchSlag::BodyUnreadable,
+        ]
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PatchUnresolved {
+    pub reason: PatchSlag,
+    pub engine: String,
+    pub call: String,
+    pub detail: String,
+}
+
+#[derive(Default)]
+pub struct PatchIntake {
+    pub engines: usize,
+    /// Calls matched by a rule.
+    pub calls: usize,
+    pub applied: Vec<AppliedPatch>,
+    pub unresolved: Vec<PatchUnresolved>,
+}
+
+impl PatchIntake {
+    pub fn for_model<'a>(&'a self, model: &'a str) -> impl Iterator<Item = &'a AppliedPatch> {
+        self.applied.iter().filter(move |p| p.target == model)
+    }
+}
+
+pub fn discover_patches(src: &Path, cfg: &IntakeCfg, h: &mut Harvest) -> PatchIntake {
+    let order = engine_order(src, &cfg.engine_order);
+    let rank = |dir: &str| order.iter().position(|d| d == dir).unwrap_or(order.len());
+    let mut files = Vec::new();
+    for pat in &cfg.engines.search {
+        for dir in expand_dirs(src, pat) {
+            files_named(src, &dir, &cfg.engines.file_name, &mut files);
+        }
+    }
+    let mut out = PatchIntake::default();
+    let mut found: Vec<(usize, AppliedPatch)> = Vec::new();
+    for file in files {
+        let module_dir = file.split('/').nth(1).unwrap_or_default().to_string();
+        let text = std::fs::read_to_string(src.join(&file)).unwrap_or_default();
+        let mut syms = Symbols::default();
+        for ore in source_ore_from(&file, &text, "op", &mut syms) {
+            if !ore
+                .superclass
+                .as_deref()
+                .is_some_and(|s| cfg.engines.superclass.iter().any(|c| c == s))
+            {
+                continue;
+            }
+            out.engines += 1;
+            let plugin_module = ore
+                .name
+                .rsplit_once("::")
+                .map(|(m, _)| m.to_string())
+                .unwrap_or_default();
+            for e in &ore.declarations {
+                let Declaration::DslCall(call) = &e.decl else {
+                    continue;
+                };
+                let Some(rule) = cfg.patch_rules.iter().find(|r| r.call == call.name) else {
+                    continue;
+                };
+                out.calls += 1;
+                let fail = |reason, detail: String| PatchUnresolved {
+                    reason,
+                    engine: ore.name.clone(),
+                    call: format!("{} {}", call.name, call.args),
+                    detail,
+                };
+                // (target, vars for the patch name templates)
+                let mut jobs: Vec<(String, Vec<(&str, String)>)> = Vec::new();
+                match rule.args.as_str() {
+                    "symbol_array" => match parse_symbol_array(&call.args) {
+                        Some(names) => {
+                            for n in names {
+                                jobs.push((
+                                    n.clone(),
+                                    vec![("class", n.clone()), ("qualified", n)],
+                                ));
+                            }
+                        }
+                        None => {
+                            out.unresolved
+                                .push(fail(PatchSlag::ArgsUnreadable, "not a symbol array".into()));
+                            continue;
+                        }
+                    },
+                    "symbol_path" => match parse_symbol_path(&call.args) {
+                        Some(path) if !path.is_empty() => {
+                            let class = path[path.len() - 1].clone();
+                            let qualified = path.join("::");
+                            jobs.push((
+                                qualified.clone(),
+                                vec![("class", class), ("qualified", qualified)],
+                            ));
+                        }
+                        _ => {
+                            out.unresolved
+                                .push(fail(PatchSlag::ArgsUnreadable, "not a symbol path".into()));
+                            continue;
+                        }
+                    },
+                    "module_into" => match parse_module_into(&call.args) {
+                        Ok((module, targets)) => {
+                            for t in targets {
+                                jobs.push((t, vec![("module", module.clone())]));
+                            }
+                        }
+                        Err(why) => {
+                            let reason = if why.starts_with("ruff") || why.starts_with("no `into") {
+                                PatchSlag::TargetUnreadable
+                            } else {
+                                PatchSlag::ArgsUnreadable
+                            };
+                            out.unresolved.push(fail(reason, why));
+                            continue;
+                        }
+                    },
+                    other => panic!("intake.json: unknown args form {other:?}"),
+                }
+                let how = match rule.how.as_str() {
+                    "include" => How::Include,
+                    "prepend" => How::Prepend,
+                    other => panic!("intake.json: unknown how {other:?}"),
+                };
+                for (target, vars) in jobs {
+                    let mut vars: Vec<(&str, &str)> =
+                        vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
+                    vars.push(("plugin_module", plugin_module.as_str()));
+                    let hit = rule.patch.iter().find_map(|t| {
+                        let name = fill(t, &vars);
+                        h.find(&name).map(|(file, ore)| (name, file, ore))
+                    });
+                    let Some((patch_name, patch_file, patch_ore)) = hit else {
+                        out.unresolved.push(fail(
+                            PatchSlag::PatchFileNotFound,
+                            format!("target {target}: none of {:?} in the roots", rule.patch),
+                        ));
+                        continue;
+                    };
+                    let reads_included_block = patch_ore
+                        .declarations
+                        .iter()
+                        .any(|d| matches!(d.origin, DeclOrigin::Included { .. }));
+                    // The scan only picks the reason; the module is applied either way.
+                    let legacy_hook = std::fs::read_to_string(src.join(&patch_file))
+                        .is_ok_and(|t| t.contains("def self.included"));
+                    if how == How::Include && !reads_included_block && legacy_hook {
+                        out.unresolved.push(fail(
+                            PatchSlag::BodyUnreadable,
+                            format!("target {target}: {patch_name} in {patch_file}"),
+                        ));
+                    }
+                    found.push((
+                        rank(&module_dir),
+                        AppliedPatch {
+                            module_dir: module_dir.clone(),
+                            engine: ore.name.clone(),
+                            call: call.name.clone(),
+                            seq: e.seq,
+                            target,
+                            how,
+                            patch_name,
+                            patch_file,
+                            cite: rule.cite.clone(),
+                        },
+                    ));
+                }
+            }
+        }
+    }
+    // to_prepare order: engine (gem require) order, then statement order.
+    found.sort_by(|(ra, a), (rb, b)| (ra, &a.module_dir, a.seq).cmp(&(rb, &b.module_dir, b.seq)));
+    out.applied = found.into_iter().map(|(_, p)| p).collect();
+    out
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -614,14 +1030,22 @@ impl EffState {
 }
 
 impl Harvest {
-    /// The model's callbacks in Rails registration order.
-    pub fn effective(&mut self, model: &str) -> Vec<Declared> {
+    /// The model's callbacks in Rails registration order. `patches` are the
+    /// engine includes (`oracle/intake.json`), already in `to_prepare` order;
+    /// they run after the class body, so their declarations come last. A
+    /// `prepend` runs only the prepended block and registers nothing.
+    pub fn effective(&mut self, model: &str, patches: &PatchIntake) -> Vec<Declared> {
         let mut st = EffState {
             included: BTreeSet::new(),
             out: Vec::new(),
         };
         let mut guard = BTreeSet::new();
         self.eff_class(model, &mut st, &mut guard);
+        for p in patches.for_model(model).filter(|p| p.how == How::Include) {
+            if let Some((_, ore)) = self.find(&p.patch_name) {
+                self.eff_resolved(&p.patch_name, &ore, &mut st);
+            }
+        }
         st.out
     }
 
@@ -670,6 +1094,13 @@ impl Harvest {
         let Some((resolved, _, ore)) = self.resolve(from, module) else {
             return;
         };
+        self.eff_resolved(&resolved, &ore, st);
+    }
+
+    /// `include` of an already resolved module: not again if it is an
+    /// ancestor, its dependencies first, then its `included` block.
+    pub fn eff_resolved(&mut self, resolved: &str, ore: &ClassOre, st: &mut EffState) {
+        let resolved = resolved.to_string();
         if !st.included.insert(resolved.clone()) {
             return;
         }
@@ -693,7 +1124,7 @@ impl Harvest {
         for d in deps {
             self.eff_include(&resolved, &d, st);
         }
-        self.eff_body(&resolved, &ore, true, st);
+        self.eff_body(&resolved, ore, true, st);
     }
 }
 
@@ -747,6 +1178,7 @@ pub fn parse_fired(model: &str, phase: &str, label: &str) -> Option<Vec<Fired>> 
     }
     Some(vec![mk(FiredFilter::Method(label.to_string()))])
 }
+
 // ─────────────────────────────────────────────────────────────────────────
 // Evidence scan (chooses between slag reasons, never creates a match)
 // ─────────────────────────────────────────────────────────────────────────
@@ -1023,6 +1455,16 @@ pub fn classify(f: &Fired, ctx: &ModelCtx, ev: &Evidence) -> (Slag, String) {
                         format!("middle has_many of habtm :{h} (name needs the inflector)"),
                     );
                 }
+                if let Some(f) = ev
+                    .assocs
+                    .get(x)
+                    .and_then(|fs| fs.iter().find(|f| ctx.ancestor_files.contains(*f)))
+                {
+                    return (
+                        Slag::ChainFileNotHarvested,
+                        format!("association :{x} is spelled in {f}, a harvested file; no declaration came out"),
+                    );
+                }
                 let files = ev.relevant(ev.assocs.get(x), model, ctx);
                 // A plugin or engine file is the more specific explanation; a
                 // lone file in the walked roots that merely names the model is
@@ -1067,6 +1509,16 @@ pub fn classify(f: &Fired, ctx: &ModelCtx, ev: &Evidence) -> (Slag, String) {
                         format!("association :{attr}: {} ({})", u.reason, u.rule),
                     );
                 }
+            }
+            if let Some(f) = ev
+                .validates
+                .get(attr)
+                .and_then(|fs| fs.iter().find(|f| ctx.ancestor_files.contains(*f)))
+            {
+                return (
+                    Slag::ChainFileNotHarvested,
+                    format!("validation of :{attr} is spelled in {f}, a harvested file; no declaration came out"),
+                );
             }
             let files = ev.relevant(ev.validates.get(attr), model, ctx);
             match files.iter().find(|p| bucket(p) == Bucket::Module) {
@@ -1121,14 +1573,34 @@ pub fn silent_reason(d: &Declared, fired_chains: &BTreeSet<String>) -> Silent {
     Silent::Unexplained
 }
 
+pub fn harvest_for(src: &Path, cfg: &IntakeCfg) -> Harvest {
+    let roots = cfg
+        .roots
+        .list
+        .iter()
+        .flat_map(|pat| expand_dirs(src, pat))
+        .collect();
+    Harvest::new(src, roots)
+}
+
 pub fn contexts(
-    src: &Path,
+    h: &mut Harvest,
     models: &BTreeSet<String>,
+    patches: &PatchIntake,
 ) -> (BTreeMap<String, ModelCtx>, Vec<(String, String)>) {
-    let mut h = Harvest::new(src);
+    h.unresolved.clear();
     let mut out = BTreeMap::new();
     for m in models {
-        let ancestors = h.linearize(m);
+        let mut ancestors = h.linearize(m);
+        let has_file = !ancestors.is_empty();
+        let mut seen: BTreeSet<String> = ancestors.iter().map(|a| a.name.clone()).collect();
+        for p in patches.for_model(m).filter(|p| p.how == How::Include) {
+            for a in h.linearize(&p.patch_name) {
+                if seen.insert(a.name.clone()) {
+                    ancestors.push(a);
+                }
+            }
+        }
         let mut declared = Vec::new();
         let mut generated = Vec::new();
         let mut undecided = Vec::new();
@@ -1149,16 +1621,16 @@ pub fn contexts(
         out.insert(
             m.clone(),
             ModelCtx {
-                has_file: !ancestors.is_empty(),
+                has_file,
                 assocs: association_names(&ancestors),
                 ancestor_files: ancestors.iter().map(|a| a.file.clone()).collect(),
                 declared,
                 generated,
                 undecided,
                 habtm,
-                effective: h.effective(m),
+                effective: h.effective(m, patches),
             },
         );
     }
-    (out, h.unresolved)
+    (out, h.unresolved.clone())
 }

@@ -1,0 +1,68 @@
+{
+  "doc": "Intake rules for tests/callback_differential.rs. Data, not code: the test interprets it generically and names no OpenProject module. Rules are read from lib/open_project/plugins/acts_as_op_engine.rb at OpenProject 2725194.",
+
+  "roots": {
+    "doc": "Directories (relative to the checkout) a Zeitwerk constant is looked up in, in lookup order. A `*` segment is one directory. Core first, so a module file never shadows a core constant. acts_as_op_engine.rb:42 adds <engine root>/lib to the engine's eager_load_paths; an engine's app/models and app/models/concerns are Rails' defaults.",
+    "list": [
+      "app/models",
+      "app/models/concerns",
+      "lib",
+      "modules/*/app/models",
+      "modules/*/app/models/concerns",
+      "modules/*/lib"
+    ]
+  },
+
+  "engines": {
+    "doc": "An engine is a class whose superclass is one of `superclass`, in a file named `file_name` under any `search` directory. `plugin_module` is the engine constant minus its last segment (acts_as_op_engine.rb:106, `self.class.to_s.deconstantize`).",
+    "search": ["modules/*/lib"],
+    "file_name": "engine.rb",
+    "superclass": ["::Rails::Engine", "Rails::Engine"]
+  },
+
+  "engine_order": {
+    "doc": "Every patch runs inside `config.to_prepare` (acts_as_op_engine.rb:107, :118, :362). An engine's to_prepare blocks are queued by its `add_to_prepare_blocks` initializer, and engine initializers run in railtie order, which is the order the gems were required. The engine order is therefore the order of the module gems in `file`. Within one engine, calls run in statement order. An engine not listed sorts last, by name.",
+    "file": "Gemfile.modules",
+    "line_marker": "path: 'modules/",
+    "line_marker_end": "'"
+  },
+
+  "patch_rules": [
+    {
+      "call": "patches",
+      "args": "symbol_array",
+      "patch": ["{plugin_module}::Patches::{class}Patch"],
+      "how": "include",
+      "cite": "lib/open_project/plugins/acts_as_op_engine.rb:105-114 (`patches`); target `klass_name.to_s.constantize` (:110), `klass.send(:include, patch)` (:111)"
+    },
+    {
+      "call": "patch_with_namespace",
+      "args": "symbol_path",
+      "patch": [
+        "{plugin_module}::Patches::{qualified}Patch",
+        "{plugin_module}::Patches::{class}Patch"
+      ],
+      "how": "include",
+      "cite": "lib/open_project/plugins/acts_as_op_engine.rb:116-129 (`patch_with_namespace`); the second pattern is the `rescue NameError` fallback (:122-124)"
+    },
+    {
+      "call": "include_module",
+      "args": "module_into",
+      "patch": ["{module}"],
+      "how": "include",
+      "cite": "lib/open_project/plugins/acts_as_op_engine.rb:131-133 and :361-371 (`add_module_to_classes`, `target.public_send(:include, mod)`)"
+    },
+    {
+      "call": "prepend_module",
+      "args": "module_into",
+      "patch": ["{module}"],
+      "how": "prepend",
+      "cite": "lib/open_project/plugins/acts_as_op_engine.rb:135-137 and :361-371 (`target.public_send(:prepend, mod)`)"
+    }
+  ],
+
+  "phase": {
+    "doc": "A patch is applied in to_prepare, after the target class body has loaded, so its declarations register after the model's own. `include` runs the module's `included do` block at that moment (ActiveSupport::Concern#append_features, concern.rb:129-140); `prepend` runs only the prepended block (concern.rb:142-152) and registers no callback. A module already in the ancestors is not included again (acts_as_op_engine.rb:111, :368).",
+    "applies": "after_class_body"
+  }
+}

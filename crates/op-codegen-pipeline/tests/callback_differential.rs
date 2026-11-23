@@ -16,6 +16,12 @@
 //! `included` block, generated callbacks at their association) and compares it
 //! with the order the trace recorded. Differences are printed, not asserted.
 //!
+//! Engine patches (`patches %i[WorkPackage]`, `include_module ... into:`) are
+//! applied from `oracle/intake.json`: ruff finds the calls (`DslCall`), the rules
+//! in the data file derive the patch module and when it runs, and its
+//! declarations are spliced after the model's own. A call the rules cannot
+//! resolve gets a [`PatchSlag`], never a silent skip.
+//!
 //! The contract arm (`writable:` guards) is a separate differential; see
 //! `oracle/README.md` for how the two relate.
 //!
@@ -42,10 +48,18 @@ use op_codegen_pipeline::callback_harvest::*;
 use serde_json::Value;
 
 /// Distinct journal entries matched to a declaration, measured on the committed trace.
-const MATCHED_FLOOR: usize = 89;
+const MATCHED_FLOOR: usize = 91;
 
 /// Of those, entries that match only through a generated callback.
-const MATCHED_GENERATED_FLOOR: usize = 65;
+const MATCHED_GENERATED_FLOOR: usize = 67;
+
+/// Distinct patch modules the intake applies to `WorkPackage` (include only),
+/// measured on the checkout at the trace's revision.
+const WORK_PACKAGE_PATCHES_FLOOR: usize = 4;
+
+/// Patch calls whose `into:` target ruff renders as `<expr>`. Falls when ruff
+/// renders keyword arguments; a rise means the intake found more calls.
+const TARGET_UNREADABLE_CEILING: usize = 38;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Source access
@@ -365,8 +379,38 @@ fn fired_callbacks_are_matched_or_named_slag() {
     let Some(src) = source() else { return };
     let (entries_total, entries) = fired_entries();
     let models: BTreeSet<String> = entries.keys().map(|(m, _, _)| m.clone()).collect();
-    let (ctxs, unresolved) = contexts(&src, &models);
+    let cfg = intake_cfg();
+    let mut h = harvest_for(&src, &cfg);
+    let patches = discover_patches(&src, &cfg, &mut h);
+    let (ctxs, unresolved) = contexts(&mut h, &models, &patches);
     let ev = scan_tree(&src, &models);
+
+    eprintln!(
+        "intake: {} engines, {} patch calls matched by a rule, {} resolved, {} unresolved",
+        patches.engines,
+        patches.calls,
+        patches.applied.len(),
+        patches.unresolved.len()
+    );
+    for model in &models {
+        for p in patches.for_model(model) {
+            eprintln!(
+                "  {model} <- {:?} {} [{}: {} seq {}] {}  ({})",
+                p.how, p.patch_name, p.module_dir, p.call, p.seq, p.patch_file, p.cite
+            );
+        }
+    }
+    for r in PatchSlag::all() {
+        let rows: Vec<&PatchUnresolved> = patches
+            .unresolved
+            .iter()
+            .filter(|u| u.reason == *r)
+            .collect();
+        eprintln!("  patch slag {r:?}: {}", rows.len());
+        for u in rows.iter().take(40) {
+            eprintln!("     {} {}  [{}]", u.engine, u.call, u.detail);
+        }
+    }
 
     eprintln!(
         "journal entries: {entries_total}; distinct (model, phase, label): {}",
@@ -495,6 +539,68 @@ fn fired_callbacks_are_matched_or_named_slag() {
         "reversing generated names must drop exactly the generated matches"
     );
 
+    // Attribution: the same run without the engine patches is what ruff alone
+    // gives. Patches may only add matches.
+    let (bare_ctxs, _) = contexts(&mut h, &models, &PatchIntake::default());
+    let bare = run(&bare_ctxs, &entries, &ev, Clone::clone);
+    let bare_order = order_report(|m| bare_ctxs[m].effective.as_slice(), 0);
+    eprintln!(
+        "without the intake: matched {} of {}, via generated {}; order {} groups, {} differ",
+        bare.matched, bare.total, bare.matched_generated, bare_order.groups, bare_order.differing
+    );
+    for s in Slag::all() {
+        eprintln!(
+            "  without the intake, slag {s:?}: {}",
+            bare.slag.get(s).map_or(0, Vec::len)
+        );
+    }
+    assert!(
+        o.matched >= bare.matched,
+        "the intake lost matches: {} with, {} without",
+        o.matched,
+        bare.matched
+    );
+    // Every call a rule matched is applied or typed; none is dropped.
+    let typed_before_apply = patches
+        .unresolved
+        .iter()
+        .filter(|u| u.reason != PatchSlag::BodyUnreadable)
+        .count();
+    assert_eq!(
+        patches.calls,
+        patches
+            .applied
+            .iter()
+            .map(|p| (p.engine.as_str(), p.call.as_str(), p.seq))
+            .collect::<BTreeSet<_>>()
+            .len()
+            + typed_before_apply,
+        "a patch call was neither applied nor given a PatchSlag"
+    );
+    let count = |r: PatchSlag| patches.unresolved.iter().filter(|u| u.reason == r).count();
+    assert_eq!(
+        count(PatchSlag::ArgsUnreadable),
+        0,
+        "a rule did not parse a call"
+    );
+    assert_eq!(
+        count(PatchSlag::PatchFileNotFound),
+        0,
+        "a patch module the rule derives has no file in the roots"
+    );
+    assert!(
+        count(PatchSlag::TargetUnreadable) <= TARGET_UNREADABLE_CEILING,
+        "more unreadable patch targets than measured"
+    );
+    let wp_patches = patches
+        .for_model("WorkPackage")
+        .filter(|p| p.how == How::Include)
+        .count();
+    assert!(
+        wp_patches >= WORK_PACKAGE_PATCHES_FLOOR,
+        "WorkPackage patches: {wp_patches}, floor {WORK_PACKAGE_PATCHES_FLOOR}"
+    );
+
     // Order: reported, not asserted (yet). Only that the comparison ran.
     let effective = order_report(|m| ctxs[m].effective.as_slice(), 6);
     print_order("reconstructed Rails registration order", &effective);
@@ -519,5 +625,38 @@ fn fired_callbacks_are_matched_or_named_slag() {
     assert!(
         effective.groups > 0,
         "the order comparison compared nothing"
+    );
+}
+
+#[test]
+fn intake_argument_forms() {
+    assert_eq!(
+        parse_symbol_array("[:PermittedParams,:WorkPackage]"),
+        Some(vec!["PermittedParams".into(), "WorkPackage".into()])
+    );
+    assert_eq!(parse_symbol_array(":A"), None);
+    assert_eq!(
+        parse_symbol_path(":API, :V3, :Schema"),
+        Some(vec!["API".into(), "V3".into(), "Schema".into()])
+    );
+    assert_eq!(parse_symbol_path(":A, <expr>"), None);
+    // What ruff renders today.
+    assert!(parse_module_into("\"WorkPackages::Costs\", <expr>").is_err());
+    // What a rendered keyword hash would look like.
+    assert_eq!(
+        parse_module_into("\"WorkPackages::Costs\", {:into: \"WorkPackage\"}"),
+        Ok(("WorkPackages::Costs".into(), vec!["WorkPackage".into()]))
+    );
+    assert_eq!(
+        parse_module_into("\"M\", {:into: [\"A\",\"B\"]}").map(|(_, t)| t),
+        Ok(vec!["A".into(), "B".into()])
+    );
+    assert!(parse_module_into("\"M\"").is_err());
+    assert_eq!(
+        fill(
+            "{plugin_module}::Patches::{class}Patch",
+            &[("plugin_module", "X::Y"), ("class", "Z")]
+        ),
+        "X::Y::Patches::ZPatch"
     );
 }
