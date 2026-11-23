@@ -920,6 +920,8 @@ fn render_wp_detail(
         ("status", Some(wp.status_id), status_name),
         ("type", Some(wp.type_id), type_name),
         ("priority", wp.priority_id, priority_name),
+        ("author", Some(wp.author_id), author_name),
+        ("assignee", wp.assigned_to_id, assignee_name),
     ] {
         if let Some(href) = id.and_then(|id| nav_href(&class, role, id)) {
             related.push_str(&format!(
@@ -934,7 +936,37 @@ fn render_wp_detail(
         esc(project_name),
     );
 
-    format!("{context}<style>{}</style>{view}", wp_split_css(&placed))
+    format!(
+        "{context}<style>{}</style>{view}{}",
+        wp_split_css(&placed),
+        has_many_links(&class)
+    )
+}
+
+/// Links to the list pages of `class`'s `has_many` targets that have a
+/// desk-backed list (journals, relations, time entries, members), with
+/// hrefs from `nav::route_for`. Empty when none has a page.
+fn has_many_links(class: &Class) -> String {
+    let links: Vec<String> = nav::nav_edges(class)
+        .into_iter()
+        .filter(|e| e.has_many)
+        .filter_map(|e| {
+            let view = desk_views::VIEWS
+                .iter()
+                .find(|v| v.concept == e.target_concept)?;
+            let route = e.route?;
+            Some(format!(
+                "<a href=\"{route}\" data-role=\"{}\">{}</a>",
+                esc(&e.role),
+                esc(view.title)
+            ))
+        })
+        .collect();
+    if links.is_empty() {
+        String::new()
+    } else {
+        format!("<p class=\"related\">{}</p>", links.join(" · "))
+    }
 }
 
 // ── Work package edit ────────────────────────────────────────────────
@@ -1788,7 +1820,7 @@ fn render_project_detail(row: &ProjectRow) -> String {
     let headline = esc(&row.name);
     let subtitle = row.identifier.clone();
 
-    render_detail(
+    let detail = render_detail(
         class_id,
         &concept,
         row.id as u64,
@@ -1797,7 +1829,8 @@ fn render_project_detail(row: &ProjectRow) -> String {
         &columns,
         &cells,
     )
-    .unwrap_or_else(|e| format!("<pre>render error: {e}</pre>"))
+    .unwrap_or_else(|e| format!("<pre>render error: {e}</pre>"));
+    format!("{detail}{}", has_many_links(&class))
 }
 
 // ── Project edit ─────────────────────────────────────────────────────
@@ -2490,8 +2523,19 @@ mod tests {
             html.contains("In &lt;b&gt;Progress&lt;/b&gt;"),
             "names are escaped: {html}"
         );
-        // The author/assignee targets have no page: no /users link.
-        assert!(!html.contains("/users/"), "{html}");
+        // The author links to its user page; no assignee is set, so no assignee link.
+        assert!(
+            html.contains(&format!(
+                "href=\"/users/{}\" data-role=\"author\"",
+                wp.author_id
+            )),
+            "{html}"
+        );
+        assert!(!html.contains("data-role=\"assignee\""), "{html}");
+        // The has-many lanes link to their list pages.
+        for href in ["/journals", "/relations", "/time_entries"] {
+            assert!(html.contains(&format!("href=\"{href}\"")), "{href}: {html}");
+        }
 
         wp.priority_id = None;
         let html = render_wp_detail(&wp, "In Progress", "Nexgen", "Bug", "—", "Jane", "John");
@@ -2910,8 +2954,8 @@ mod tests {
         );
         assert!(zone(&html, Region::BottomBar), "bottom bar zone");
         assert!(
-            html.contains("Coming soon"),
-            "deferred lanes shown in side menu"
+            html.contains("href=\"/time_entries\""),
+            "every lane linked from the side menu"
         );
         assert!(html.contains("content here"), "main content region");
         assert!(
@@ -2955,9 +2999,9 @@ mod tests {
     /// The app's REAL route skins intern into a ViewRegistry whose
     /// nesting construction order and forward/backward bijective round
     /// trip both hold — the compile/test-time form of the boot self-check
-    /// in `main`. Twelve distinct nodes today: the six PostgreSQL-page
-    /// leaves, the project detail stacking the WP list, and five desk-page
-    /// leaves. The desk views give six skins, but a mask is a column *set*:
+    /// in `main`. Twenty distinct nodes today: the six PostgreSQL-page
+    /// leaves, the project detail stacking the WP list, and thirteen desk-page
+    /// leaves. The seven desk views give fourteen skins, but a mask is a column *set*:
     /// priorities' list and detail select the same three columns (in
     /// different orders) and so intern as one node, as interning must.
     #[test]
@@ -2965,8 +3009,8 @@ mod tests {
         let mut reg = view_registry();
         assert_eq!(
             reg.len(),
-            12,
-            "6 + 1 PostgreSQL-page nodes, 5 distinct desk-page masks"
+            20,
+            "6 + 1 PostgreSQL-page nodes, 13 distinct desk-page masks"
         );
         assert!(reg.verify_stack_order(), "children strictly before parents");
         assert!(reg.verify_bijective(), "resolve∘intern round trip");
@@ -2978,10 +3022,9 @@ mod tests {
 
     /// The work-package detail page's `project` cell is a live
     /// `RecordRef` link (derived from `nav::route_for("Project")`
-    /// being `Some`), while `author` — a known dead lane per
-    /// `nav::NOT_YET_NAVIGABLE` (ProjectActor) — renders as plain resolved
-    /// text with no href anywhere in the fragment. Both are DERIVED from
-    /// `nav::nav_edges`, not hand-wired.
+    /// being `Some`), and an assignee link appears only when the work
+    /// package has an assignee. Both are DERIVED from `nav::nav_edges`,
+    /// not hand-wired.
     #[test]
     fn detail_project_link_is_derived_not_hardwired() {
         let wp = work_package(101, "Fix the login bug", 10, 2, 40);
@@ -2997,9 +3040,23 @@ mod tests {
         );
 
         assert!(html.contains("href=\"/projects/10\""), "{html}");
-        assert!(!html.contains("/users/"), "{html}");
-        // The author label still shows (resolved text), just unlinked.
-        assert!(html.contains("Jane Doe"), "{html}");
+        assert!(!html.contains("data-role=\"assignee\""), "{html}");
+
+        let mut wp = wp;
+        wp.assigned_to_id = Some(7);
+        let html = render_wp_detail(
+            &wp,
+            "In Progress",
+            "Nexgen",
+            "Bug",
+            "High",
+            "Jane Doe",
+            "John Smith",
+        );
+        assert!(
+            html.contains("href=\"/users/7\" data-role=\"assignee\">John Smith</a>"),
+            "{html}"
+        );
     }
 
     /// A project detail page stacks its work packages' list view
@@ -3019,6 +3076,32 @@ mod tests {
         assert!(html.contains("Stacked item two"), "{html}");
         // Stacked rows use the narrower (project-less) column set.
         assert!(!html.contains("href=\"/projects/10\""), "{html}");
+    }
+
+    /// The related-links line lists exactly the `has_many` lanes that have a
+    /// desk page: a project's members and time entries, but not its work
+    /// items (stacked on the page itself, not a desk view).
+    #[test]
+    fn has_many_links_lists_the_desk_backed_lanes() {
+        let html = has_many_links(&ogar_vocab::project());
+        assert!(
+            html.contains("href=\"/users\" data-role=\"members\""),
+            "{html}"
+        );
+        assert!(
+            html.contains("href=\"/time_entries\" data-role=\"time_entries\""),
+            "{html}"
+        );
+        assert!(!html.contains("work_items"), "{html}");
+        let html = has_many_links(&ogar_vocab::project_work_item());
+        for role in ["journals", "relations", "time_entries"] {
+            assert!(
+                html.contains(&format!("data-role=\"{role}\"")),
+                "{role}: {html}"
+            );
+        }
+        // belongs_to edges are links on the context line, not here.
+        assert!(!html.contains("data-role=\"status\""), "{html}");
     }
 }
 

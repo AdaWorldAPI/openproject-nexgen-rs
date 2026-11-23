@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn side_menu_shows_primary_and_deferred() {
+    fn side_menu_links_every_screen_and_defers_none() {
         let html = left_menu_html();
         // Primary screens are live links.
         assert!(html.contains("href=\"/\""), "Board link present");
@@ -250,15 +250,11 @@ mod tests {
         // Desk-backed pages are live links too.
         assert!(html.contains("href=\"/statuses\""), "{html}");
         assert!(html.contains("href=\"/priorities\""), "{html}");
-        // Deferred lanes are shown, disabled — honest about the full surface.
-        assert!(html.contains("Coming soon"));
-        assert!(html.contains("aria-disabled=\"true\""));
-        // A dead-lane concept is humanized (ProjectJournal -> "Project journals").
-        assert!(html.contains("Project journals"), "{html}");
-        assert!(
-            !html.contains("Project statuses"),
-            "statuses is no longer deferred: {html}"
-        );
+        assert!(html.contains("href=\"/users\""), "{html}");
+        assert!(html.contains("href=\"/time_entries\""), "{html}");
+        // Every lane has a page now, so nothing is shown as deferred.
+        assert!(!html.contains("Coming soon"), "{html}");
+        assert!(!html.contains("aria-disabled=\"true\""), "{html}");
     }
 
     #[test]
