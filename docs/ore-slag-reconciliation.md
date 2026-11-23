@@ -318,14 +318,15 @@ Separate denominators. Before means #138 as it was; after means this change.
 | Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | AssociationNotInCheckout 2, GeneratedUndecided 1 |
 | Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 29 definite, 0 UNKNOWN, 0 differ (ruff ce96aae `hidden_complete`; 16 / 13 between the #140 review fix and this change) |
 | Callback bodies executed | 0 | 0 |
-| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | same; cited by the reconciliation, run separately |
+| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 7/7, 14 rows asserted; create transactional; cited by the reconciliation, run separately |
 
 The P3b gaps are reported, not hidden:
 
-- The create is not transactional. A failure after the INSERT leaves the row
-  committed: EXECUTED_DB step 7 reports `transactional create: NO`.
-- The create writes no journal.
-- Authorization and write are not isolated.
+- Closed: the create is transactional. The authorization reads, defaults and
+  INSERT run on one transaction; a failure after the INSERT leaves no row
+  (EXECUTED_DB step 7, `transactional create: YES`, with a committing control).
+- Open: the create writes no journal, and the rest of Ruby's `after_create`
+  (watchers, ancestor updates, `apply_patterns`, reschedule) is not ported.
 
 A committed row in that journey is evidence about the Rust paths, not Rails
 persistence parity.
