@@ -239,10 +239,13 @@ The resolver edits no code and no configuration.
 
 ## 9. One success, one deliberately unresolved
 
-**Success: the nine lowered `writable:` guards.** These are `author_id`, the three
-`derived_*`, `done_ratio`, `due_date`, `ignore_non_working_days`, `start_date` and
-`status_id`. All nine are `RESOLVED(DataWitness)` as in section 8, and all nine stay
-`Slag(RepresentedAsData)` structurally. `ADD_PERMISSION` is held as data too, but it
+**Success: the eight lowered `writable:` guards.** These are `author_id`, the three
+`derived_*`, `done_ratio`, `due_date`, `ignore_non_working_days` and `start_date`. All
+eight are `RESOLVED(DataWitness)` as in section 8, and all eight stay
+`Slag(RepresentedAsData)` structurally. (`status_id` was the ninth. `CreateContract`
+redeclares it with no `writable:` (`create_contract.rb:40-44`), which stores `nil` and
+shadows the base lambda, so a create has no status guard and the row is gone. The
+scorecard and control tables in sections 10 and 11 keep the earlier counts of nine.) `ADD_PERMISSION` is held as data too, but it
 stays `EVIDENCED`. The drift check passes, and production admission authorizes with
 exactly the scanned permission and refuses with every other oracle permission (2/2).
 Its Ruby input is still the permission line scan, not parsed ORE. Once a ruff

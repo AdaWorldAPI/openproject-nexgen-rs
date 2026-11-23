@@ -519,11 +519,33 @@ mod tests {
         assert_eq!(a.verdict, Verdict::Denied);
     }
 
+    /// `CreateContract` redeclares `attribute :status_id, permission: :add_work_packages`
+    /// with no `writable:` (create_contract.rb:40-44). `add_writable` stores `nil`, which
+    /// shadows `WorkPackages::BaseContract`'s `status_id_change || !closed_version_and_status?`
+    /// (`reverse_merge!`, base_contract.rb:182-190), and a `nil` condition never removes the
+    /// attribute (base_contract.rb:238-245). Only the permission gates status on create.
     #[test]
-    fn an_unchanged_closed_status_in_a_closed_version_is_read_only() {
-        let open = is_writable(&MEMBER, Some(5), "status_id", &Facts(false, false, false));
-        let closed = is_writable(&MEMBER, Some(5), "status_id", &Facts(false, true, true));
-        assert_eq!((open, closed), (Writable::Yes, Writable::No));
+    fn status_on_create_is_gated_by_the_permission_alone() {
+        // Unchanged, closed status in a closed version: the base lambda would deny this.
+        let closed = Facts(false, true, true);
+        assert_eq!(
+            is_writable(&MEMBER, Some(5), "status_id", &closed),
+            Writable::Yes
+        );
+        // Silence twin: the permission still gates it.
+        let nobody = User {
+            admin: false,
+            held: &[],
+        };
+        assert_eq!(
+            is_writable(&nobody, Some(5), "status_id", &closed),
+            Writable::No
+        );
+        // The generated rule carries no program, so no fact is read.
+        assert!(matches!(
+            rule_for("status").expect("declared").writable,
+            WritableRule::Always
+        ));
     }
 
     #[test]
@@ -534,7 +556,7 @@ mod tests {
                 None
             }
         }
-        let w = is_writable(&MEMBER, Some(5), "status_id", &None_);
+        let w = is_writable(&MEMBER, Some(5), "start_date", &None_);
         assert!(matches!(
             w,
             Writable::Unresolved(Unresolved::FactUnavailable(_))
@@ -545,7 +567,7 @@ mod tests {
             held: &[],
         };
         assert_eq!(
-            is_writable(&nobody, Some(5), "status_id", &None_),
+            is_writable(&nobody, Some(5), "start_date", &None_),
             Writable::No
         );
     }

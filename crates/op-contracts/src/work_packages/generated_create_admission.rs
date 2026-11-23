@@ -39,7 +39,7 @@ pub static ATTRIBUTES: &[AttrRule] = &[
     AttrRule { name: "responsible", permissions: PermissionRule::AnyOf(&["add_work_packages"]), writable: WritableRule::Always },
     AttrRule { name: "schedule_manually", permissions: PermissionRule::AnyOf(&["add_work_packages"]), writable: WritableRule::Always },
     AttrRule { name: "start_date", permissions: PermissionRule::AnyOf(&["add_work_packages"]), writable: WritableRule::Program(&[Op::Fact("model.leaf?"), Op::Fact("model.schedule_manually?"), Op::Or]) },
-    AttrRule { name: "status", permissions: PermissionRule::AnyOf(&["add_work_packages"]), writable: WritableRule::Program(&[Op::Fact("model.status_id_change"), Op::Fact("model.status&.closed?"), Op::Fact("model.effective_target_versions.any?(&:closed?)"), Op::And, Op::Not, Op::Or]) },
+    AttrRule { name: "status", permissions: PermissionRule::AnyOf(&["add_work_packages"]), writable: WritableRule::Always },
     AttrRule { name: "subject", permissions: PermissionRule::AnyOf(&["add_work_packages"]), writable: WritableRule::Always },
     AttrRule { name: "target_versions", permissions: PermissionRule::AnyOf(&["assign_versions"]), writable: WritableRule::Always },
     AttrRule { name: "type", permissions: PermissionRule::AnyOf(&["add_work_packages"]), writable: WritableRule::Always },

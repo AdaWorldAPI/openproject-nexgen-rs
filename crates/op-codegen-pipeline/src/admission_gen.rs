@@ -103,6 +103,12 @@ fn permission_rule(fact: &PermissionFact) -> String {
 struct AttrInfo {
     literal_false: bool,
     opaque_writable: Option<String>,
+    /// The (last) declaration carries a `writable:` keyword. `add_writable` stores
+    /// `options[:writable]` for every `attribute` call (base_contract.rb:104-113), so a
+    /// declaration without the keyword stores `nil`, and `collect_ancestor_attributes`
+    /// (`reverse_merge!`, subclass first, base_contract.rb:182-190) lets that `nil` win
+    /// over an ancestor's condition.
+    writable_keyword: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -161,6 +167,7 @@ fn scan_contract_file(text: &str, m: &mut ContractModel) {
             if let Some(name) = ident_after(&stmt, "attribute :") {
                 let mut info = AttrInfo::default();
                 if let Some(at) = stmt.find("writable:") {
+                    info.writable_keyword = true;
                     info.literal_false = stmt[at + 9..].trim_start().starts_with("false");
                 }
                 m.raw.insert(name.clone());
@@ -175,6 +182,7 @@ fn scan_contract_file(text: &str, m: &mut ContractModel) {
                         opaque_writable: Some(
                             "AdminWritableTimestamps.allow_writable_timestamps".into(),
                         ),
+                        writable_keyword: true,
                     },
                 );
             }
@@ -211,6 +219,10 @@ pub struct ContractScanFacts {
     pub add_permission: Option<String>,
     /// Every `validate :name` in scan order (base contract first).
     pub validators: Vec<String>,
+    /// Canonical names of attributes whose last declaration in the chain has no
+    /// `writable:` keyword. Such a declaration shadows any ancestor `writable:` condition
+    /// (`reduce_by_writable_conditions` removes only on `== false`, base_contract.rb:238-245).
+    pub writable_shadowed: BTreeSet<String>,
 }
 
 /// Run the scan over the checkout at `src`.
@@ -219,6 +231,12 @@ pub fn contract_scan_facts(src: &Path) -> ContractScanFacts {
     ContractScanFacts {
         add_permission: m.add_permission,
         validators: m.validators,
+        writable_shadowed: m
+            .declared
+            .iter()
+            .filter(|(_, i)| !i.writable_keyword)
+            .map(|(n, _)| n.clone())
+            .collect(),
     }
 }
 
@@ -229,6 +247,25 @@ fn guard_for<'a>(guards: &'a [ContractGuard], canon_attr: &str) -> Option<&'a Co
             .find(|g| g.class == class && canon(&g.attribute) == canon_attr)
     };
     find(CREATE).or_else(|| find(BASE))
+}
+
+/// The rule from ruff's guards. A declaration without `writable:` shadows the ancestors'
+/// condition, so it needs no guard lookup at all (see [`AttrInfo::writable_keyword`]).
+fn guarded_rule(guards: &[ContractGuard], canon_attr: &str, info: &AttrInfo) -> String {
+    if !info.writable_keyword {
+        return "WritableRule::Always".into();
+    }
+    match guard_for(guards, canon_attr).map(|g| &g.outcome) {
+        None => "WritableRule::Always".into(),
+        Some(GuardOutcome::Lowered(e)) => {
+            let mut ops = Vec::new();
+            postfix(e, &mut ops);
+            format!("WritableRule::Program(&[{}])", ops.join(", "))
+        }
+        Some(GuardOutcome::Unlowered { reason }) => {
+            format!("WritableRule::Unlowered({reason:?})")
+        }
+    }
 }
 
 fn postfix(e: &GuardExpr, out: &mut Vec<String>) {
@@ -318,17 +355,7 @@ pub fn generate(src: &Path) -> String {
         } else if let Some(mac) = &info.opaque_writable {
             format!("WritableRule::Opaque({mac:?})")
         } else {
-            match guard_for(&guards, name).map(|g| &g.outcome) {
-                None => "WritableRule::Always".into(),
-                Some(GuardOutcome::Lowered(e)) => {
-                    let mut ops = Vec::new();
-                    postfix(e, &mut ops);
-                    format!("WritableRule::Program(&[{}])", ops.join(", "))
-                }
-                Some(GuardOutcome::Unlowered { reason }) => {
-                    format!("WritableRule::Unlowered({reason:?})")
-                }
-            }
+            guarded_rule(&guards, name, info)
         };
         let _ = writeln!(
             o,
@@ -367,6 +394,83 @@ mod tests {
 
     fn class<'a>(all: &'a [ContractPermissions], name: &str) -> &'a ContractPermissions {
         all.iter().find(|c| c.class == name).expect(name)
+    }
+
+    fn guard(class: &str, attribute: &str, fact: &str) -> ContractGuard {
+        ContractGuard {
+            class: class.into(),
+            attribute: attribute.into(),
+            file: "x.rb".into(),
+            line: 1,
+            outcome: GuardOutcome::Lowered(GuardExpr::Fact(fact.into())),
+        }
+    }
+
+    /// Scan `base` then `sub` (the generator's order) and render attribute `a`.
+    fn rendered(base: &str, sub: &str, guards: &[ContractGuard]) -> String {
+        let mut m = ContractModel::default();
+        scan_contract_file(base, &mut m);
+        scan_contract_file(sub, &mut m);
+        guarded_rule(guards, "a", &m.declared["a"])
+    }
+
+    const BASE_RB: &str = "attribute :a, writable: ->(*) { x? }\n";
+
+    #[test]
+    fn a_subclass_declaration_without_writable_shadows_the_base_condition() {
+        let guards = [guard(BASE, "a", "model.x?")];
+        // Anti-vacuity: without the subclass redeclaration the base condition applies.
+        assert_eq!(
+            rendered(BASE_RB, "", &guards),
+            "WritableRule::Program(&[Op::Fact(\"model.x?\")])"
+        );
+        assert_eq!(
+            rendered(BASE_RB, "attribute :a, permission: :p\n", &guards),
+            "WritableRule::Always"
+        );
+        // `_id` spelling and the block form shadow as well.
+        let mut m = ContractModel::default();
+        scan_contract_file("attribute :a_id, writable: -> { x? }\n", &mut m);
+        scan_contract_file("attribute :a_id do\n  validate_y\nend\n", &mut m);
+        assert_eq!(
+            guarded_rule(&guards, "a", &m.declared["a"]),
+            "WritableRule::Always"
+        );
+    }
+
+    #[test]
+    fn a_subclass_with_its_own_writable_uses_its_own_condition() {
+        let guards = [guard(BASE, "a", "model.x?"), guard(CREATE, "a", "model.y?")];
+        assert_eq!(
+            rendered(BASE_RB, "attribute :a, writable: -> { y? }\n", &guards),
+            "WritableRule::Program(&[Op::Fact(\"model.y?\")])"
+        );
+    }
+
+    #[test]
+    fn a_subclass_that_does_not_mention_the_attribute_inherits_the_base_condition() {
+        let guards = [guard(BASE, "a", "model.x?")];
+        assert_eq!(
+            rendered(BASE_RB, "attribute :b, permission: :p\n", &guards),
+            "WritableRule::Program(&[Op::Fact(\"model.x?\")])"
+        );
+    }
+
+    #[test]
+    fn scan_facts_list_the_shadowed_attributes() {
+        let mut m = ContractModel::default();
+        scan_contract_file(BASE_RB, &mut m);
+        scan_contract_file(
+            "attribute :a, permission: :p\nattribute :c, writable: -> { z? }\n",
+            &mut m,
+        );
+        let shadowed: Vec<_> = m
+            .declared
+            .iter()
+            .filter(|(_, i)| !i.writable_keyword)
+            .map(|(n, _)| n.as_str())
+            .collect();
+        assert_eq!(shadowed, ["a"]);
     }
 
     #[test]
