@@ -955,11 +955,12 @@ pub fn unharvested_counts(ore: &ClassOre) -> BTreeMap<String, usize> {
     out
 }
 
-/// Statements that may hide a callback registration, so an order claim over
-/// the scope that holds them is not definite: control flow (a branch may
-/// register), a dynamic `send`, a block body ruff did not read. The other
+/// Statements that may hide a callback registration: control flow (a branch
+/// may register), a dynamic `send`, a block body ruff did not read. The other
 /// reasons (a `def`, a call on another receiver, an unrecognised call) are
-/// counted and shown, but do not make the order unknown.
+/// counted and shown, but do not make the order unknown. Whether the hiding
+/// statement makes the scope order-unknown is [`makes_order_unknown`]: a
+/// control-flow statement whose branches ruff read in full does not.
 pub fn hides_registration(r: UnharvestedReason) -> bool {
     matches!(
         r,
@@ -967,6 +968,26 @@ pub fn hides_registration(r: UnharvestedReason) -> bool {
             | UnharvestedReason::DynamicSend
             | UnharvestedReason::UnreadBlockBody
     )
+}
+
+/// Whether `u` makes the scope that holds it order-unknown. A dynamic `send`
+/// and an unread block body always do. A control-flow statement does unless
+/// ruff read every statement of its skipped branches
+/// (`Unharvested::hidden_complete`) AND `hidden_registrations` can name all of
+/// them (an `include` or a macro in a branch cannot be derived here); then
+/// `hidden` is exhaustive and goes to [`ModelCtx::order_hidden`] instead.
+pub fn makes_order_unknown(
+    u: &ruff_ruby_spo::events::Unharvested,
+    scope: &str,
+    host: &str,
+) -> bool {
+    if !hides_registration(u.reason) {
+        return false;
+    }
+    if u.reason != UnharvestedReason::ControlFlow {
+        return true;
+    }
+    !(u.hidden_complete() && hidden_registrations(u, scope, host).is_some())
 }
 
 pub fn discover_patches(src: &Path, cfg: &IntakeCfg, h: &mut Harvest) -> PatchIntake {
@@ -2375,10 +2396,11 @@ pub struct ModelCtx {
     /// `ClassOre::unharvested` is empty for a class by construction.
     pub modules: Vec<ModuleRead>,
     /// Names of modules whose include-time bodies leave a statement that may
-    /// hide a registration ([`hides_registration`]). A callback registered in
-    /// one of them has no definite position in the chain, whether or not the
-    /// statement's branches can be partly named (see `order_hidden`): ruff does
-    /// not say its `hidden` list is exhaustive.
+    /// hide a registration and that [`makes_order_unknown`]: a dynamic `send`,
+    /// an unread block body, or a conditional whose branches ruff did not read
+    /// in full. A callback registered in one of them has no definite position
+    /// in the chain. A conditional with `Unharvested::hidden_complete` does not
+    /// count: its `hidden` list is exhaustive and goes to `order_hidden`.
     pub order_unknown_scopes: BTreeSet<String>,
     /// What the skipped branches of the hiding conditionals could register, as
     /// far as ruff names it: a conditional whose branches hold only
@@ -2390,8 +2412,10 @@ pub struct ModelCtx {
     /// activesupport-8.1.4.1/lib/active_support/callbacks.rb:645-663), a
     /// callback the recording shows; a group in a scope that is not in
     /// `order_unknown_scopes` and none of whose entries one of these names
-    /// stays definite. The list is a lower bound (see `order_unknown_scopes`),
-    /// so it only ever demotes groups. The origin of each is its scope.
+    /// stays definite. For a conditional with `hidden_complete` the list is
+    /// all its branches could register; for an incomplete one it is a lower
+    /// bound (that scope is in `order_unknown_scopes`). Either way it only ever
+    /// demotes groups. The origin of each is its scope.
     pub order_hidden: Vec<Declared>,
 }
 
@@ -2410,8 +2434,14 @@ pub fn hidden_registrations(
     scope: &str,
     host: &str,
 ) -> Option<Vec<Declared>> {
-    if u.reason != UnharvestedReason::ControlFlow || u.hidden.is_empty() {
+    if u.reason != UnharvestedReason::ControlFlow {
         return None;
+    }
+    if u.hidden.is_empty() {
+        // Nothing the branches could register: that is a fact only when ruff
+        // read every branch statement (`hidden_complete`); otherwise there is
+        // nothing to name.
+        return u.hidden_complete().then(Vec::new);
     }
     let nameable = u.hidden.iter().all(|e| {
         matches!(
@@ -2805,35 +2835,32 @@ fn build_ctx(
             (false, false) => Completeness::Unread,
             (false, true) => Completeness::NoIncludeTimeBody,
         };
-        // A scope with ANY statement that may hide a registration stays
-        // order-unknown, even when `hidden_registrations` can name what the
-        // statement's branches hold. `Unharvested::hidden` lists only the
-        // declarations ruff recognised; its own doc says "a branch may also
-        // hold statements ruff does not recognise" (ruff
-        // `crates/ruff_ruby_spo/src/events.rs`, `Unharvested::hidden`). So
-        // `included do; if c; after_save :a; send(:before_save, :b); end; end`
-        // lists only `after_save :a`, and treating the list as exhaustive
-        // would make a group holding `b` DEFINITE without evidence.
-        //
-        // MISSING RUFF SIGNAL: an exhaustiveness flag on `Unharvested` (every
-        // statement of the branches was recognised and is in `hidden`). With
-        // it, a scope whose hiding statements are all exhaustive and nameable
-        // can be relaxed back to definite here. Until then the named list only
-        // feeds `order_hidden`, which can make OTHER groups unknown, never a
-        // group in this scope definite.
-        let mut hides_any = false;
+        // A statement that may hide a registration makes the scope
+        // order-unknown unless it is a conditional whose skipped branches ruff
+        // read in full (`Unharvested::hidden_complete`, ruff
+        // `crates/ruff_ruby_spo/src/events.rs`) and whose `hidden` list is
+        // nameable: then `hidden` is everything the branches could register,
+        // so it feeds `order_hidden` (which can make OTHER groups unknown) and
+        // leaves this scope's own groups definite. An incomplete conditional
+        // keeps the old rule: `hidden` is only a lower bound there. This runs
+        // for every module-like ancestor, expanded macro bodies included
+        // (`visit_run` pushes them as module ancestors; their `unharvested`
+        // are ruff's `MacroStep::Unread` statements, `hidden_unread` intact).
+        let mut unknown = false;
         for u in a
             .ore
             .unharvested
             .iter()
             .filter(|u| hides_registration(u.reason))
         {
-            hides_any = true;
             if let Some(named) = hidden_registrations(u, &a.name, &a.host) {
                 order_hidden.extend(named);
             }
+            if makes_order_unknown(u, &a.name, &a.host) {
+                unknown = true;
+            }
         }
-        if hides_any {
+        if unknown {
             order_unknown_scopes.insert(a.name.clone());
         }
         modules.push(ModuleRead {
