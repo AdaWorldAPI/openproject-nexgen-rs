@@ -21,13 +21,46 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: fmt
         run: cargo fmt -p op-server -p op-codegen-pipeline -p ruff_openproject -p op-cli -- --check
+      # Tests that need no OpenProject checkout. op-services and op-contracts hold
+      # the production admission (`admit_create`, the project-scoped
+      # `user_allowed_to_add`) that create_transition_differential drives.
       - name: test
-        run: cargo test -p op-server -p op-codegen-pipeline -p ruff_openproject -p op-cli
+        run: cargo test -p op-server -p ruff_openproject -p op-cli -p op-services -p op-contracts
       - name: Test web-login (sign-in, OIDC + PKCE)
         run: cargo test -p web-login --features reqwest,axum
-      # Tests that need an OpenProject checkout (RAILS_CORPUS_SRC, OP_CORPUS_SRC,
-      # OPENPROJECT_SRC) print a skip line and assert nothing here. This job
-      # therefore does not cover the real-corpus probes or the Ruby oracles; they
-      # are run locally against a pinned checkout (see oracle/README.md).
+      # The pinned OpenProject source the oracle traces were recorded against
+      # (oracle/README.md, "Reproduced at OpenProject 2725194"). Upstream opf merge
+      # commit, public.
+      - name: checkout OpenProject 2725194 (oracle source)
+        uses: actions/checkout@v4
+        with:
+          repository: opf/openproject
+          ref: 2725194454c895dfab6ff2685d9688b0cba53068
+          path: openproject-src
+          fetch-depth: 1
+      # callback_differential, create_transition_differential, guard_differential and
+      # class_proposer_openproject read OPENPROJECT_SRC. REQUIRE_SOURCES=1 makes a
+      # missing or unset source a failure instead of an UNVERIFIED pass; it is read by
+      # those four tests only, and it is set on this step only. render_bake_leg2_probe
+      # reads OP_CORPUS_SRC (an OpenProject checkout, the same one). RAILS_CORPUS_SRC is
+      # deliberately NOT set here: render_bake_probe expects a Redmine checkout and
+      # harvest_denominator_probe a different OpenProject revision (see the note below).
+      - name: test op-codegen-pipeline against the pinned OpenProject
+        env:
+          OPENPROJECT_SRC: ${{ github.workspace }}/openproject-src
+          OP_CORPUS_SRC: ${{ github.workspace }}/openproject-src
+          REQUIRE_SOURCES: "1"
+        run: cargo test -p op-codegen-pipeline
+      # body_triage_probe takes RAILS_CORPUS_SRC plus a namespace. Scoped to its own
+      # step because the other RAILS_CORPUS_SRC readers need other corpora.
+      - name: test ruff_openproject body triage against the pinned OpenProject
+        env:
+          RAILS_CORPUS_SRC: ${{ github.workspace }}/openproject-src
+          RAILS_CORPUS_NS: openproject
+        run: cargo test -p ruff_openproject --test body_triage_probe
       - name: note uncovered gates
-        run: echo "UNVERIFIED in CI - real-corpus probes and Ruby oracles need an OpenProject checkout"
+        run: |
+          echo "COVERED against opf/openproject 2725194 (REQUIRE_SOURCES=1 for the first four): callback_differential, create_transition_differential, guard_differential, class_proposer_openproject; also render_bake_leg2_probe (OP_CORPUS_SRC) and body_triage_probe (RAILS_CORPUS_SRC, namespace openproject)."
+          echo "UNCOVERED: render_bake_probe (RAILS_CORPUS_SRC must be a Redmine checkout at bfd3c33a; skips here)."
+          echo "UNCOVERED: harvest_denominator_probe (needs --features ogar-emit and its pins are for OpenProject dev d333d164: 950 models, measured 1237 at 2725194, so it fails there until re-pinned)."
+          echo "UNCOVERED: emit_generated (a generator, needs RAILS_CORPUS_SRC) and the Ruby oracles oracle/*.rb (need a bundled OpenProject and a migrated PostgreSQL; they produced the committed traces and are re-run locally)."

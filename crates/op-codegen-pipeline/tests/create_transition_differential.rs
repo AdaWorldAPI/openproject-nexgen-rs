@@ -640,6 +640,8 @@ struct L2 {
     registered_not_invoked: BTreeMap<RegisteredNotInvoked, Vec<String>>,
     /// Groups `(model, phase)` with two or more matched entries.
     order_groups: usize,
+    /// Groups whose order is UNKNOWN (counted in `order_groups`, never in `order_differing`).
+    order_unknown: usize,
     order_differing: usize,
     order_inversions: usize,
     order_examples: Vec<String>,
@@ -688,7 +690,10 @@ fn layer2(
 
     let mut used: BTreeMap<&String, BTreeSet<usize>> = BTreeMap::new();
     let mut fired_chains: BTreeMap<&String, BTreeSet<String>> = BTreeMap::new();
-    let mut ranks: BTreeMap<(String, String), Vec<(String, usize)>> = BTreeMap::new();
+    // (label, rank, true when the callback is registered in a module whose
+    // include-time body ruff left statements unread in that may hide a registration)
+    type RankRow = (String, usize, bool);
+    let mut ranks: BTreeMap<(String, String), Vec<RankRow>> = BTreeMap::new();
     for (model, phase, label) in &entries {
         out.invoked_phases.insert(phase.clone());
         let ctx = &h.ctxs[model];
@@ -734,10 +739,11 @@ fn layer2(
             None => {
                 out.both += 1;
                 if let Some(r) = entry_rank.into_iter().min() {
+                    let unread = ctx.order_unknown_scopes.contains(&regs[r].origin);
                     ranks
                         .entry((model.clone(), phase.clone()))
                         .or_default()
-                        .push((label.clone(), r));
+                        .push((label.clone(), r, unread));
                 }
             }
             Some((why, f)) => out
@@ -795,11 +801,17 @@ fn layer2(
         }
         out.order_groups += 1;
         let inv = seq.windows(2).filter(|w| w[0].1 > w[1].1).count();
+        // An entry registered in a scope with unread ControlFlow / DynamicSend /
+        // UnreadBlockBody statements has no definite position: UNKNOWN order.
+        if seq.iter().any(|r| r.2) {
+            out.order_unknown += 1;
+            continue;
+        }
         if inv > 0 {
             out.order_differing += 1;
             out.order_inversions += inv;
             let mut expected = seq.clone();
-            expected.sort_by_key(|(_, r)| *r);
+            expected.sort_by_key(|(_, r, _)| *r);
             let at = seq
                 .iter()
                 .zip(&expected)
@@ -1093,8 +1105,8 @@ fn create_member_transition_is_executed_and_compared() {
     eprintln!(
         "   order: compared only inside one (model, kind_chain) group, where ActiveSupport::Callbacks \
          runs a chain's callbacks in registration order (callbacks.rb:645-663 for re-registration); \
-         across groups Rails guarantees nothing here. {} groups, {} differ, {} inversions",
-        l2.order_groups, l2.order_differing, l2.order_inversions
+         across groups Rails guarantees nothing here. {} groups, {} UNKNOWN (unread include-time statements), {} differ, {} inversions",
+        l2.order_groups, l2.order_unknown, l2.order_differing, l2.order_inversions
     );
     for e in &l2.order_examples {
         eprintln!("       {e}");

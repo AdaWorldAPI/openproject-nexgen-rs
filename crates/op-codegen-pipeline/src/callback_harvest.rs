@@ -9,7 +9,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use ruff_ruby_spo::events::{source_ore_from, ClassOre, DeclOrigin, RailsEvent, Symbols};
+use ruff_ruby_spo::events::{
+    source_ore_from, ClassOre, DeclOrigin, OreKind, RailsEvent, Symbols, UnharvestedReason,
+};
 use ruff_ruby_spo::rails_generated::{
     derive, Chain as GenChain, Filter as GenFilter, Generated, Kind as GenKind, RailsDefaults,
 };
@@ -205,6 +207,8 @@ pub struct Harvest {
     pub cache: BTreeMap<String, Vec<ClassOre>>,
     /// Include targets the walk could not find a unit for, with the includer.
     pub unresolved: Vec<(String, String)>,
+    /// `(underscore(constant), file segment)` pairs from `roots.inflections`.
+    pub inflections: Vec<(String, String)>,
 }
 
 impl Harvest {
@@ -212,6 +216,7 @@ impl Harvest {
         Harvest {
             src: src.to_path_buf(),
             roots,
+            inflections: Vec::new(),
             cache: BTreeMap::new(),
             unresolved: Vec::new(),
         }
@@ -229,7 +234,11 @@ impl Harvest {
 
     /// Find constant `name` in the walked roots.
     pub fn find(&mut self, name: &str) -> Option<(String, ClassOre)> {
-        let path = format!("{}.rb", underscore(name));
+        let mut path = underscore(name);
+        for (from, to) in &self.inflections {
+            path = path.replace(from.as_str(), to);
+        }
+        let path = format!("{path}.rb");
         for root in self.roots.clone() {
             let rel = format!("{root}/{path}");
             if self.src.join(&rel).is_file() {
@@ -341,6 +350,19 @@ pub struct IntakeCfg {
 #[derive(Debug, Deserialize)]
 pub struct RootsCfg {
     pub list: Vec<String>,
+    /// Zeitwerk inflections: a constant segment whose file name is not
+    /// `underscore(constant)` (`inflect.acronym "SquashTM"`).
+    #[serde(default)]
+    pub inflections: Vec<InflectionCfg>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InflectionCfg {
+    /// The constant segment as spelled in Ruby (`SquashTM`).
+    pub constant: String,
+    /// The file-name segment Zeitwerk maps to it (`squashtm`).
+    pub file: String,
+    pub cite: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -534,16 +556,39 @@ pub enum PatchSlag {
     /// `def self.included(base) ... base.class_eval do ... end`, which
     /// `module_ore` does not walk (only a direct `included do`). Stage: ruff
     /// extension (walk `base.class_eval` bodies inside `self.included`).
+    ///
+    /// Since ruff #156 the hook is read; this reason now means the module has
+    /// an include-time body (`included do`, `def self.included`) and NOT ONE
+    /// declaration came out of it, while `ClassOre::unharvested` lists
+    /// statements it could not read (or the file still has a hook whose body
+    /// produced nothing).
     BodyUnreadable,
+    /// The module's include-time bodies yielded at least one declaration AND
+    /// `ClassOre::unharvested` lists at least one statement that produced none
+    /// (conditional, `def`, other receiver, dynamic send, unread block body).
+    /// The module is applied with what was read; the unread statements may
+    /// register more. Stage: ruff extension for the listed reasons. A module
+    /// whose include-time bodies were read in full is not slag.
+    BodyPartiallyRead,
 }
 
 impl PatchSlag {
+    /// The reasons that annotate a patch that WAS applied. Every other reason
+    /// means the (call, target) job was not applied.
+    pub fn is_applied_with_note(self) -> bool {
+        matches!(
+            self,
+            PatchSlag::BodyUnreadable | PatchSlag::BodyPartiallyRead
+        )
+    }
+
     pub fn all() -> &'static [PatchSlag] {
         &[
             PatchSlag::ArgsUnreadable,
             PatchSlag::TargetUnreadable,
             PatchSlag::PatchFileNotFound,
             PatchSlag::BodyUnreadable,
+            PatchSlag::BodyPartiallyRead,
         ]
     }
 }
@@ -553,7 +598,27 @@ pub struct PatchUnresolved {
     pub reason: PatchSlag,
     pub engine: String,
     pub call: String,
+    /// Statement ordinal of the call in the engine body.
+    pub seq: u32,
+    /// The `into:` / symbol target this entry is about. `None` when the call
+    /// failed before any target was known (`ArgsUnreadable`, `TargetUnreadable`).
+    pub target: Option<String>,
     pub detail: String,
+    /// For `BodyUnreadable` / `BodyPartiallyRead`: the module's unharvested
+    /// statements per `UnharvestedReason::as_str`.
+    pub unharvested: BTreeMap<String, usize>,
+}
+
+/// One unit of patch work: a rule-matched call and one of its targets (a call
+/// whose targets cannot be read is one job with `target: None`). Every job ends
+/// in exactly one of: an [`AppliedPatch`], or one [`PatchUnresolved`] whose
+/// reason is not [`PatchSlag::is_applied_with_note`].
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PatchJob {
+    pub engine: String,
+    pub call: String,
+    pub seq: u32,
+    pub target: Option<String>,
 }
 
 #[derive(Default)]
@@ -561,6 +626,9 @@ pub struct PatchIntake {
     pub engines: usize,
     /// Calls matched by a rule.
     pub calls: usize,
+    /// One entry per (call, target): `calls` counts a call once however many
+    /// targets it names, so conservation is checked over these.
+    pub jobs: Vec<PatchJob>,
     pub applied: Vec<AppliedPatch>,
     pub unresolved: Vec<PatchUnresolved>,
 }
@@ -569,6 +637,29 @@ impl PatchIntake {
     pub fn for_model<'a>(&'a self, model: &'a str) -> impl Iterator<Item = &'a AppliedPatch> {
         self.applied.iter().filter(move |p| p.target == model)
     }
+}
+
+/// A module's unharvested include-time statements, counted per reason.
+pub fn unharvested_counts(ore: &ClassOre) -> BTreeMap<String, usize> {
+    let mut out = BTreeMap::new();
+    for u in &ore.unharvested {
+        *out.entry(u.reason.as_str().to_string()).or_insert(0) += 1;
+    }
+    out
+}
+
+/// Statements that may hide a callback registration, so an order claim over
+/// the scope that holds them is not definite: control flow (a branch may
+/// register), a dynamic `send`, a block body ruff did not read. The other
+/// reasons (a `def`, a call on another receiver, an unrecognised call) are
+/// counted and shown, but do not make the order unknown.
+pub fn hides_registration(r: UnharvestedReason) -> bool {
+    matches!(
+        r,
+        UnharvestedReason::ControlFlow
+            | UnharvestedReason::DynamicSend
+            | UnharvestedReason::UnreadBlockBody
+    )
 }
 
 pub fn discover_patches(src: &Path, cfg: &IntakeCfg, h: &mut Harvest) -> PatchIntake {
@@ -608,11 +699,22 @@ pub fn discover_patches(src: &Path, cfg: &IntakeCfg, h: &mut Harvest) -> PatchIn
                     continue;
                 };
                 out.calls += 1;
-                let fail = |reason, detail: String| PatchUnresolved {
+                let fail = |reason, target: Option<&str>, detail: String| PatchUnresolved {
                     reason,
                     engine: ore.name.clone(),
                     call: format!("{} {}", call.name, call.args),
+                    seq: e.seq,
+                    target: target.map(str::to_string),
                     detail,
+                    unharvested: BTreeMap::new(),
+                };
+                // A call that fails before its targets are known is one job
+                // with no target; otherwise there is one job per target.
+                let job = |target: Option<&str>| PatchJob {
+                    engine: ore.name.clone(),
+                    call: call.name.clone(),
+                    seq: e.seq,
+                    target: target.map(str::to_string),
                 };
                 // (target, vars for the patch name templates)
                 let mut jobs: Vec<(String, Vec<(&str, String)>)> = Vec::new();
@@ -627,8 +729,12 @@ pub fn discover_patches(src: &Path, cfg: &IntakeCfg, h: &mut Harvest) -> PatchIn
                             }
                         }
                         None => {
-                            out.unresolved
-                                .push(fail(PatchSlag::ArgsUnreadable, "not a symbol array".into()));
+                            out.jobs.push(job(None));
+                            out.unresolved.push(fail(
+                                PatchSlag::ArgsUnreadable,
+                                None,
+                                "not a symbol array".into(),
+                            ));
                             continue;
                         }
                     },
@@ -642,8 +748,12 @@ pub fn discover_patches(src: &Path, cfg: &IntakeCfg, h: &mut Harvest) -> PatchIn
                             ));
                         }
                         _ => {
-                            out.unresolved
-                                .push(fail(PatchSlag::ArgsUnreadable, "not a symbol path".into()));
+                            out.jobs.push(job(None));
+                            out.unresolved.push(fail(
+                                PatchSlag::ArgsUnreadable,
+                                None,
+                                "not a symbol path".into(),
+                            ));
                             continue;
                         }
                     },
@@ -659,7 +769,8 @@ pub fn discover_patches(src: &Path, cfg: &IntakeCfg, h: &mut Harvest) -> PatchIn
                             } else {
                                 PatchSlag::ArgsUnreadable
                             };
-                            out.unresolved.push(fail(reason, why));
+                            out.jobs.push(job(None));
+                            out.unresolved.push(fail(reason, None, why));
                             continue;
                         }
                     },
@@ -671,6 +782,7 @@ pub fn discover_patches(src: &Path, cfg: &IntakeCfg, h: &mut Harvest) -> PatchIn
                     other => panic!("intake.json: unknown how {other:?}"),
                 };
                 for (target, vars) in jobs {
+                    out.jobs.push(job(Some(&target)));
                     let mut vars: Vec<(&str, &str)> =
                         vars.iter().map(|(k, v)| (*k, v.as_str())).collect();
                     vars.push(("plugin_module", plugin_module.as_str()));
@@ -681,6 +793,7 @@ pub fn discover_patches(src: &Path, cfg: &IntakeCfg, h: &mut Harvest) -> PatchIn
                     let Some((patch_name, patch_file, patch_ore)) = hit else {
                         out.unresolved.push(fail(
                             PatchSlag::PatchFileNotFound,
+                            Some(&target),
                             format!("target {target}: none of {:?} in the roots", rule.patch),
                         ));
                         continue;
@@ -689,14 +802,32 @@ pub fn discover_patches(src: &Path, cfg: &IntakeCfg, h: &mut Harvest) -> PatchIn
                         .declarations
                         .iter()
                         .any(|d| matches!(d.origin, DeclOrigin::Included { .. }));
+                    let unread = unharvested_counts(&patch_ore);
                     // The scan only picks the reason; the module is applied either way.
                     let legacy_hook = std::fs::read_to_string(src.join(&patch_file))
                         .is_ok_and(|t| t.contains("def self.included"));
-                    if how == How::Include && !reads_included_block && legacy_hook {
-                        out.unresolved.push(fail(
-                            PatchSlag::BodyUnreadable,
+                    // Nothing recovered from an include-time body that exists
+                    // (a hook the file has, or statements ruff lists as unread)
+                    // is `BodyUnreadable`; something recovered next to a
+                    // non-empty `unharvested` list is `BodyPartiallyRead`; an
+                    // empty list with declarations is a full read, not slag.
+                    let note = if how != How::Include {
+                        None
+                    } else if !reads_included_block && (legacy_hook || !unread.is_empty()) {
+                        Some(PatchSlag::BodyUnreadable)
+                    } else if reads_included_block && !unread.is_empty() {
+                        Some(PatchSlag::BodyPartiallyRead)
+                    } else {
+                        None
+                    };
+                    if let Some(reason) = note {
+                        let mut u = fail(
+                            reason,
+                            Some(&target),
                             format!("target {target}: {patch_name} in {patch_file}"),
-                        ));
+                        );
+                        u.unharvested = unread;
+                        out.unresolved.push(u);
                     }
                     found.push((
                         rank(&module_dir),
@@ -1018,6 +1149,24 @@ pub struct EffState {
 
 impl EffState {
     pub fn push(&mut self, d: Declared) {
+        // A generated `validate_associated_records_for_X` is registered only
+        // when the method is not yet defined
+        // (activerecord-8.1.4.1/lib/active_record/autosave_association.rb:220,
+        // `reflection.validate? && !method_defined?(validation_method)`). A
+        // re-declared association therefore keeps the first registration in
+        // place. Its save callbacks have no such guard (`:197-198`, `:210-211`,
+        // `:214`) and move to the end like any re-registered filter.
+        if let (Some(_), Filter::Method(name)) = (&d.generated, &d.filter) {
+            let already = name.starts_with("validate_associated_records_for_")
+                && self.out.iter().any(|e| {
+                    e.chain == d.chain
+                        && e.kind == d.kind
+                        && matches!(&e.filter, Filter::Method(n) if n == name)
+                });
+            if already {
+                return;
+            }
+        }
         if let Filter::Method(name) = &d.filter {
             self.out.retain(|e| {
                 !(e.chain == d.chain
@@ -1412,6 +1561,52 @@ pub struct ModelCtx {
     pub assocs: BTreeSet<String>,
     pub ancestor_files: BTreeSet<String>,
     pub has_file: bool,
+    /// Every module (concern or patch) in the model's chain and how much of
+    /// its include-time bodies ruff read. Class bodies are not listed:
+    /// `ClassOre::unharvested` is empty for a class by construction.
+    pub modules: Vec<ModuleRead>,
+    /// Names of modules whose include-time bodies leave a statement that may
+    /// hide a registration ([`hides_registration`]). A callback registered in
+    /// one of them has no definite position in the chain.
+    pub order_unknown_scopes: BTreeSet<String>,
+}
+
+/// How much of one module's include-time bodies was read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Completeness {
+    /// Declarations came out and nothing is listed unharvested.
+    Full,
+    /// Declarations came out and statements are listed unharvested.
+    Partial,
+    /// No declaration came out and statements are listed unharvested.
+    Unread,
+    /// No include-time body produced a declaration or an unread statement
+    /// (the module has none, or it is empty): nothing to read.
+    NoIncludeTimeBody,
+}
+
+impl Completeness {
+    pub fn all() -> &'static [Completeness] {
+        &[
+            Completeness::Full,
+            Completeness::Partial,
+            Completeness::Unread,
+            Completeness::NoIncludeTimeBody,
+        ]
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ModuleRead {
+    pub name: String,
+    pub file: String,
+    /// Declarations from `included do` / `def self.included` bodies.
+    pub included_decls: usize,
+    /// Unharvested statements per `UnharvestedReason::as_str`.
+    pub unharvested: BTreeMap<String, usize>,
+    pub completeness: Completeness,
+    /// Whether the intake applied it as an engine patch (else a concern).
+    pub is_patch: bool,
 }
 
 pub fn classify(f: &Fired, ctx: &ModelCtx, ev: &Evidence) -> (Slag, String) {
@@ -1580,7 +1775,14 @@ pub fn harvest_for(src: &Path, cfg: &IntakeCfg) -> Harvest {
         .iter()
         .flat_map(|pat| expand_dirs(src, pat))
         .collect();
-    Harvest::new(src, roots)
+    let mut h = Harvest::new(src, roots);
+    h.inflections = cfg
+        .roots
+        .inflections
+        .iter()
+        .map(|i| (underscore(&i.constant), i.file.clone()))
+        .collect();
+    h
 }
 
 pub fn contexts(
@@ -1618,9 +1820,48 @@ pub fn contexts(
                 }
             }
         }
+        let patch_names: BTreeSet<&str> = patches
+            .for_model(m)
+            .filter(|p| p.how == How::Include)
+            .map(|p| p.patch_name.as_str())
+            .collect();
+        let mut modules = Vec::new();
+        let mut order_unknown_scopes = BTreeSet::new();
+        for a in ancestors.iter().filter(|a| a.ore.kind == OreKind::Module) {
+            let included_decls = a
+                .ore
+                .declarations
+                .iter()
+                .filter(|d| matches!(d.origin, DeclOrigin::Included { .. }))
+                .count();
+            let unharvested = unharvested_counts(&a.ore);
+            let completeness = match (included_decls > 0, unharvested.is_empty()) {
+                (true, true) => Completeness::Full,
+                (true, false) => Completeness::Partial,
+                (false, false) => Completeness::Unread,
+                (false, true) => Completeness::NoIncludeTimeBody,
+            };
+            if a.ore
+                .unharvested
+                .iter()
+                .any(|u| hides_registration(u.reason))
+            {
+                order_unknown_scopes.insert(a.name.clone());
+            }
+            modules.push(ModuleRead {
+                name: a.name.clone(),
+                file: a.file.clone(),
+                included_decls,
+                unharvested,
+                completeness,
+                is_patch: patch_names.contains(a.name.as_str()),
+            });
+        }
         out.insert(
             m.clone(),
             ModelCtx {
+                modules,
+                order_unknown_scopes,
                 has_file,
                 assocs: association_names(&ancestors),
                 ancestor_files: ancestors.iter().map(|a| a.file.clone()).collect(),

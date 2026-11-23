@@ -9,7 +9,21 @@
       "lib",
       "modules/*/app/models",
       "modules/*/app/models/concerns",
-      "modules/*/lib"
+      "modules/*/lib",
+      "modules/*/app/components",
+      "modules/*/app/contracts",
+      "modules/*/app/controllers",
+      "modules/*/app/controllers/concerns",
+      "modules/*/app/formatters",
+      "modules/*/app/services"
+    ],
+    "list_doc": "The last six were added from PatchFileNotFound slag: the module an `include_module` / `prepend_module` call names lives in one of these directories (20 calls, none found in the model roots). A Rails engine autoloads every app/* subdirectory (railties-8.1.4.1/lib/rails/engine/configuration.rb:77-78: `paths.add \"app\", eager_load: true, glob: \"{*,*/concerns}\"`), so each is a Zeitwerk root, and `app/<dir>/concerns` is one too. Only the directories the slag named are listed, not every app/* directory, so a name stays findable only where the data says it is.",
+    "inflections": [
+      {
+        "constant": "SquashTM",
+        "file": "squashtm",
+        "cite": "modules/squashtm_integration/lib/open_project/squashtm_integration/engine.rb:42 (`inflect.acronym \"SquashTM\"`) and :49 (`part == \"squashtm\" ? \"SquashTM\"`): the file squashtm_cause_rendering.rb defines SquashTMCauseRendering"
+      }
     ]
   },
 
