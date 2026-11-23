@@ -62,6 +62,7 @@ starting point).
 | C3 | Keyword module names emitted unescaped (`pub mod type;`) | op-desk post-processing writes `r#type` |
 | C4 | Regenerate header hardcodes Zammad (`ZAMMAD_SRC`, `zammad.toml`) | op-desk post-processing rewrites it |
 | C5 | `Unit::superclass` is stored as a string, so `class X < ::Base` loses its leading `::`; rails-f000 then resolves it lexically and can pick `Ns::Base` (includes are handled from the AST since #167) | None. OpenProject has ~10 such classes under `app/models` (e.g. `class Status < ::Exports::Formatters::Default`); all found so far are export formatters, not ActiveRecord models, so none carries a default_scope today |
+| C6 | rails-f000 `resolve_const` resolves a relative `A::B` as one path, so a closer `A` without `B` is skipped (Ruby resolves `A` lexically and then raises NameError); it never searches the innermost scope's ancestors (`Helpers` defined in `Base::Helpers` resolves to bare `Helpers`); and treats `include self::X` as a lexical lookup | None; the first case is code that raises in Ruby, the other two are not known in OpenProject's models |
 
 ## 5. Migration (`docs/plans/polyfill-quack-migration.md`)
 
