@@ -1158,6 +1158,38 @@ async fn journey(db_url: String) -> Tally {
     );
     t.rows += 3;
 
+    // `touch_journable`: when the last journal is newer than the UPDATE's timestamp (here moved an
+    // hour ahead, as a concurrent note edit would), the journal write advances the work package's
+    // updated_at past it. The row the update returns must carry that committed timestamp. Run on
+    // the legacy work package, last, so the shifted clock reaches no other step.
+    let ahead: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
+        "UPDATE journals SET updated_at = updated_at + interval '1 hour' \
+         WHERE id = $1 RETURNING updated_at",
+    )
+    .bind(lj[0].id)
+    .fetch_one(&verify)
+    .await
+    .unwrap();
+    let row = page_store.find_wp(legacy).await.unwrap().unwrap();
+    let r = mutation::update(
+        &store,
+        &caller_a,
+        legacy,
+        patch_subject(&row, "legacy, journal ahead"),
+    )
+    .await
+    .expect("A edits with the last journal ahead of the clock");
+    let committed = wp_updated_at(&verify, legacy).await;
+    assert!(
+        committed > ahead,
+        "the work package is touched past the last journal"
+    );
+    assert_eq!(
+        r.updated_at, committed,
+        "the returned row carries the committed updated_at, not the UPDATE's"
+    );
+    t.rows += 2;
+
     // The demo posture's anonymous editor has no `users` row to journal as (this schema has no
     // `users.type`, so no AnonymousUser can be identified): the update is applied, as before the
     // journal was ported, and writes no journal. Stated here so it cannot change silently.

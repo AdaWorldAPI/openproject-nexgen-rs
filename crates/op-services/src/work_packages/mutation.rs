@@ -949,10 +949,19 @@ impl PgCreateScope {
         self.lock_work_package(id).await?;
         authorize_record(self, caller, id, EDIT_WORK_PACKAGES).await?;
         let user_id = self.acting_user_id(caller).await?;
-        let row = self.update_row(id, dto).await?;
+        let mut row = self.update_row(id, dto).await?;
         if let Some(user_id) = user_id {
             self.write_update_journal(id, user_id, aggregation_minutes)
                 .await?;
+            // `touch_journable` may have advanced `updated_at` past the UPDATE's value: answer
+            // with the committed timestamp, the one the journal carries.
+            let mut tx = self.tx.lock().await;
+            row.updated_at =
+                sqlx::query_scalar("SELECT updated_at FROM work_packages WHERE id = $1")
+                    .bind(id)
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(db_failure)?;
         }
         Ok(row)
     }
