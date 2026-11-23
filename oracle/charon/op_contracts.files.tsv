@@ -1,0 +1,21 @@
+#version 1
+#schema path	fnv64
+crates/op-contracts/src/base.rs	3eb1c150a2c572b9
+crates/op-contracts/src/lib.rs	d2b4f50f1899a7ab
+crates/op-contracts/src/projects/base.rs	4034f4cae1189fd4
+crates/op-contracts/src/projects/create.rs	5994d74164098d50
+crates/op-contracts/src/projects/delete.rs	6bb3ef411eb46a3a
+crates/op-contracts/src/projects/mod.rs	6253345aa4b99b01
+crates/op-contracts/src/projects/update.rs	331abb7be411dc21
+crates/op-contracts/src/users/base.rs	035a74c2036f297d
+crates/op-contracts/src/users/create.rs	e21767f889f3d843
+crates/op-contracts/src/users/delete.rs	27ce3d43a9c74e05
+crates/op-contracts/src/users/mod.rs	33c3d00f5c26631b
+crates/op-contracts/src/users/update.rs	3b956f1459ca2077
+crates/op-contracts/src/work_packages/admission.rs	1f04c9ad86c42108
+crates/op-contracts/src/work_packages/base.rs	d49041f764fa83da
+crates/op-contracts/src/work_packages/create.rs	abac469260a1a4a1
+crates/op-contracts/src/work_packages/delete.rs	7f8edd4ae0f59834
+crates/op-contracts/src/work_packages/generated_create_admission.rs	063d216f9e146ef2
+crates/op-contracts/src/work_packages/mod.rs	46bc82fbe06abc9a
+crates/op-contracts/src/work_packages/update.rs	2e63560c7255ef49
