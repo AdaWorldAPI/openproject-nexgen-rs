@@ -3,6 +3,8 @@
 //! Mirrors: app/services/work_packages/create_service.rb
 
 use op_contracts::base::UserContext;
+use op_contracts::work_packages::{admit_create, AdmissionFacts, CreateAdmission, Verdict};
+use op_core::error::ValidationErrors;
 use op_core::traits::Id;
 
 use crate::result::ServiceResult;
@@ -23,6 +25,17 @@ use super::WorkPackageParams;
 pub struct CreateWorkPackageService<'a, U: UserContext> {
     user: &'a U,
     send_notifications: bool,
+    facts: Option<&'a dyn AdmissionFacts>,
+}
+
+/// No model facts supplied: every fact is unavailable, so a guard that reads one is
+/// unresolved. Nothing is assumed true.
+struct NoFacts;
+
+impl AdmissionFacts for NoFacts {
+    fn fact(&self, _name: &str) -> Option<bool> {
+        None
+    }
 }
 
 impl<'a, U: UserContext> CreateWorkPackageService<'a, U> {
@@ -30,6 +43,7 @@ impl<'a, U: UserContext> CreateWorkPackageService<'a, U> {
         Self {
             user,
             send_notifications: true,
+            facts: None,
         }
     }
 
@@ -37,11 +51,68 @@ impl<'a, U: UserContext> CreateWorkPackageService<'a, U> {
         Self {
             user,
             send_notifications: false,
+            facts: None,
         }
+    }
+
+    /// Supply the model facts the admission guards read (`leaf?`, status closed, ...).
+    /// Without them a submitted attribute whose guard reads a fact is unresolved and
+    /// `call` refuses (`admission_unresolved`); nothing is read as true.
+    pub fn with_facts(mut self, facts: &'a dyn AdmissionFacts) -> Self {
+        self.facts = Some(facts);
+        self
+    }
+
+    /// Admission of a create under `WorkPackages::CreateContract`, evaluated by
+    /// `op_contracts::work_packages::admit_create` from the table generated out of
+    /// the OpenProject contracts: the authorization rule plus the read-only check of
+    /// each submitted attribute. `submitted` names the attributes the caller sends
+    /// (as the API receives them); no attribute values are read.
+    ///
+    /// [`CreateWorkPackageService::call`] runs this first and acts on the verdict.
+    pub fn admit(
+        &self,
+        project_id: Option<Id>,
+        submitted: &[&str],
+        facts: &dyn AdmissionFacts,
+    ) -> CreateAdmission {
+        admit_create(self.user, project_id, submitted, facts)
     }
 
     /// Execute the create operation
     pub fn call(self, params: WorkPackageParams) -> ServiceResult<WorkPackageEntity> {
+        // Admission under the generated CreateContract rules comes first. A denial
+        // ends the call with the contract's error keys and codes. A verdict that
+        // cannot be made (a fact the rules read was not supplied, or the rule is not
+        // extractable) is a typed refusal, never an admission.
+        let names = submitted_attributes(&params);
+        let facts: &dyn AdmissionFacts = self.facts.unwrap_or(&NoFacts);
+        let admission = self.admit(params.project_id, &names, facts);
+        match &admission.verdict {
+            Verdict::Denied => {
+                let mut errors = ValidationErrors::new();
+                for (key, codes) in &admission.errors {
+                    for code in codes {
+                        if key == "base" {
+                            errors.add_base(*code);
+                        } else {
+                            errors.add(key.clone(), *code);
+                        }
+                    }
+                }
+                return ServiceResult::failure(errors);
+            }
+            Verdict::Unresolved(reason) => {
+                return ServiceResult::failure_with_base_error(format!(
+                    "admission_unresolved: {reason:?}"
+                ));
+            }
+            Verdict::Admitted => {}
+        }
+
+        // HAND-WRITTEN PATH, only for what the generated table has no rule for: the
+        // other contract validators (`not_evaluated_validators()`) and the model
+        // validations, as `CreateWorkPackageContract` encodes them by hand.
         // Create new work package with defaults
         let project_id = params.project_id.unwrap_or(1);
         let type_id = params.type_id.unwrap_or(1);
@@ -88,6 +159,28 @@ impl<'a, U: UserContext> CreateWorkPackageService<'a, U> {
     }
 }
 
+/// The attribute names a create submits, as the API names them. Values are not read.
+fn submitted_attributes(p: &WorkPackageParams) -> Vec<&'static str> {
+    let present = [
+        (p.subject.is_some(), "subject"),
+        (p.description.is_some(), "description"),
+        (p.project_id.is_some(), "project"),
+        (p.type_id.is_some(), "type"),
+        (p.status_id.is_some(), "status"),
+        (p.priority_id.is_some(), "priority"),
+        (p.assigned_to_id.is_some(), "assigned_to"),
+        (p.responsible_id.is_some(), "responsible"),
+        (p.start_date.is_some(), "start_date"),
+        (p.due_date.is_some(), "due_date"),
+        (p.estimated_hours.is_some(), "estimated_hours"),
+        (p.done_ratio.is_some(), "done_ratio"),
+        (p.parent_id.is_some(), "parent"),
+        (p.version_id.is_some(), "target_versions"),
+        (p.category_id.is_some(), "category"),
+    ];
+    present.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,6 +214,12 @@ mod tests {
 
         fn allowed_globally(&self, _permission: &str) -> bool {
             false
+        }
+
+        fn allowed_in_any_project(&self, permission: &str) -> bool {
+            self.project_permissions
+                .values()
+                .any(|perms| perms.contains(permission))
         }
     }
 
@@ -209,6 +308,42 @@ mod tests {
         let result = service.call(params);
         assert!(result.is_failure());
         assert!(result.errors().has_error("subject"));
+    }
+
+    #[test]
+    fn a_guard_that_reads_an_unsupplied_fact_refuses_instead_of_admitting() {
+        let user = create_user_with_permission();
+        let params = WorkPackageParams::new()
+            .with_subject("Needs a status fact")
+            .with_project_id(1)
+            .with_type_id(1)
+            .with_status_id(1);
+        let result = CreateWorkPackageService::new(&user).call(params);
+        assert!(result.is_failure());
+        assert!(result.errors().base_errors[0].starts_with("admission_unresolved"));
+    }
+
+    #[test]
+    fn a_supplied_fact_resolves_the_guard() {
+        struct Open;
+        impl AdmissionFacts for Open {
+            fn fact(&self, name: &str) -> Option<bool> {
+                match name {
+                    "model.status_id_change" => Some(true),
+                    "model.status&.closed?" | "model.status.closed?" => Some(false),
+                    "model.effective_target_versions.any?(&:closed?)" => Some(false),
+                    _ => None,
+                }
+            }
+        }
+        let user = create_user_with_permission();
+        let params = WorkPackageParams::new()
+            .with_subject("Has facts")
+            .with_project_id(1)
+            .with_type_id(1)
+            .with_status_id(1);
+        let result = CreateWorkPackageService::new(&user).with_facts(&Open).call(params);
+        assert!(result.is_success());
     }
 
     #[test]
