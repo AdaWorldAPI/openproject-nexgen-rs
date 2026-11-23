@@ -432,25 +432,6 @@ fn residual_for(
             "framework-level method of the application's base contract; no extractor reads it".to_string(),
             OwnerStage::ContractHarvest,
         )
-    } else if key == KEY_SCHEDULE {
-        (
-            p(
-                "the validator call inside `attribute :schedule_manually do ... end`, with its `if model.schedule_automatically?` condition",
-                "ruff contract arm: harvest validator calls inside attribute blocks (base_contract.rb:89 registers the block with validate(attribute, &block))",
-                false,
-                format!(
-                    "{}-48 (block), {} (def)",
-                    locate_in(CREATE_CONTRACT, "attribute :schedule_manually do"),
-                    locate_in(CREATE_CONTRACT, "def validate_has_predecessors_or_children")
-                ),
-                op.clone(),
-                "Slag(RubySideNotHarvested) -> RubyOnly: Charon inspected admit_create (defined, structured, current) and it has no edge to such a validator; NOT_EVALUATED_VALIDATORS does not name it either",
-                "the harvested validator with its condition; the runtime axis records ExecutedAgreement on leaf_automatic: admit_create now evaluates the validator",
-                "a harvest that drops the `if model.schedule_automatically?` condition predicts the error on leaf_manual, where the oracle records none",
-            ),
-            "validator inside an attribute block; absent from the generated admission path and from NOT_EVALUATED_VALIDATORS".to_string(),
-            OwnerStage::ContractHarvest,
-        )
     } else if key == KEY_API {
         (
             p(
@@ -634,8 +615,11 @@ fn ore_slag_ledger_and_lifecycle() {
     assert_eq!(rs.len(), slag, "every slag row has exactly one residual");
 
     // The schedule_manually block: Ruby fires on exactly one record and Rust fires on
-    // the same one (only discriminating records are compared), and the structural row
-    // stays an open RubySideNotHarvested: ruff still harvests no block.
+    // the same one (only discriminating records are compared). The structural row is
+    // an Agreement on the call: ruff's `extract_attribute_blocks` harvests the block,
+    // so the row is no longer slag and has no residual. The condition is not part of
+    // the structural comparison (see the claim's repair text); this differential is its
+    // witness.
     eprintln!(
         "schedule_manually block: {} CreateContract records; Ruby emits {SCHEDULE_CODE} on {:?}; Rust on {:?}; disagreements {:?}",
         diff.records, diff.ruby_fires, diff.rust_fires, diff.disagreements
@@ -651,9 +635,10 @@ fn ore_slag_ledger_and_lifecycle() {
     );
     assert!(diff.disagreements.is_empty(), "{:?}", diff.disagreements);
     let sched = rec.row(KEY_SCHEDULE).expect("row");
-    assert_eq!(
-        sched.verdict,
-        Verdict::Slag(SlagReason::RubySideNotHarvested)
+    assert_eq!(sched.verdict, Verdict::Agreement);
+    assert!(
+        rs.iter().all(|r| r.key != KEY_SCHEDULE),
+        "an Agreement row has no residual"
     );
     assert_eq!(
         RuntimeVerdict::of(&sched.runtime),
@@ -664,9 +649,6 @@ fn ore_slag_ledger_and_lifecycle() {
             .contains(&"validate_has_predecessors_or_children"),
         "the validator is evaluated by admit_create, so it is not listed as not evaluated"
     );
-    let sched_res = status_of(&rs, KEY_SCHEDULE);
-    assert_eq!(sched_res.status, Lifecycle::Open, "the retained unknown");
-    assert_eq!(sched_res.owner_stage, OwnerStage::ContractHarvest);
 
     // Rust-side residuals that no witness here can supply stay open or candidate.
     assert_eq!(
@@ -698,7 +680,7 @@ fn ore_slag_ledger_and_lifecycle() {
             let counts = rec.counts();
             assert_eq!(
                 (counts.get("Agreement"), counts.get("Slag"), counts.get("Disagreement")),
-                (Some(&4), Some(&15), None)
+                (Some(&5), Some(&14), None)
             );
             let resolved: Vec<&Residual> = rs
                 .iter()
@@ -993,6 +975,69 @@ fn ore_slag_negative_controls() {
         assert_eq!(missing.status, Lifecycle::Evidenced, "{}", r.key);
     }
     eprintln!("control 8: a failing or missing drift check keeps all 9 guard rows at EVIDENCED");
+
+    // (9) The schedule_manually block claim agrees only on the harvested fact. A
+    // different call name, a missing block, a dropped condition or another condition
+    // each leave the Ruby side unharvested, so the same Rust edge no longer agrees.
+    let decide = |blocks: &[AttributeBlock], validator: &str| {
+        let mut specs = claims(Some(&ruby));
+        let spec = specs
+            .iter_mut()
+            .find(|s| s.key.to_string() == KEY_SCHEDULE)
+            .expect("schedule row");
+        spec.ruby = schedule_block_evidence(blocks, validator);
+        Reconciler::new(&store, Some(&root())).decide(spec).verdict
+    };
+    let real_blocks = &ruby.blocks;
+    assert_eq!(decide(real_blocks, SCHEDULE_VALIDATOR), Verdict::Agreement);
+    assert_eq!(
+        decide(real_blocks, "validate_something_else"),
+        Verdict::Slag(SlagReason::RubySideNotHarvested),
+        "a different call name must not agree"
+    );
+    assert_eq!(
+        decide(&[], SCHEDULE_VALIDATOR),
+        Verdict::Slag(SlagReason::RubySideNotHarvested),
+        "a missing block must not agree"
+    );
+    let mut dropped = real_blocks.clone();
+    for b in &mut dropped {
+        for c in &mut b.calls {
+            c.condition = None;
+        }
+    }
+    assert_eq!(
+        decide(&dropped, SCHEDULE_VALIDATOR),
+        Verdict::Slag(SlagReason::RubySideNotHarvested),
+        "an unconditional call is not the claimed fact"
+    );
+    let mut other = real_blocks.clone();
+    for b in &mut other {
+        for c in &mut b.calls {
+            if let Some(cond) = &mut c.condition {
+                cond.outcome = GuardOutcome::Lowered(GuardExpr::Fact("model.leaf?".into()));
+            }
+        }
+    }
+    assert_eq!(
+        decide(&other, SCHEDULE_VALIDATOR),
+        Verdict::Slag(SlagReason::RubySideNotHarvested),
+        "another condition is not the claimed fact"
+    );
+    // The Rust side still decides: a renamed callee turns the harvested fact into RubyOnly.
+    let mut specs = claims(Some(&ruby));
+    let spec = specs
+        .iter_mut()
+        .find(|s| s.key.to_string() == KEY_SCHEDULE)
+        .expect("schedule row");
+    if let RustProbe::Edges { edges, .. } = &mut spec.rust {
+        edges[0].1 = format!("{}_renamed", edges[0].1);
+    }
+    assert_eq!(
+        Reconciler::new(&store, Some(&root())).decide(spec).verdict,
+        Verdict::RubyOnly
+    );
+    eprintln!("control 9: schedule_manually block claim: wrong call / no block / no condition / other condition -> Slag(RubySideNotHarvested); renamed Rust callee -> RubyOnly");
 
     // (6) Disabling the Rust behaviour is a live run (edit admission.rs, observe,
     // git checkout): see docs/ore-slag-reconciliation.md. Not reproducible in-test

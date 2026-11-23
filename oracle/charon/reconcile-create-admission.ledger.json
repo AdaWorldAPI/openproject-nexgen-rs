@@ -130,7 +130,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -156,7 +156,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan); ruff ce96aae35f230e35d34fba6515888c1273abc85d",
+            "revision": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan); ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf",
             "source_side_parsed": false
           }
         ],
@@ -316,7 +316,7 @@
       "structural_verdict": "Slag(RubySideNotHarvested)"
     },
     {
-      "coverage": "ruby: not harvested; rust: 1/1 edges (CALLS_RESOLVED COMPILER)",
+      "coverage": "ruby: fact (ruff_ruby_spo::extract_attribute_blocks); rust: 1/1 edges (CALLS_RESOLVED COMPILER)",
       "identity": {
         "application": "openproject",
         "effect": "validates:validate_has_predecessors_or_children",
@@ -328,36 +328,19 @@
       "key": "openproject/WorkPackage/create/guard/CreateContract.attribute(:schedule_manually).block/validates:validate_has_predecessors_or_children",
       "level": "GuardEvaluation",
       "representation": "Guard",
-      "residual": {
-        "attempts": [],
-        "evidence": [],
-        "locator": "ruby -; rust crates/op-contracts/src/work_packages/admission.rs bytes 12289..12333 (line 339)",
-        "owner_stage": "ContractHarvest",
-        "proposed_remedy": {
-          "claim_change": "Slag(RubySideNotHarvested) -> RubyOnly: Charon inspected admit_create (defined, structured, current) and it has no edge to such a validator; NOT_EVALUATED_VALIDATORS does not name it either",
-          "missing_fact": "the validator call inside `attribute :schedule_manually do ... end`, with its `if model.schedule_automatically?` condition",
-          "negative_control": "a harvest that drops the `if model.schedule_automatically?` condition predicts the error on leaf_manual, where the oracle records none",
-          "source_location": "app/contracts/work_packages/create_contract.rb:46-48 (block), app/contracts/work_packages/create_contract.rb:68 (def)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068",
-          "supplier": "ruff contract arm: harvest validator calls inside attribute blocks (base_contract.rb:89 registers the block with validate(attribute, &block))",
-          "supplier_exists": false,
-          "validating_evidence": "the harvested validator with its condition; the runtime axis records ExecutedAgreement on leaf_automatic: admit_create now evaluates the validator"
-        },
-        "reason": "RubySideNotHarvested",
-        "regression_gate": null,
-        "status": "OPEN",
-        "sub_reason": "validator inside an attribute block; absent from the generated admission path and from NOT_EVALUATED_VALIDATORS"
-      },
+      "residual": null,
       "ruby": {
-        "state": "not_harvested",
-        "why": "the scan reads `attribute :schedule_manually do` as a declaration and skips its block; ruff lowers `writable:` only"
+        "extractor": "ruff_ruby_spo::extract_attribute_blocks",
+        "fact": "inside `attribute :schedule_manually do` (line 46), CreateContract calls validate_has_predecessors_or_children if model.schedule_automatically? (lowered Fact(\"model.schedule_automatically?\"))",
+        "span": "app/contracts/work_packages/create_contract.rb:47",
+        "state": "fact"
       },
       "runtime_evidence": "EXECUTED 1 compared, 0 mismatches (ore_slag schedule_manually differential: op_services CreateWorkPackageService::admit vs contract trace errors[schedule_manually] = cannot_be_automatically_scheduled; 6 CreateContract records, Ruby fires on [\"leaf_automatic\"], Rust on [\"leaf_automatic\"]; separate from the 350)",
       "runtime_verdict": "ExecutedAgreement",
       "rust": {
         "span": "crates/op-contracts/src/work_packages/admission.rs bytes 12289..12333 (line 339): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::validate_has_predecessors_or_children"
       },
-      "structural_verdict": "Slag(RubySideNotHarvested)"
+      "structural_verdict": "Agreement"
     },
     {
       "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)); rust: op_services::work_packages::mutation::create (RustBodyNotStructured)",
@@ -539,7 +522,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -565,7 +548,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf",
             "source_side_parsed": true
           }
         ],
@@ -643,7 +626,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -669,7 +652,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf",
             "source_side_parsed": true
           }
         ],
@@ -747,7 +730,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -773,7 +756,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf",
             "source_side_parsed": true
           }
         ],
@@ -851,7 +834,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -877,7 +860,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf",
             "source_side_parsed": true
           }
         ],
@@ -955,7 +938,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -981,7 +964,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf",
             "source_side_parsed": true
           }
         ],
@@ -1059,7 +1042,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -1085,7 +1068,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf",
             "source_side_parsed": true
           }
         ],
@@ -1163,7 +1146,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -1189,7 +1172,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf",
             "source_side_parsed": true
           }
         ],
@@ -1267,7 +1250,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -1293,7 +1276,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf",
             "source_side_parsed": true
           }
         ],
@@ -1371,7 +1354,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d; admission_gen",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -1397,7 +1380,7 @@
                 "root": "Target"
               }
             ],
-            "revision": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
+            "revision": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf",
             "source_side_parsed": true
           }
         ],
@@ -1437,31 +1420,31 @@
     "charon": "AdaWorldAPI/charon c69e231ea8d71566d4b728e90c12efc432d11b8c",
     "charon_extractor": "AdaWorldAPI/ruff 52eb6c856824ccc7d5bc044d0cdb145a223a7e4e",
     "source_app": "openproject 2725194454c895dfab6ff2685d9688b0cba53068",
-    "source_extractor": "ruff ce96aae35f230e35d34fba6515888c1273abc85d",
+    "source_extractor": "ruff 180cf4ffd8a593557d29fe4217b9be1d115adcaf",
     "target": "nexgen 8d38cd39901d545a234ba01b5268ba91c18fa690"
   },
   "scorecard": {
     "claims": 21,
     "lifecycle": {
       "EVIDENCED": 1,
-      "OPEN": 5,
+      "OPEN": 4,
       "RESOLVED(DataWitness)": 9
     },
     "open_slag_by_owner": {
-      "ContractHarvest": 2,
+      "ContractHarvest": 1,
       "DataWitness": 1,
       "RustExtraction": 3
     },
     "open_slag_by_reason": {
       "RepresentedAsData": 1,
-      "RubySideNotHarvested": 2,
+      "RubySideNotHarvested": 1,
       "RustBodyNotStructured": 3
     },
     "resolved_by_level": {
       "DataWitness": 9
     },
-    "ruby_facts_from_parser": 9,
-    "ruby_facts_inspected": 18,
+    "ruby_facts_from_parser": 10,
+    "ruby_facts_inspected": 19,
     "runtime": {
       "ExecutedAgreement": 11,
       "NotExecuted": 7,
@@ -1471,10 +1454,10 @@
     "runtime_items_mismatched": 0,
     "rust_counterparts_inspectable": 18,
     "structural": {
-      "Agreement": 4,
+      "Agreement": 5,
       "CharonOnly": 1,
       "NotComparable": 1,
-      "Slag": 15
+      "Slag": 14
     }
   },
   "stale_store_files": [],

@@ -30,7 +30,10 @@ use op_contracts::base::UserContext;
 use op_contracts::work_packages::{is_writable, AdmissionFacts, Writable};
 use op_core::traits::Id;
 use op_services::work_packages::CreateWorkPackageService;
-use ruff_ruby_spo::{extract_contract_guards, ContractGuard, GuardOutcome};
+use ruff_ruby_spo::{
+    extract_attribute_blocks, extract_contract_guards, AttributeBlock, ContractGuard, GuardExpr,
+    GuardOutcome,
+};
 use serde_json::Value;
 
 const CREATE_CONTRACT: &str = "app/contracts/work_packages/create_contract.rb";
@@ -106,6 +109,7 @@ struct Ruby {
     service: String,
     scan: ContractScanFacts,
     guards: Vec<ContractGuard>,
+    blocks: Vec<AttributeBlock>,
 }
 
 impl Ruby {
@@ -117,6 +121,7 @@ impl Ruby {
             service: read(CREATE_SERVICE),
             scan: contract_scan_facts(src),
             guards: extract_contract_guards(&src.join("app/contracts")),
+            blocks: extract_attribute_blocks(src, &[CREATE_CONTRACT]).0,
         }
     }
 
@@ -175,6 +180,55 @@ fn not_harvested(why: &str) -> RubyEvidence {
 const SCAN: &str = "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)";
 const LOCATED: &str = "literal located in the source (no parse)";
 const RUFF: &str = "ruff_ruby_spo::extract_contract_guards";
+const RUFF_BLOCKS: &str = "ruff_ruby_spo::extract_attribute_blocks";
+
+const SCHEDULE_CLASS: &str = "WorkPackages::CreateContract";
+const SCHEDULE_ATTRIBUTE: &str = "schedule_manually";
+const SCHEDULE_VALIDATOR: &str = "validate_has_predecessors_or_children";
+const SCHEDULE_CONDITION: &str = "model.schedule_automatically?";
+
+/// The Ruby side of the `schedule_manually` block claim: the call `validator` inside
+/// `attribute :schedule_manually do ... end` of `CreateContract`, under the lowered
+/// condition `model.schedule_automatically?`. Anything else (block missing, other call
+/// name, no condition, a different or unlowered condition) is not the claimed fact.
+fn schedule_block_evidence(blocks: &[AttributeBlock], validator: &str) -> RubyEvidence {
+    let Some(block) = blocks
+        .iter()
+        .find(|b| b.class == SCHEDULE_CLASS && b.attribute == SCHEDULE_ATTRIBUTE)
+    else {
+        return not_harvested(
+            "no `attribute :schedule_manually do` block harvested in CreateContract",
+        );
+    };
+    let Some(call) = block.calls.iter().find(|c| c.name == validator) else {
+        return not_harvested(&format!(
+            "the harvested schedule_manually block does not call {validator}"
+        ));
+    };
+    let Some(cond) = &call.condition else {
+        return not_harvested(&format!(
+            "the harvested call to {validator} is unconditional, not under {SCHEDULE_CONDITION}"
+        ));
+    };
+    if cond.outcome != GuardOutcome::Lowered(GuardExpr::Fact(SCHEDULE_CONDITION.into())) {
+        return not_harvested(&format!(
+            "the harvested condition {:?} is not the lowered fact {SCHEDULE_CONDITION}",
+            cond.source_text
+        ));
+    }
+    RubyEvidence::Fact {
+        extractor: RUFF_BLOCKS.into(),
+        span: SourceSpan {
+            file: block.file.clone(),
+            line_start: call.line as usize,
+            line_end: call.line as usize,
+        },
+        fact: format!(
+            "inside `attribute :schedule_manually do` (line {}), CreateContract calls {} if {} (lowered Fact({:?}))",
+            block.line, call.name, cond.source_text, SCHEDULE_CONDITION
+        ),
+    }
+}
 
 /// The ruff guards that decide create admission: `CreateContract` overrides
 /// `BaseContract`, per attribute (the generator's `guard_for`).
@@ -299,10 +353,10 @@ fn claims(ruby: Option<&Ruby>) -> Vec<ClaimSpec> {
         ClaimSpec {
             key: key("guard", "CreateContract.attribute(:schedule_manually).block", "validates:validate_has_predecessors_or_children"),
             level: Level::GuardEvaluation,
-            ruby: not_harvested("the scan reads `attribute :schedule_manually do` as a declaration and skips its block; ruff lowers `writable:` only"),
+            ruby: ruby.map_or_else(none, |r| schedule_block_evidence(&r.blocks, SCHEDULE_VALIDATOR)),
             rust: edges(&[(ADMIT_CREATE, "op_contracts::work_packages::admission::validate_has_predecessors_or_children")]),
             comparability: Comparability::Same,
-            repair: "ruff: harvest validators inside `attribute ... do` blocks".into(),
+            repair: "the call is compared, not its condition: Rust calls the validator unconditionally and evaluates `model.schedule_automatically?` inside it (FACT_SCHEDULE_MANUALLY); the condition is witnessed by the schedule_manually runtime differential (ore_slag)".into(),
         },
         ClaimSpec {
             key: key("admission", "mutation::create", "checks:add_work_packages-in-project"),

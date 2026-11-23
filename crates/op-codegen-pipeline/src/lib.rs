@@ -81,7 +81,7 @@ pub mod class_proposer;
 /// parity gates measure against it, so an unreviewed change on ruff `main`
 /// cannot move their baseline; bump it in a PR that re-runs the gates.
 /// `ruff_rev_matches_every_manifest` fails if a manifest drifts from it.
-pub const RUFF_REV: &str = "ce96aae35f230e35d34fba6515888c1273abc85d";
+pub const RUFF_REV: &str = "180cf4ffd8a593557d29fe4217b9be1d115adcaf";
 /// lance-graph still floats on a branch; no repository tracks a `Cargo.lock`.
 pub const LANCE_GRAPH_REV: &str = "floating: branch main (resolved at build time)";
 
