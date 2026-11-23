@@ -27,6 +27,8 @@ members = [
     "crates/ruff_openproject",
     "crates/web-login",
     "crates/op-desk",
+    "crates/rails-compiler",
+    "crates/rails-polyfill",
 ]
 
 [workspace.package]
