@@ -53,7 +53,7 @@ use serde_json::Value;
 /// closure_tree) only where `vendor/bundle` holds them; CI unpacks them with
 /// `scripts/fetch-oracle-gems.sh`. Class-level macros are read from their own
 /// `def` and `has_and_belongs_to_many` middle associations are decided from the
-/// host class, so these hold at ruff b3bdfb1. Without `vendor/bundle` only the
+/// host class, so these hold at ruff ce96aae. Without `vendor/bundle` only the
 /// in-tree plugin macros (`lib_static`) are read.
 const MATCHED_FLOOR: (usize, usize) = (154, 132);
 
@@ -61,7 +61,7 @@ const MATCHED_FLOOR: (usize, usize) = (154, 132);
 /// vendor/bundle, without it)`.
 const MATCHED_GENERATED_FLOOR: (usize, usize) = (112, 99);
 
-/// Typed slag per reason as measured at ruff b3bdfb1, and no more: a reason may
+/// Typed slag per reason as measured at ruff ce96aae, and no more: a reason may
 /// fall, never grow. Only checked where `vendor/bundle` is installed.
 ///
 /// Left: paper_trail's `has_many :paper_trail_audits`, named by a config value
@@ -77,19 +77,19 @@ const SLAG_CEILINGS: &[(Slag, usize)] = &[
 
 /// Order groups that must be DEFINITE and agree with the recording, as
 /// `(with vendor/bundle, without it)`. A group is UNKNOWN when a callback in it
-/// is registered in a scope with any statement that may hide a registration
-/// (`ModelCtx::order_unknown_scopes`, even a conditional whose branches ruff
-/// names), or when a skipped branch could register one of its entries
+/// is registered in a scope with a statement that may hide a registration and
+/// that ruff did not read in full (`ModelCtx::order_unknown_scopes`: a dynamic
+/// `send`, an unread block body, a conditional whose `hidden_complete` is
+/// false), or when a skipped branch could register one of its entries
 /// (`order_hidden`).
 ///
-/// LOWERED from (29, 19) to (16, 6) by the review fix that stopped treating
-/// ruff's `Unharvested::hidden` as exhaustive: a nameable conditional used to
-/// clear its scope, which let a group hold an entry registered by a statement
-/// ruff does not recognise inside the same branch. 13 groups (the WorkPackage
-/// chains through `acts_as_customizable`) are now UNKNOWN; none of them would
-/// differ from the recording. The floor goes back up when ruff exposes an
-/// exhaustiveness flag on `Unharvested` and the scope check can use it.
-const ORDER_DEFINITE_FLOOR: (usize, usize) = (16, 6);
+/// History: (29, 19) while a nameable conditional cleared its scope; (16, 6)
+/// after the review fix that stopped treating `Unharvested::hidden` as
+/// exhaustive (13 WorkPackage groups through `acts_as_customizable` went
+/// UNKNOWN, none would differ); back to (29, 19) with ruff ce96aae, whose
+/// `hidden_complete` says when `hidden` is exhaustive. Measured: 29 compared,
+/// 29 definite, 0 UNKNOWN, 0 differ with the bundle; 19 / 19 / 0 / 0 without.
+const ORDER_DEFINITE_FLOOR: (usize, usize) = (29, 19);
 
 /// Order groups that must stay DEFINITE and agree on the harvest WITHOUT
 /// class-level macros: the population the order gate was first measured on.
