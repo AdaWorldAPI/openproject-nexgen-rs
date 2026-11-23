@@ -78,6 +78,8 @@ pub struct Ctx {
     /// After-commit callbacks queued by the current transaction.
     pub(crate) pending_commit: Vec<crate::lifecycle::PendingCommit>,
     pub(crate) txn_depth: u32,
+    /// Source of transaction participant tokens; never reused.
+    pub(crate) next_participant: u64,
     /// Every boundary crossing, in order, in the oracle's spelling.
     pub boundary_log: Vec<String>,
 }
@@ -110,6 +112,7 @@ impl Ctx {
             errors: Vec::new(),
             pending_commit: Vec::new(),
             txn_depth: 0,
+            next_participant: 0,
             boundary_log: Vec::new(),
         }
     }
