@@ -16,6 +16,8 @@
 #   retry: StaleObjectError
 #   create rolled back: new_record=true id=nil rows=1
 #   create retry: saved new_record=false rows=2
+#   destroy returned: false
+#   destroy rolled back: record name=b changed=["name"] stored=a destroyed=false
 B = File.join(ENV.fetch("OPENPROJECT_SRC"), "vendor/bundle/ruby/4.0.0/gems")
 %w[activerecord-8.1.4.1 activemodel-8.1.4.1 activesupport-8.1.4.1].each { |g| $LOAD_PATH.unshift("#{B}/#{g}/lib") }
 Dir["#{B}/{concurrent-ruby,i18n,tzinfo,minitest,base64,bigdecimal,connection_pool,drb,logger,securerandom,uri,benchmark,timeout,json}-*/lib"].each { |d| $LOAD_PATH.unshift(d) }
@@ -24,7 +26,10 @@ require "active_record"
 puts "ActiveRecord #{ActiveRecord.version}"
 ActiveRecord::Base.establish_connection(adapter: "sqlite3", database: ":memory:")
 ActiveRecord::Schema.verbose = false
-ActiveRecord::Schema.define { create_table(:wps) { |t| t.string :subject; t.integer :lock_version, default: 0, null: false } }
+ActiveRecord::Schema.define do
+  create_table(:wps) { |t| t.string :subject; t.integer :lock_version, default: 0, null: false }
+  create_table(:plains) { |t| t.string :name }
+end
 class Wp < ActiveRecord::Base
   attr_accessor :boom
   after_save { raise "boom" if boom }
@@ -45,3 +50,12 @@ puts "create rolled back: new_record=#{n.new_record?} id=#{n.id.inspect} rows=#{
 n.boom = false
 n.save!
 puts "create retry: saved new_record=#{n.new_record?} rows=#{Wp.count}"
+
+# A before_destroy that saves the record, then aborts.
+class Plain < ActiveRecord::Base
+  before_destroy { save!; throw :abort }
+end
+r = Plain.create!(name: "a")
+r.name = "b"
+puts "destroy returned: #{r.destroy.inspect}"
+puts "destroy rolled back: record name=#{r.name} changed=#{r.changed.inspect} stored=#{Plain.find(r.id).name} destroyed=#{r.destroyed?}"

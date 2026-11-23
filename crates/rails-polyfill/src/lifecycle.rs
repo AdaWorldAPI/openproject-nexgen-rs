@@ -349,8 +349,8 @@ pub fn save_bang(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> 
 /// then `@destroyed = true`). `after_commit` runs only when a row was really
 /// deleted (`@_trigger_destroy_callback`, persistence.rb:456).
 pub fn destroy(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Result<bool, Halt> {
-    let was_destroyed = rec.destroyed();
     let snapshot = ctx.store.begin();
+    let record_state = rec.transaction_state();
     let outer = ctx.txn_depth == 0;
     ctx.txn_depth += 1;
     let result = destroy_in_transaction(ctx, model, rec);
@@ -360,13 +360,17 @@ pub fn destroy(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Re
         Ok(Some(deleted)) => deleted,
         other => {
             ctx.store.rollback(snapshot);
-            // A rolled back destroy restores `@destroyed`
-            // (transactions.rb:499).
-            rec.set_destroyed(was_destroyed);
-            if outer {
+            // `rolledback!`: after_rollback, then the record state as it was
+            // when the destroy's transaction began, `@destroyed` and the dirty
+            // baseline included (transactions.rb:415-423, 494-517).
+            let rolled_back = if outer {
                 ctx.pending_commit.clear();
-                run_chain(ctx, model, &[Phase::AfterRollback], Action::Destroy, rec)?;
-            }
+                run_chain(ctx, model, &[Phase::AfterRollback], Action::Destroy, rec)
+            } else {
+                Ok(())
+            };
+            rec.restore_transaction_state(record_state);
+            rolled_back?;
             return other.map(|_| false);
         }
     };
@@ -717,6 +721,38 @@ mod tests {
         rec.set(1, Value::str("c"));
         let err = save(&mut ctx, &ORDERED, &mut rec).unwrap_err();
         assert_eq!(err, Halt::Store(StoreError::StaleObject { table: "locked", id: 1 }));
+    }
+
+    fn save_then_abort(ctx: &mut Ctx, rec: &mut Record) -> Result<Value, Halt> {
+        save(ctx, &PLAIN_MODEL, rec)?;
+        Err(Halt::Abort)
+    }
+
+    static PLAIN_MODEL: ModelSpec = ModelSpec { name: "Plain", table: &PLAIN, callbacks: &[] };
+
+    static SAVE_THEN_ABORT: ModelSpec = ModelSpec {
+        name: "SaveThenAbort",
+        table: &PLAIN,
+        callbacks: &[cb(Phase::BeforeDestroy, "save_then_abort", On::ANY, save_then_abort)],
+    };
+
+    /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, second scenario): a
+    /// before_destroy that saves and then aborts leaves the row at "a" and
+    /// the record at "b" with `changed == ["name"]`, `destroyed? == false`.
+    #[test]
+    fn a_rolled_back_destroy_restores_the_dirty_baseline() {
+        let mut ctx = ctx_with(&PLAIN);
+        let mut rec = seeded(&mut ctx, &SAVE_THEN_ABORT);
+        rec.set(1, Value::str("b"));
+        assert_eq!(destroy(&mut ctx, &SAVE_THEN_ABORT, &mut rec), Ok(false));
+        let stored = find(&mut ctx, &PLAIN_MODEL, 1).unwrap().unwrap();
+        assert_eq!(stored.get(1), &Value::str("a"), "the nested save is rolled back");
+        assert_eq!(rec.get(1), &Value::str("b"));
+        assert_eq!(rec.changed_columns(), [1], "b is pending again");
+        assert!(!rec.destroyed());
+        // So the retry persists it.
+        assert_eq!(save(&mut ctx, &PLAIN_MODEL, &mut rec).map(|s| s.ok), Ok(true));
+        assert_eq!(find(&mut ctx, &PLAIN_MODEL, 1).unwrap().unwrap().get(1), &Value::str("b"));
     }
 
     /// A rolled-back create restores the pre-save id and `new_record?`
