@@ -68,11 +68,14 @@ pub mod crosswalk;
 /// (copied 1:1 from zammad-rs; see the module doc for the copy provenance).
 pub mod class_proposer;
 
-/// Provenance strings the proposer's JSON output names. Both dependencies
-/// float on a branch; `Cargo.lock` pins the concrete revision.
-pub const RUFF_REV: &str = "floating: branch main (concrete rev in Cargo.lock)";
-/// See [`RUFF_REV`].
-pub const LANCE_GRAPH_REV: &str = "floating: branch main (concrete rev in Cargo.lock)";
+/// The ruff revision every ruff dependency in this workspace is pinned to
+/// (`rev = ...` in this crate's and `ruff_openproject`'s manifests). The
+/// parity gates measure against it, so an unreviewed change on ruff `main`
+/// cannot move their baseline; bump it in a PR that re-runs the gates.
+/// `ruff_rev_matches_every_manifest` fails if a manifest drifts from it.
+pub const RUFF_REV: &str = "79ed2baa007d24000d651e23efc4a207122bd08d";
+/// lance-graph still floats on a branch; no repository tracks a `Cargo.lock`.
+pub const LANCE_GRAPH_REV: &str = "floating: branch main (resolved at build time)";
 
 /// Klickweg harvest bridge: run the Rails `navigates_to` harvest (ruff #62)
 /// over an OpenProject source tree to produce the board's navigation edges —
@@ -238,6 +241,37 @@ pub fn render_surreal_from_ruff(triples: &[RuffTriple]) -> (OpSurrealConst, Stri
 
 #[cfg(test)]
 mod tests {
+    /// Every ruff dependency is pinned to [`crate::RUFF_REV`], and none floats on
+    /// a branch.
+    #[test]
+    fn ruff_rev_matches_every_manifest() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for manifest in [
+            dir.join("Cargo.toml"),
+            dir.join("../ruff_openproject/Cargo.toml"),
+            // The workspace `[patch]` that folds OGAR's branch dependency onto the pin.
+            dir.join("../../Cargo.toml"),
+        ] {
+            let text = std::fs::read_to_string(&manifest).expect("manifest is readable");
+            let ruff_lines: Vec<&str> = text
+                .lines()
+                .filter(|l| l.contains("github.com/AdaWorldAPI/ruff") && l.contains("git ="))
+                .collect();
+            assert!(
+                !ruff_lines.is_empty(),
+                "{}: no ruff dependency",
+                manifest.display()
+            );
+            for line in ruff_lines {
+                assert!(
+                    line.contains(&format!("rev = \"{}\"", crate::RUFF_REV)),
+                    "{}: ruff dependency not pinned to RUFF_REV: {line}",
+                    manifest.display()
+                );
+            }
+        }
+    }
+
     use super::*;
     use lance_graph_contract::codegen_spine::roundtrip_eq;
     use ruff_spo_triplet::{expand, Field, Model, ModelGraph};

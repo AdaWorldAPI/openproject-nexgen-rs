@@ -107,3 +107,14 @@ parking_lot = "0.12"
 dashmap = "5.5"
 regex = "1.10"
 url = "2.5"
+
+# Every ruff source resolves to one revision. Our crates pin `rev = RUFF_REV`;
+# OGAR's crates (ogar-from-ruff, ...) depend on ruff `branch = "main"`. Cargo
+# treats a rev and a branch as different sources even at the same commit, which
+# yields two incompatible `ModelGraph` types. A patch must point at a different
+# URL than the one it patches, hence `www.github.com`. Keep `rev` equal to
+# `op_codegen_pipeline::RUFF_REV` (checked by `ruff_rev_matches_every_manifest`).
+[patch."https://github.com/AdaWorldAPI/ruff"]
+ruff_ruby_spo    = { git = "https://www.github.com/AdaWorldAPI/ruff", rev = "79ed2baa007d24000d651e23efc4a207122bd08d" }
+ruff_spo_triplet = { git = "https://www.github.com/AdaWorldAPI/ruff", rev = "79ed2baa007d24000d651e23efc4a207122bd08d" }
+ruff_spo_address = { git = "https://www.github.com/AdaWorldAPI/ruff", rev = "79ed2baa007d24000d651e23efc4a207122bd08d" }
