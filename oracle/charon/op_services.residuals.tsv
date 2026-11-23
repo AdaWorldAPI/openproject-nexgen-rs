@@ -34,6 +34,9 @@ BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::begin
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::commit
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::rollback
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::update_ancestors_of_created
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::update_totals_after_edit
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::parent_chain
+BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::update_totals_of
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::add_creator_as_watcher
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::write_creation_journal
 BODY_NOT_STRUCTURED	op_services::work_packages::mutation::{PgCreateScope}::update_in
