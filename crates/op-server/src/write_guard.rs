@@ -26,7 +26,9 @@ use op_db::{
     PriorityRepository, PriorityRow, StatusRepository, StatusRow, TypeRepository, TypeRow,
     UpdateWorkPackageDto, UserRepository, UserRow,
 };
-use op_services::work_packages::mutation::{self, Caller, MutationStore, StoreFailure};
+use op_services::work_packages::mutation::{
+    self, Caller, MutationError, MutationStore, PgMutationStore, StoreFailure,
+};
 use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -230,11 +232,14 @@ pub trait WpStore {
         allow_anonymous: bool,
     ) -> Result<Principal, StoreError>;
     async fn edit_options(&self) -> EditOptions;
-    async fn update_wp(
+    /// The update as one unit of work (lookup, authorization, UPDATE and journal on one
+    /// transaction): [`MutationStore::update_unit_of_work`] seen from the pages.
+    async fn update_unit_of_work(
         &self,
+        caller: &Caller,
         id: i64,
         dto: UpdateWorkPackageDto,
-    ) -> Result<op_db::work_packages::WorkPackageRow, StoreError>;
+    ) -> Result<op_db::work_packages::WorkPackageRow, MutationError>;
 }
 
 /// The Postgres-backed [`WpStore`].
@@ -312,15 +317,17 @@ impl WpStore for PgWpStore {
         }
     }
 
-    async fn update_wp(
+    async fn update_unit_of_work(
         &self,
+        caller: &Caller,
         id: i64,
         dto: UpdateWorkPackageDto,
-    ) -> Result<op_db::work_packages::WorkPackageRow, StoreError> {
-        op_db::WorkPackageRepository::new(self.pool.clone())
-            .update(id, dto)
-            .await
-            .map_err(store_err)
+    ) -> Result<op_db::work_packages::WorkPackageRow, MutationError> {
+        PgMutationStore {
+            pool: self.pool.clone(),
+        }
+        .update_unit_of_work(caller, id, dto)
+        .await
     }
 }
 
@@ -359,12 +366,13 @@ impl<S: WpStore> MutationStore for PageStore<'_, S> {
         result.map_err(failure)
     }
 
-    async fn update_wp(
+    async fn update_unit_of_work(
         &self,
+        caller: &Caller,
         id: i64,
         dto: UpdateWorkPackageDto,
-    ) -> Result<op_db::work_packages::WorkPackageRow, StoreFailure> {
-        self.0.update_wp(id, dto).await.map_err(failure)
+    ) -> Result<op_db::work_packages::WorkPackageRow, MutationError> {
+        self.0.update_unit_of_work(caller, id, dto).await
     }
 }
 
