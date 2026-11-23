@@ -14,16 +14,25 @@
 //!
 //! * `work_package_hierarchies`: this schema has no closure table, so the hierarchy is read from
 //!   `parent_id` (the same substitution `has_scheduling_predecessors` makes).
-//! * Of `SetAttributesService`'s date handling only `set_calculated_attributes`' date part is
-//!   ported ([`derive_dates`], applied by the INSERT and the UPDATE of `PgCreateScope`): milestone
-//!   unification, the shift to working days, the milestone duration and the derivation of
-//!   `duration` (or a date) from the other two. Not ported: `update_dates`
-//!   (`set_attributes_service.rb:337-381`: an automatic work package pulled to its predecessors'
-//!   soonest start, a parent taking its rescheduled children's dates, on update), the default start
-//!   and due date a new work package takes from its parent (:293-312) and
-//!   `Setting.work_package_startdate_is_adddate`. A date counts as "given" (`params.has_key?`)
-//!   when it is set on create and when it differs from the stored one on update, because the
-//!   update carries every current value forward.
+//! * Of `SetAttributesService`'s date handling the whole of `set_calculated_attributes`' date part
+//!   is ported, applied by the INSERT and the UPDATE of `PgCreateScope`: on create the default
+//!   start and due date from the parent (`set_default_start_date` / `set_default_due_date`,
+//!   `set_attributes_service.rb:241-257`, `default_dates_for_new`); on update `update_dates`
+//!   (:337-381: an automatic work package pulled to its predecessors' soonest start, a parent
+//!   taking the dates of its rescheduled children, both before the save, so the UPDATE writes the
+//!   result; `PgCreateScope::dates_before_save`); then, for both, milestone unification, the
+//!   shift to working days, the milestone duration and the derivation of `duration` (or a date)
+//!   from the other two ([`derive_dates`]). A date counts as "given" (`params.has_key?`) when it
+//!   is set on create and when it differs from the stored one on update, because the update
+//!   carries every current value forward; the create params cannot say "given as `nil`", so a
+//!   `None` date counts as absent (Ruby would leave a `nil` that was given `nil`).
+//!   `Setting.work_package_startdate_is_adddate` is the constant
+//!   `WORK_PACKAGE_STARTDATE_IS_ADDDATE` at its default `false`, so the "today" branch of
+//!   :246-247 is ported but never taken. Not ported of `update_dates`: the "came from user"
+//!   state of `ignore_non_working_days` (an edit cannot write it), the state of a due date set
+//!   to the same value it had (Ruby counts it as given, the carried-forward update cannot tell),
+//!   and `update_ignore_non_working_days` of the edited parent itself (:377-381; only its
+//!   ancestors derive it, `update_ancestors_service.rb:183-199`).
 //! * `update_descendants` on a project change (`update_service.rb:67-82`).
 //! * The `WorkPackage.visible(user)` check of the former parent (`update_service.rb:155`) models
 //!   only what `add_creator_as_watcher` models: an active project and `view_work_packages`
@@ -39,9 +48,23 @@ use chrono::NaiveDate;
 
 use super::{db_failure, PgCreateScope, StoreFailure, JOURNAL_AGGREGATION_TIME_MINUTES};
 use crate::work_packages::scheduling::{
-    derive_dates, schedule_following, Calendar, DateAttrs, FollowsRelation, SchedWp, ScheduleInput,
+    derive_dates, schedule_following, update_dates_from_self, with_lag, Calendar, DateAttrs,
+    FollowsRelation, SchedWp, ScheduleInput, Scheduled,
 };
 use op_core::traits::Id;
+
+/// What an edit starts from: the stored scheduling state of the work package.
+#[derive(Debug, sqlx::FromRow)]
+pub(super) struct StoredDates {
+    pub start_date: Option<NaiveDate>,
+    pub due_date: Option<NaiveDate>,
+    pub ignore_non_working_days: bool,
+    pub type_id: Id,
+    pub schedule_manually: bool,
+    pub duration: Option<i32>,
+    pub parent_id: Option<Id>,
+    pub lock_version: i32,
+}
 
 #[derive(Debug, sqlx::FromRow)]
 struct SchedRow {
@@ -169,6 +192,24 @@ impl PgCreateScope {
         initiated_by: Option<Id>,
         user_id: Id,
     ) -> Result<Vec<Id>, StoreFailure> {
+        let (scheduled, originals) = self
+            .compute_schedule(moved, switching_to_automatic_mode, initiated_by, None)
+            .await?;
+        self.save_scheduled(&scheduled, &originals, user_id).await
+    }
+
+    /// `SetScheduleService#call` without saving anything: loads what `ScheduleDependency` loads
+    /// and runs [`schedule_following`]. `patch` replaces the loaded row of one moved work package
+    /// with its in-memory state (`SetAttributesService#update_dates_from_rescheduled_children`
+    /// reschedules a work package that is not saved yet, with the dates and the parent the edit
+    /// assigned).
+    async fn compute_schedule(
+        &self,
+        moved: &[Id],
+        switching_to_automatic_mode: &[Id],
+        initiated_by: Option<Id>,
+        patch: Option<&SchedWp>,
+    ) -> Result<(Scheduled, HashMap<Id, SchedWp>), StoreFailure> {
         let switching: HashSet<Id> = switching_to_automatic_mode.iter().copied().collect();
 
         // The moved work packages, in the order given.
@@ -176,7 +217,10 @@ impl PgCreateScope {
         let mut moved_nodes: Vec<SchedWp> = Vec::new();
         for id in moved {
             if let Some(w) = loaded.iter().find(|w| w.id == *id) {
-                moved_nodes.push(w.clone());
+                match patch {
+                    Some(p) if p.id == w.id => moved_nodes.push(p.clone()),
+                    _ => moved_nodes.push(w.clone()),
+                }
             }
         }
         let moved_ids: Vec<Id> = moved_nodes.iter().map(|w| w.id).collect();
@@ -244,7 +288,16 @@ impl PgCreateScope {
             calendar,
         };
         let scheduled = schedule_following(&input).map_err(|e| StoreFailure::Other(e.0))?;
+        Ok((scheduled, originals))
+    }
 
+    /// The saving half of `SetScheduleService#call`'s callers: see [`PgCreateScope::reschedule_related`].
+    async fn save_scheduled(
+        &self,
+        scheduled: &Scheduled,
+        originals: &HashMap<Id, SchedWp>,
+        user_id: Id,
+    ) -> Result<Vec<Id>, StoreFailure> {
         let mut saved = Vec::new();
         for altered in &scheduled.altered {
             let node = &scheduled.nodes[&altered.id];
@@ -311,13 +364,7 @@ impl PgCreateScope {
         due_given: bool,
         attrs: DateAttrs,
     ) -> Result<DateAttrs, StoreFailure> {
-        let milestone: bool =
-            sqlx::query_scalar("SELECT COALESCE(is_milestone, false) FROM types WHERE id = $1")
-                .bind(type_id)
-                .fetch_optional(&mut **self.tx.lock().await)
-                .await
-                .map_err(db_failure)?
-                .unwrap_or(false);
+        let milestone = self.type_is_milestone(type_id).await?;
         let calendar = self.load_calendar().await?;
         Ok(derive_dates(
             &calendar,
@@ -327,6 +374,173 @@ impl PgCreateScope {
             due_given,
             attrs,
         ))
+    }
+
+    /// `type.is_milestone?`.
+    pub(super) async fn type_is_milestone(&self, type_id: Id) -> Result<bool, StoreFailure> {
+        Ok(
+            sqlx::query_scalar("SELECT COALESCE(is_milestone, false) FROM types WHERE id = $1")
+                .bind(type_id)
+                .fetch_optional(&mut **self.tx.lock().await)
+                .await
+                .map_err(db_failure)?
+                .unwrap_or(false),
+        )
+    }
+
+    /// The `start_date` and `due_date` of work package `id` (`work_package.parent` as
+    /// `set_default_start_date` reads it); `None` when there is no such work package.
+    pub(super) async fn dates_of(
+        &self,
+        id: Id,
+    ) -> Result<Option<(Option<NaiveDate>, Option<NaiveDate>)>, StoreFailure> {
+        sqlx::query_as("SELECT start_date, due_date FROM work_packages WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&mut **self.tx.lock().await)
+            .await
+            .map_err(db_failure)
+    }
+
+    /// The later of `Relation#successor_soonest_start` over `Relation.used_for_scheduling_of`
+    /// (`work_package/scheduling_rules.rb:61-67`, `relations/scopes/used_for_scheduling_of.rb:
+    /// 44-59`): the `follows` relations whose successor is the work package or one of its
+    /// automatically scheduled ancestors, each giving the predecessor's `due_date || start_date`
+    /// plus the lag in working days. Not yet moved to a working day (`soonest_start` does that
+    /// with the days of the work package it is asked for). Same hierarchy substitution as
+    /// [`PgCreateScope::has_scheduling_predecessors`].
+    async fn raw_soonest_start(&self, id: Id) -> Result<Option<NaiveDate>, StoreFailure> {
+        let rows: Vec<(Option<i32>, Option<NaiveDate>)> = sqlx::query_as(
+            "WITH RECURSIVE up(id) AS ( \
+                 SELECT $1::bigint \
+                 UNION \
+                 SELECT p.parent_id FROM up JOIN work_packages p ON p.id = up.id \
+                 WHERE p.parent_id IS NOT NULL), \
+             manual(id) AS ( \
+                 SELECT w.id FROM work_packages w \
+                 WHERE w.id IN (SELECT id FROM up) AND w.id <> $1 AND w.schedule_manually), \
+             excluded(id) AS ( \
+                 SELECT id FROM manual \
+                 UNION \
+                 SELECT p.parent_id FROM excluded e JOIN work_packages p ON p.id = e.id \
+                 WHERE p.parent_id IS NOT NULL) \
+             SELECT r.lag, COALESCE(pr.due_date, pr.start_date) \
+             FROM relations r JOIN work_packages pr ON pr.id = r.to_id \
+             WHERE r.relation_type = 'follows' \
+               AND r.from_id IN (SELECT id FROM up WHERE id NOT IN (SELECT id FROM excluded))",
+        )
+        .bind(id)
+        .fetch_all(&mut **self.tx.lock().await)
+        .await
+        .map_err(db_failure)?;
+        let calendar = self.load_calendar().await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(lag, date)| Some(with_lag(&calendar, date?, lag)))
+            .max())
+    }
+
+    /// The dates an UPDATE writes before `derive_dates` runs: `SetAttributesService#update_dates`
+    /// (`set_attributes_service.rb:337-344`, called by `set_calculated_attributes` for a persisted
+    /// work package, :111-118), over the dates the edit assigned (`dto_start`, `dto_due`,
+    /// `dto_parent`; the update carries every current value forward, so an attribute is "changed"
+    /// when it differs from `stored`). It runs before the save, so the UPDATE itself writes the
+    /// result and the rescheduling after the save finds nothing left to move.
+    ///
+    /// * With children (`work_package.children.any?`): an automatically scheduled work package
+    ///   that is not turning into a milestone (:346-365) is rescheduled by
+    ///   `SetScheduleService.new(switching_to_automatic_mode: [work_package])` called with the
+    ///   changed attributes, which does anything only when `start_date`, `due_date` or the parent
+    ///   changed: it then takes the earliest and latest date of its (rescheduled) descendants.
+    ///   The other work packages that service reschedules in memory are not saved here.
+    /// * Without children ([`update_dates_from_self`], :367-375, :482-524).
+    ///
+    /// Returns the `(start, due)` to hand to [`derive_dates`].
+    pub(super) async fn dates_before_save(
+        &self,
+        id: Id,
+        stored: &StoredDates,
+        dto_start: Option<NaiveDate>,
+        dto_due: Option<NaiveDate>,
+        dto_parent: Option<Id>,
+        now_milestone: bool,
+    ) -> Result<(Option<NaiveDate>, Option<NaiveDate>), StoreFailure> {
+        // `unify_milestone_dates` (:383-388): only a work package that just became a milestone.
+        let (start, due) = if now_milestone {
+            let unified = dto_due.or(dto_start);
+            (unified, unified)
+        } else {
+            (dto_start, dto_due)
+        };
+        let start_changed = dto_start != stored.start_date;
+        let due_changed = dto_due != stored.due_date;
+        let parent_changed = dto_parent != stored.parent_id;
+
+        let has_children: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM work_packages WHERE parent_id = $1)")
+                .bind(id)
+                .fetch_one(&mut **self.tx.lock().await)
+                .await
+                .map_err(db_failure)?;
+
+        if has_children {
+            if stored.schedule_manually
+                || now_milestone
+                || !(start_changed || due_changed || parent_changed)
+            {
+                return Ok((start, due));
+            }
+            let patch = SchedWp {
+                id,
+                parent_id: dto_parent,
+                schedule_manually: false,
+                ignore_non_working_days: stored.ignore_non_working_days,
+                start_date: start,
+                due_date: due,
+                duration: stored.duration,
+                lock_version: stored.lock_version,
+            };
+            // `moved_work_packages` (`set_schedule_service.rb:57-63`): the work package and, when
+            // its parent just changed, that parent.
+            let mut moved = vec![id];
+            if let (true, Some(parent)) = (parent_changed, dto_parent) {
+                moved.push(parent);
+            }
+            let (scheduled, _) = self
+                .compute_schedule(&moved, &[id], None, Some(&patch))
+                .await?;
+            let node = &scheduled.nodes[&id];
+            return Ok((node.start_date, node.due_date));
+        }
+
+        // `new_start_date_from_parent` (:499-504): only when the parent changed; the stored
+        // hierarchy is the old one, which is why Ruby reads the parent's own relations here.
+        let parent_soonest = match (parent_changed, dto_parent) {
+            (true, Some(parent)) => self.raw_soonest_start(parent).await?,
+            _ => None,
+        };
+        let own_soonest = if stored.schedule_manually {
+            None
+        } else {
+            self.raw_soonest_start(id).await?
+        };
+        let calendar = self.load_calendar().await?;
+        let taken = update_dates_from_self(
+            &calendar,
+            stored.ignore_non_working_days,
+            stored.schedule_manually,
+            DateAttrs {
+                start_date: start,
+                due_date: due,
+                duration: stored.duration,
+            },
+            due_changed || now_milestone,
+            parent_soonest,
+            own_soonest,
+        );
+        Ok(match taken {
+            Some((s, d)) => (Some(s), d),
+            None => (start, due),
+        })
     }
 
     async fn load_sched(&self, ids: &[Id]) -> Result<Vec<SchedWp>, StoreFailure> {

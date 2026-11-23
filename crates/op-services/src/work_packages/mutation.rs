@@ -239,6 +239,15 @@ pub trait CreationStore: MutationStore {
     async fn default_priority(&self) -> Result<Option<Id>, StoreFailure>;
     /// Whether the status is closed; `None` when no such status exists.
     async fn status_is_closed(&self, status_id: Id) -> Result<Option<bool>, StoreFailure>;
+    /// The `(start_date, due_date)` of work package `id`, the `work_package.parent` whose dates a
+    /// new work package defaults from (`set_attributes_service.rb:241-257`); `None` when there is
+    /// no such work package. A store with no work packages to read (a test fake) answers `None`.
+    async fn parent_dates(
+        &self,
+        _id: Id,
+    ) -> Result<Option<(Option<chrono::NaiveDate>, Option<chrono::NaiveDate>)>, StoreFailure> {
+        Ok(None)
+    }
     async fn insert_wp(&self, dto: CreateWorkPackageDto) -> Result<WorkPackageRow, StoreFailure>;
     /// Run the whole create (authorization reads, defaults, insert and anything after the insert)
     /// as ONE unit of work: committed when `create_in` returns `Ok`, rolled back when it returns
@@ -603,6 +612,22 @@ pub async fn create_in<S: CreationStore>(
 
     // The entity's own status and priority are placeholders of the service's in-memory model;
     // the row takes the resolved status and the resolved priority.
+    // `set_default_start_date` / `set_default_due_date` (`set_attributes_service.rb:241-257`): the
+    // dates a new work package takes from its parent. They are defaults, not submitted
+    // attributes, so they are applied here and not handed to the service.
+    let parent_dates = match entity.parent_id {
+        Some(parent) => store.parent_dates(parent).await?,
+        None => None,
+    };
+    let (start_date, due_date) = scheduling::default_dates_for_new(
+        entity.start_date,
+        entity.due_date,
+        params.start_date.is_some(),
+        params.due_date.is_some(),
+        parent_dates,
+        scheduling::WORK_PACKAGE_STARTDATE_IS_ADDDATE,
+        chrono::Utc::now().date_naive(),
+    );
     let dto = CreateWorkPackageDto {
         subject: entity.subject,
         description: entity.description,
@@ -613,8 +638,8 @@ pub async fn create_in<S: CreationStore>(
         author_id: entity.author_id,
         assigned_to_id: entity.assigned_to_id,
         responsible_id: entity.responsible_id,
-        start_date: entity.start_date,
-        due_date: entity.due_date,
+        start_date,
+        due_date,
         estimated_hours: entity.estimated_hours,
         remaining_hours: entity.remaining_hours,
         done_ratio: entity.done_ratio,
@@ -1042,6 +1067,17 @@ impl CreationStore for PgMutationStore {
             .find_by_id(status_id)
             .await?
             .map(|s| s.is_closed))
+    }
+
+    async fn parent_dates(
+        &self,
+        id: Id,
+    ) -> Result<Option<(Option<chrono::NaiveDate>, Option<chrono::NaiveDate>)>, StoreFailure> {
+        sqlx::query_as("SELECT start_date, due_date FROM work_packages WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(db_failure)
     }
 
     async fn insert_wp(&self, dto: CreateWorkPackageDto) -> Result<WorkPackageRow, StoreFailure> {
@@ -1794,15 +1830,13 @@ impl PgCreateScope {
         id: Id,
         dto: UpdateWorkPackageDto,
     ) -> Result<WorkPackageRow, StoreFailure> {
-        // `set_calculated_attributes` (`set_attributes_service.rb:92-107`): the dates and the
-        // duration the UPDATE writes. A date was "given" when it differs from the stored one.
-        let (cur_start, cur_due, ignore, cur_type): (
-            Option<chrono::NaiveDate>,
-            Option<chrono::NaiveDate>,
-            bool,
-            Id,
-        ) = sqlx::query_as(
-            "SELECT start_date, due_date, ignore_non_working_days, type_id \
+        // `set_calculated_attributes` (`set_attributes_service.rb:111-127`): the dates and the
+        // duration the UPDATE writes. `update_dates` first (:116), which takes the dates from the
+        // predecessors or the children before the save, then the derivation of :119-121. A date was
+        // "given" when it differs from the stored one.
+        let stored: reschedule::StoredDates = sqlx::query_as(
+            "SELECT start_date, due_date, ignore_non_working_days, type_id, schedule_manually, \
+                    duration, parent_id, lock_version \
              FROM work_packages WHERE id = $1",
         )
         .bind(id)
@@ -1810,16 +1844,29 @@ impl PgCreateScope {
         .await
         .map_err(db_failure)?
         .ok_or_else(|| StoreFailure::NotFound(format!("work package {id}")))?;
+        let new_type = dto.type_id.unwrap_or(stored.type_id);
+        // `work_package_now_milestone?` (:311-313).
+        let now_milestone = new_type != stored.type_id && self.type_is_milestone(new_type).await?;
+        let (start, due) = self
+            .dates_before_save(
+                id,
+                &stored,
+                dto.start_date,
+                dto.due_date,
+                dto.parent_id,
+                now_milestone,
+            )
+            .await?;
         let dates = self
             .derived_dates(
-                dto.type_id.unwrap_or(cur_type),
-                ignore,
-                dto.start_date != cur_start,
-                dto.due_date != cur_due,
+                new_type,
+                stored.ignore_non_working_days,
+                dto.start_date != stored.start_date,
+                dto.due_date != stored.due_date,
                 scheduling::DateAttrs {
-                    start_date: dto.start_date,
-                    due_date: dto.due_date,
-                    duration: None,
+                    start_date: start,
+                    due_date: due,
+                    duration: stored.duration,
                 },
             )
             .await?;
@@ -2284,6 +2331,13 @@ impl CreationStore for PgCreateScope {
             .fetch_optional(&mut **tx)
             .await
             .map_err(db_failure)
+    }
+
+    async fn parent_dates(
+        &self,
+        id: Id,
+    ) -> Result<Option<(Option<chrono::NaiveDate>, Option<chrono::NaiveDate>)>, StoreFailure> {
+        self.dates_of(id).await
     }
 
     async fn insert_wp(&self, dto: CreateWorkPackageDto) -> Result<WorkPackageRow, StoreFailure> {
