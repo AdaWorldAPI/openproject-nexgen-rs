@@ -412,7 +412,7 @@ impl ScopeCatalog {
     /// combines them all (`default_scopes` accumulates), so each one applies.
     pub fn default_scopes<'a>(&'a self, class: &'a str) -> impl Iterator<Item = &'a ScopeBody> + 'a {
         let owners = self.ancestry(class);
-        self.scopes.iter().filter(move |s| s.default && owners.iter().any(|o| *o == s.class))
+        self.scopes.iter().filter(move |s| s.default && owners.contains(&s.class))
     }
 
     /// `class` and every ancestor reachable through `parents`, each once.
