@@ -318,7 +318,7 @@ Separate denominators. Before means #138 as it was; after means this change.
 | Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | AssociationNotInCheckout 2, GeneratedUndecided 1 |
 | Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 29 definite, 0 UNKNOWN, 0 differ (ruff ce96aae `hidden_complete`; 16 / 13 between the #140 review fix and this change) |
 | Callback bodies executed | 0 | 0 |
-| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 13/13, 277 rows asserted; create transactional, creation journal, default priority, creator as watcher, ancestor totals on create and on update (derived hours and done ratio, excluded status, caused journals, former and new chains after a move, rollback, concurrent create caught by lock_version), switch to automatic mode and `ignore_non_working_days` of the ancestors, rescheduling (successors by working days with lag, calendar days, a non-working day, parent dates from children, the former parent after a move, rollback, a stale rescheduled row caught by lock_version); update transactional with its journal (no-op, aggregated, new version, rollback); cited by the reconciliation, run separately |
+| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 14/14, 299 rows asserted; create transactional, creation journal, default priority, creator as watcher, ancestor totals on create and on update (derived hours and done ratio, excluded status, caused journals, former and new chains after a move, rollback, concurrent create caught by lock_version), switch to automatic mode and `ignore_non_working_days` of the ancestors, rescheduling (successors by working days with lag, calendar days, a non-working day, parent dates from children, the former parent after a move, rollback, a stale rescheduled row caught by lock_version), the dates taken before the save (a new work package's default dates from its parent, an edited automatic successor snapping to its predecessor's soonest start within its own UPDATE, a given due date kept, a manual one untouched, an automatic parent taking its children's span, a work package moved under a parent with a predecessor); update transactional with its journal (no-op, aggregated, new version, rollback); cited by the reconciliation, run separately |
 
 The P3b gaps are reported, not hidden:
 
@@ -523,12 +523,41 @@ The P3b gaps are reported, not hidden:
   stored one on update (the update carries every current value forward). Step 13 asserts a
   Rust-created successor (Mon 9 .. Thu 12, duration 4 from the INSERT) moved to Wed 11 .. Mon 16
   with its four working days, and edits deriving 7 and 11 working days (a Saturday due date moves to
-  Monday) and 9 calendar days. Not ported: `update_dates` on update
-  (set_attributes_service.rb:337-381), the start and due date a new work package takes from its
-  parent (:293-312), `work_package_startdate_is_adddate`,
-  `update_descendants` on a project change (update_service.rb:67-82), non-member and module checks
-  of `WorkPackage.visible` for the former parent, `parent_id_changed?` of schedule_following
-  (:84-90, never true after a save), notifications, `apply_patterns`.
+  Monday) and 9 calendar days.
+- Closed: the dates an edit and a create take before the save (EXECUTED_DB step 14). On create,
+  `set_default_start_date` / `set_default_due_date` (set_attributes_service.rb:241-257, called for
+  a new record by :217-223): without a date from the caller, the start is the parent's start when
+  it is earlier than the due date (`parent_start_earlier_than_due?`, :542-547; `due` is the
+  work package's own or the parent's) and the due date is the parent's when it is later than the
+  start (`parent_due_later_than_start?`, :549-554, which reads the start just assigned); a date
+  the caller gave is never defaulted (`attributes.has_key?`, :242, :252). The create params carry
+  `Option` dates, so a date is "given" exactly when it is `Some`; a key given as `nil` cannot be
+  said and counts as absent. `Setting.work_package_startdate_is_adddate` is a constant at its
+  default `false` (definition.rb:1545-1547): its "today" branch (:246-247) is ported behind the
+  constant and tested with the setting passed in, but never taken by the store. On update,
+  `update_dates` runs before the save (:111-118, :337-381), so the UPDATE writes its result:
+  without children, a manual work package with a start date is left alone (:484-489), without
+  one it takes the parent's soonest start; an automatic one takes the soonest working day of the
+  later of the new parent's soonest start (only when the parent changed, :497-504) and its own
+  `soonest_start` (the `follows` relations of itself and its automatically scheduled ancestors,
+  `scheduling_rules.rb:61-71`), keeps a due date the edit gave (:508-509), else keeps the
+  current due date when there is no usable duration (never before the start), else follows the
+  duration (:506-524); with children, an automatic work package that is not turning into a
+  milestone and whose start, due date or parent changed takes the span of its (rescheduled)
+  children through `SetScheduleService` with itself switching to automatic mode (:346-365,
+  set_schedule_service.rb:42-44), the others that service moves being discarded in memory.
+  The rescheduling after the save then finds nothing left to move, so an edited successor is
+  one save and one journal, and the edited due date of an automatic parent is never written.
+  One existing expectation changed: step 13's edit of the automatic parent P's own due date was
+  an UPDATE plus a rescheduling save (lock 1 -> 3); it is now the one UPDATE (lock 1 -> 2),
+  because the span is restored before the save. Ruby issues no UPDATE at all for that edit (no
+  attribute changed, lock stays 1): the remaining difference is the documented no-op bump.
+  Not ported: the "came from user" state of `ignore_non_working_days` (an edit cannot write it),
+  a due date set to the value it already had (Ruby counts it as given, the carried-forward
+  update cannot tell), `update_ignore_non_working_days` of the edited parent itself
+  (:377-381), `update_descendants` on a project change (update_service.rb:67-82), non-member and
+  module checks of `WorkPackage.visible` for the former parent, `parent_id_changed?` of
+  schedule_following (:84-90, never true after a save), notifications, `apply_patterns`.
 
 A committed row in that journey is evidence about the Rust paths, not Rails
 persistence parity.
