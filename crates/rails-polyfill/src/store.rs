@@ -347,7 +347,10 @@ impl Store {
             // A nil read from the row deserializes to 0 (LockingType), but a
             // nil assigned in memory raises (optimistic.rb:104-109).
             if *rec.get(lc) == Value::Nil && rec.changed(lc) {
-                return Err(StoreError::NilLockVersion { table: spec.name, id });
+                return Err(StoreError::NilLockVersion {
+                    table: spec.name,
+                    id,
+                });
             }
             let wanted = lock_int(rec.get(lc));
             let stored = self
@@ -455,7 +458,14 @@ impl Store {
         // column is stored as `Float(3.0)`).
         let preds: Vec<(usize, Value)> = preds
             .iter()
-            .map(|(c, v)| (*c, spec.columns.get(*c).map_or_else(|| v.clone(), |col| cast(col, v))))
+            .map(|(c, v)| {
+                (
+                    *c,
+                    spec.columns
+                        .get(*c)
+                        .map_or_else(|| v.clone(), |col| cast(col, v)),
+                )
+            })
             .collect();
         let preds = preds.as_slice();
         // A primary-key predicate is a key lookup, not a scan.
@@ -506,7 +516,11 @@ fn row_eq(stored: &Value, wanted: &Value) -> bool {
 /// strings stay strings, an Integer in a `float` column becomes a Float and a
 /// Time in a `date` column the day it falls on.
 fn normalize(spec: &'static TableSpec, values: &[Value]) -> Vec<Value> {
-    spec.columns.iter().zip(values).map(|(col, v)| cast(col, v)).collect()
+    spec.columns
+        .iter()
+        .zip(values)
+        .map(|(col, v)| cast(col, v))
+        .collect()
 }
 
 /// Put the cast values back into the record, column by column, only where
@@ -527,7 +541,10 @@ fn cast(col: &Column, v: &Value) -> Value {
         (ColumnType::Boolean, Value::Int(i)) => Value::Bool(*i != 0),
         // `float` casts an Integer; `NaN` and the infinities stay as they
         // are (PostgreSQL `double precision` stores them).
-        #[expect(clippy::cast_precision_loss, reason = "ActiveRecord casts Integer to Float the same way")]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "ActiveRecord casts Integer to Float the same way"
+        )]
         (ColumnType::Float, Value::Int(i)) => Value::Float(*i as f64),
         // `date` casts a Time to the UTC calendar day it falls on.
         (ColumnType::Date, Value::Time(us)) => {
@@ -591,17 +608,31 @@ mod tests {
         let mut r = Record::new(&MS);
         r.set(1, Value::Time(RAW));
         let id = s.insert(&mut r).unwrap();
-        assert_eq!(r.get(1), &Value::Time(STORED), "insert: record equals the row");
-        assert_eq!(s.find(&MS, id).unwrap().unwrap().get(1), &Value::Time(STORED));
+        assert_eq!(
+            r.get(1),
+            &Value::Time(STORED),
+            "insert: record equals the row"
+        );
+        assert_eq!(
+            s.find(&MS, id).unwrap().unwrap().get(1),
+            &Value::Time(STORED)
+        );
         // Assigning the stored value back is no change and no write.
         r.set(1, Value::Time(STORED));
         assert!(r.changed_columns().is_empty());
         // A value that differs only below the precision is no change either.
         let writes = s.writes;
         r.set(1, Value::Time(STORED + 999));
-        assert!(!s.update(&mut r).unwrap(), "sub-precision change writes nothing");
+        assert!(
+            !s.update(&mut r).unwrap(),
+            "sub-precision change writes nothing"
+        );
         assert_eq!(s.writes, writes);
-        assert_eq!(r.get(1), &Value::Time(STORED), "update: record equals the row");
+        assert_eq!(
+            r.get(1),
+            &Value::Time(STORED),
+            "update: record equals the row"
+        );
     }
 
     #[test]
@@ -661,27 +692,56 @@ mod tests {
     fn a_date_and_a_float_are_stored_and_read_back() {
         let mut s = dated();
         // 2000-02-29 is day 11016; 1969-12-31 is day -1.
-        let a = s.seed(&D, &[("due", Value::Date(11_016)), ("ratio", Value::Float(0.1))]).unwrap();
-        let b = s.seed(&D, &[("due", Value::Date(-1)), ("ratio", Value::Float(-2.5e-300))]).unwrap();
+        let a = s
+            .seed(
+                &D,
+                &[("due", Value::Date(11_016)), ("ratio", Value::Float(0.1))],
+            )
+            .unwrap();
+        let b = s
+            .seed(
+                &D,
+                &[("due", Value::Date(-1)), ("ratio", Value::Float(-2.5e-300))],
+            )
+            .unwrap();
         let ra = s.find(&D, a).unwrap().unwrap();
-        assert_eq!((ra.get(1), ra.get(2)), (&Value::Date(11_016), &Value::Float(0.1)));
+        assert_eq!(
+            (ra.get(1), ra.get(2)),
+            (&Value::Date(11_016), &Value::Float(0.1))
+        );
         let rb = s.find(&D, b).unwrap().unwrap();
-        assert_eq!((rb.get(1), rb.get(2)), (&Value::Date(-1), &Value::Float(-2.5e-300)));
+        assert_eq!(
+            (rb.get(1), rb.get(2)),
+            (&Value::Date(-1), &Value::Float(-2.5e-300))
+        );
     }
 
     #[test]
     fn nan_and_the_infinities_are_stored_not_dropped() {
         let mut s = dated();
         for f in [f64::INFINITY, f64::NEG_INFINITY, -0.0] {
-            let id = s.seed(&D, &[("due", Value::Date(0)), ("ratio", Value::Float(f))]).unwrap();
+            let id = s
+                .seed(&D, &[("due", Value::Date(0)), ("ratio", Value::Float(f))])
+                .unwrap();
             let got = s.find(&D, id).unwrap().unwrap();
             assert_eq!(got.get(2), &Value::Float(f));
         }
-        let id = s.seed(&D, &[("due", Value::Date(0)), ("ratio", Value::Float(f64::NAN))]).unwrap();
+        let id = s
+            .seed(
+                &D,
+                &[("due", Value::Date(0)), ("ratio", Value::Float(f64::NAN))],
+            )
+            .unwrap();
         let got = s.find(&D, id).unwrap().unwrap();
         assert!(got.get(2).as_float().is_some_and(f64::is_nan));
         let neg_zero = s.find(&D, id - 1).unwrap().unwrap();
-        assert!(neg_zero.get(2).as_float().is_some_and(f64::is_sign_negative), "-0.0 keeps its sign");
+        assert!(
+            neg_zero
+                .get(2)
+                .as_float()
+                .is_some_and(f64::is_sign_negative),
+            "-0.0 keeps its sign"
+        );
     }
 
     #[test]
@@ -689,35 +749,69 @@ mod tests {
         let mut s = dated();
         assert_eq!(
             s.seed(&D, &[("ratio", Value::Float(1.0))]),
-            Err(StoreError::NotNull { table: "d", column: "due" })
+            Err(StoreError::NotNull {
+                table: "d",
+                column: "due"
+            })
         );
         let id = s.seed(&D, &[("due", Value::Date(5))]).unwrap();
-        assert_eq!(s.find(&D, id).unwrap().unwrap().get(2), &Value::Nil, "ratio is nullable");
+        assert_eq!(
+            s.find(&D, id).unwrap().unwrap().get(2),
+            &Value::Nil,
+            "ratio is nullable"
+        );
     }
 
     #[test]
     fn normalize_casts_an_integer_to_a_float_and_a_time_to_its_day() {
         let mut s = dated();
         // 1970-01-02T23:59:59.999Z and 1969-12-31T00:00:00.000Z
-        let a = s.seed(&D, &[("due", Value::time_ms(172_799_999)), ("ratio", Value::Int(3))]).unwrap();
+        let a = s
+            .seed(
+                &D,
+                &[
+                    ("due", Value::time_ms(172_799_999)),
+                    ("ratio", Value::Int(3)),
+                ],
+            )
+            .unwrap();
         let b = s.seed(&D, &[("due", Value::time_ms(-86_400_000))]).unwrap();
         let ra = s.find(&D, a).unwrap().unwrap();
-        assert_eq!((ra.get(1), ra.get(2)), (&Value::Date(1), &Value::Float(3.0)));
+        assert_eq!(
+            (ra.get(1), ra.get(2)),
+            (&Value::Date(1), &Value::Float(3.0))
+        );
         assert_eq!(s.find(&D, b).unwrap().unwrap().get(1), &Value::Date(-1));
     }
 
     #[test]
     fn a_predicate_goes_through_the_same_cast_as_the_write() {
         let mut s = dated();
-        let id = s.seed(&D, &[("due", Value::time_ms(86_400_000)), ("ratio", Value::Int(3))]).unwrap();
+        let id = s
+            .seed(
+                &D,
+                &[
+                    ("due", Value::time_ms(86_400_000)),
+                    ("ratio", Value::Int(3)),
+                ],
+            )
+            .unwrap();
         // Queried with the very values it was written with.
         let by_ratio = s.where_eq(&D, &[(2, Value::Int(3))]).unwrap();
         assert_eq!(by_ratio.len(), 1);
         assert_eq!(by_ratio[0].get(0), &Value::Int(id));
-        assert!(s.find_by(&D, &[(1, Value::time_ms(86_400_000))]).unwrap().is_some());
+        assert!(
+            s.find_by(&D, &[(1, Value::time_ms(86_400_000))])
+                .unwrap()
+                .is_some()
+        );
         // And a value the cast does not turn into the stored one still misses.
         assert!(s.where_eq(&D, &[(2, Value::Int(4))]).unwrap().is_empty());
-        assert!(s.find_by(&D, &[(1, Value::time_ms(2 * 86_400_000))]).unwrap().is_none());
+        assert!(
+            s.find_by(&D, &[(1, Value::time_ms(2 * 86_400_000))])
+                .unwrap()
+                .is_none()
+        );
     }
 
     static U: TableSpec = TableSpec {
@@ -755,11 +849,22 @@ mod tests {
         let t = Value::Time(1_767_323_045_123_456);
         let id = s.seed(&U, &[("us", t.clone()), ("ms", t.clone())]).unwrap();
         let row = s.find(&U, id).unwrap().unwrap();
-        let expect_us = if cfg!(feature = "disable-usec-precision") { 1_767_323_045_123_000 } else { 1_767_323_045_123_456 };
+        let expect_us = if cfg!(feature = "disable-usec-precision") {
+            1_767_323_045_123_000
+        } else {
+            1_767_323_045_123_456
+        };
         assert_eq!(row.get(1), &Value::Time(expect_us), "limit 6");
-        assert_eq!(row.get(2), &Value::Time(1_767_323_045_123_000), "default is milliseconds");
+        assert_eq!(
+            row.get(2),
+            &Value::Time(1_767_323_045_123_000),
+            "default is milliseconds"
+        );
         assert!(s.find_by(&U, &[(1, t.clone())]).unwrap().is_some());
-        assert!(s.find_by(&U, &[(2, t)]).unwrap().is_some(), "bound like the write");
+        assert!(
+            s.find_by(&U, &[(2, t)]).unwrap().is_some(),
+            "bound like the write"
+        );
     }
 
     static L: TableSpec = TableSpec {
@@ -792,7 +897,9 @@ mod tests {
     fn locked() -> (Store, i64) {
         let mut s = Store::default();
         s.register(&L);
-        let id = s.seed(&L, &[("x", Value::Int(1)), ("lock_version", Value::Int(0))]).unwrap();
+        let id = s
+            .seed(&L, &[("x", Value::Int(1)), ("lock_version", Value::Int(0))])
+            .unwrap();
         (s, id)
     }
 
@@ -812,16 +919,28 @@ mod tests {
         let mut second = s.find(&L, id).unwrap().unwrap();
         first.set(1, Value::Int(10));
         assert_eq!(s.update(&mut first), Ok(true));
-        assert_eq!(first.get(2), &Value::Int(1), "the record holds the incremented version");
+        assert_eq!(
+            first.get(2),
+            &Value::Int(1),
+            "the record holds the incremented version"
+        );
         assert!(first.persisted() && !first.has_changes_to_save());
         assert_eq!(stored(&s, id), (Value::Int(10), Value::Int(1)));
 
         let writes = s.writes;
         second.set(1, Value::Int(20));
         assert_eq!(s.update(&mut second), Err(stale(id)));
-        assert_eq!(stored(&s, id), (Value::Int(10), Value::Int(1)), "the row is unchanged");
+        assert_eq!(
+            stored(&s, id),
+            (Value::Int(10), Value::Int(1)),
+            "the row is unchanged"
+        );
         assert_eq!(s.writes, writes);
-        assert_eq!(second.get(2), &Value::Int(0), "a failed update leaves lock_version as it was");
+        assert_eq!(
+            second.get(2),
+            &Value::Int(0),
+            "a failed update leaves lock_version as it was"
+        );
         assert!(second.changed(1), "and the assignment stays pending");
         // Reloading picks up the new version, and the retry succeeds.
         let mut fresh = s.find(&L, id).unwrap().unwrap();
@@ -862,7 +981,10 @@ mod tests {
         assert_eq!(s.delete_locked(&a), Ok(false));
         // And the update of a missing row is still MissingRow, not StaleObject.
         b.set(1, Value::Int(4));
-        assert_eq!(s.update(&mut b), Err(StoreError::MissingRow { table: "t", id }));
+        assert_eq!(
+            s.update(&mut b),
+            Err(StoreError::MissingRow { table: "t", id })
+        );
     }
 
     #[test]
@@ -878,7 +1000,10 @@ mod tests {
         let mut r = s.find(&L, id).unwrap().unwrap();
         r.set(1, Value::Int(6));
         r.set(2, Value::Nil);
-        assert_eq!(s.update(&mut r), Err(StoreError::NilLockVersion { table: "l", id }));
+        assert_eq!(
+            s.update(&mut r),
+            Err(StoreError::NilLockVersion { table: "l", id })
+        );
         assert_eq!(stored(&s, id), (Value::Int(5), Value::Int(1)));
         // Insert persists the column even when nothing set it.
         let mut n = Record::new(&L);

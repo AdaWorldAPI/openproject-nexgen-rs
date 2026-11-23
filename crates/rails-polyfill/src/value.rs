@@ -155,7 +155,8 @@ impl Value {
     /// Ruby `Time#sec` for a `Time` value.
     #[must_use]
     pub fn time_sec(&self) -> Option<i64> {
-        self.as_time().map(|us| us.div_euclid(1_000_000).rem_euclid(60))
+        self.as_time()
+            .map(|us| us.div_euclid(1_000_000).rem_euclid(60))
     }
 
     /// Ruby `Time#change(sec: 0)` — also clears sub-second precision, exactly
@@ -452,10 +453,23 @@ mod tests {
 
     #[test]
     fn a_time_is_microseconds_and_prints_whole_milliseconds_as_before() {
-        assert_eq!(Value::time_ms(1_767_262_837_250), Value::Time(1_767_262_837_250_000));
-        assert_eq!(Value::time_ms(1_767_262_837_250).to_string(), "@1767262837250");
-        assert_eq!(Value::Time(1_767_262_837_250_123).to_string(), "@1767262837250123us");
-        assert_eq!(Value::Time(-1).as_time_ms(), Some(-1), "floors toward negative infinity");
+        assert_eq!(
+            Value::time_ms(1_767_262_837_250),
+            Value::Time(1_767_262_837_250_000)
+        );
+        assert_eq!(
+            Value::time_ms(1_767_262_837_250).to_string(),
+            "@1767262837250"
+        );
+        assert_eq!(
+            Value::Time(1_767_262_837_250_123).to_string(),
+            "@1767262837250123us"
+        );
+        assert_eq!(
+            Value::Time(-1).as_time_ms(),
+            Some(-1),
+            "floors toward negative infinity"
+        );
         assert_eq!(Value::Time(1_999).as_time_ms(), Some(1));
     }
 }

@@ -51,7 +51,9 @@ pub fn translate_regex(pattern: &str, flags: &str) -> Result<String, String> {
             let mut look = chars.clone();
             look.next();
             match look.next() {
-                Some('<') if matches!(look.peek(), Some('=' | '!')) => return Err("look-behind".into()),
+                Some('<') if matches!(look.peek(), Some('=' | '!')) => {
+                    return Err("look-behind".into());
+                }
                 Some('=' | '!') => return Err("look-ahead".into()),
                 Some('>') => return Err("atomic group".into()),
                 _ => out.push(c),
@@ -74,7 +76,9 @@ fn want_str<'a>(v: &'a Value, what: &str) -> Result<&'a str, Halt> {
 /// `String#gsub(re, replacement)` with a literal replacement (no `\1`).
 pub fn gsub(v: &Value, re: &Regex, replacement: &str) -> Result<Value, Halt> {
     let s = want_str(v, "gsub")?;
-    Ok(Value::Str(re.replace_all(s, regex::NoExpand(replacement)).into_owned()))
+    Ok(Value::Str(
+        re.replace_all(s, regex::NoExpand(replacement)).into_owned(),
+    ))
 }
 
 /// `String#match?(re)`.
@@ -83,7 +87,9 @@ pub fn is_match(v: &Value, re: &Regex) -> Result<bool, Halt> {
 }
 
 fn no_method(method: &str, recv: &Value) -> Halt {
-    Halt::Raise(format!("NoMethodError: undefined method `{method}' for {recv}"))
+    Halt::Raise(format!(
+        "NoMethodError: undefined method `{method}' for {recv}"
+    ))
 }
 
 /// `record.attribute` on a record value whose model is known at compile time.
@@ -129,7 +135,10 @@ pub fn query_attribute(v: &Value) -> bool {
 pub fn eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Int(x), Value::Float(y)) | (Value::Float(y), Value::Int(x)) => {
-            #[expect(clippy::cast_precision_loss, reason = "Ruby Integer==Float compares numerically")]
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "Ruby Integer==Float compares numerically"
+            )]
             let xf = *x as f64;
             xf == *y
         }
@@ -152,7 +161,10 @@ mod tests {
     fn whitespace_class_is_ascii_like_ruby() {
         let re = Regex::new(&translate_regex(r"\s|\t|\r", "").unwrap()).unwrap();
         // U+00A0 NO-BREAK SPACE is \s in Unicode, not in Ruby.
-        assert_eq!(gsub(&Value::str("a\u{a0}b\tc"), &re, " ").unwrap(), Value::str("a\u{a0}b c"));
+        assert_eq!(
+            gsub(&Value::str("a\u{a0}b\tc"), &re, " ").unwrap(),
+            Value::str("a\u{a0}b c")
+        );
     }
 
     #[test]

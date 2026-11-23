@@ -228,11 +228,21 @@ impl Filter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidatorSpec {
     Presence(String),
-    Length { attr: String, min: Option<usize>, max: Option<usize> },
+    Length {
+        attr: String,
+        min: Option<usize>,
+        max: Option<usize>,
+    },
     /// R-BELONGS-TO-REQUIRED: presence of the associated record.
-    BelongsToRequired { assoc: String, only_if_fk_missing_or_changed: bool },
+    BelongsToRequired {
+        assoc: String,
+        only_if_fk_missing_or_changed: bool,
+    },
     /// `validates_with K` or a validator kind the slice does not lower.
-    Other { kind: String, attr: String },
+    Other {
+        kind: String,
+        attr: String,
+    },
 }
 
 impl ValidatorSpec {
@@ -296,11 +306,21 @@ pub fn resolve_macro(name: &str) -> Option<(Chain, Slot, Option<Vec<Action>>)> {
         "after_touch" => (Chain::Touch, Slot::After),
         "after_commit" => (Chain::Commit, Slot::After),
         "after_rollback" => (Chain::Rollback, Slot::After),
-        "after_create_commit" => return Some((Chain::Commit, Slot::After, Some(vec![Action::Create]))),
-        "after_update_commit" => return Some((Chain::Commit, Slot::After, Some(vec![Action::Update]))),
-        "after_destroy_commit" => return Some((Chain::Commit, Slot::After, Some(vec![Action::Destroy]))),
+        "after_create_commit" => {
+            return Some((Chain::Commit, Slot::After, Some(vec![Action::Create])));
+        }
+        "after_update_commit" => {
+            return Some((Chain::Commit, Slot::After, Some(vec![Action::Update])));
+        }
+        "after_destroy_commit" => {
+            return Some((Chain::Commit, Slot::After, Some(vec![Action::Destroy])));
+        }
         "after_save_commit" => {
-            return Some((Chain::Commit, Slot::After, Some(vec![Action::Create, Action::Update])));
+            return Some((
+                Chain::Commit,
+                Slot::After,
+                Some(vec![Action::Create, Action::Update]),
+            ));
         }
         _ => return None,
     };
@@ -311,13 +331,27 @@ pub fn resolve_macro(name: &str) -> Option<(Chain, Slot, Option<Vec<Action>>)> {
 /// R-AFTER-COMMIT-ORDER).
 #[must_use]
 pub fn effective_prepend(chain: Chain, slot: Slot, user_prepend: bool) -> bool {
-    effective_prepend_with(FrameworkDefaults::for_version(Some("8.1")), chain, slot, user_prepend)
+    effective_prepend_with(
+        FrameworkDefaults::for_version(Some("8.1")),
+        chain,
+        slot,
+        user_prepend,
+    )
 }
 
 #[must_use]
-pub fn effective_prepend_with(fw: FrameworkDefaults, chain: Chain, slot: Slot, user_prepend: bool) -> bool {
+pub fn effective_prepend_with(
+    fw: FrameworkDefaults,
+    chain: Chain,
+    slot: Slot,
+    user_prepend: bool,
+) -> bool {
     match (chain, slot) {
-        (Chain::Commit | Chain::Rollback, Slot::After) if fw.run_after_transaction_callbacks_in_order_defined => !user_prepend,
+        (Chain::Commit | Chain::Rollback, Slot::After)
+            if fw.run_after_transaction_callbacks_in_order_defined =>
+        {
+            !user_prepend
+        }
         (Chain::Commit | Chain::Rollback, Slot::After) => true,
         (_, Slot::After) => true,
         _ => user_prepend,
@@ -357,23 +391,63 @@ pub fn association_decls(
                 Filter::Method("around_save_collection_association".into()),
                 "R-AUTOSAVE-COLLECTION",
             ));
-            out.push(decl(Chain::Create, Slot::After, Filter::Method(save_method.clone()), "R-AUTOSAVE-COLLECTION"));
-            out.push(decl(Chain::Update, Slot::After, Filter::Method(save_method), "R-AUTOSAVE-COLLECTION"));
+            out.push(decl(
+                Chain::Create,
+                Slot::After,
+                Filter::Method(save_method.clone()),
+                "R-AUTOSAVE-COLLECTION",
+            ));
+            out.push(decl(
+                Chain::Update,
+                Slot::After,
+                Filter::Method(save_method),
+                "R-AUTOSAVE-COLLECTION",
+            ));
             if validate_opt.unwrap_or(true) {
-                out.push(decl(Chain::Validate, Slot::Before, Filter::Method(validate_method), "R-AUTOSAVE-COLLECTION"));
+                out.push(decl(
+                    Chain::Validate,
+                    Slot::Before,
+                    Filter::Method(validate_method),
+                    "R-AUTOSAVE-COLLECTION",
+                ));
             }
         }
         "has_one" => {
-            out.push(decl(Chain::Create, Slot::After, Filter::Method(save_method.clone()), "R-AUTOSAVE-HAS-ONE"));
-            out.push(decl(Chain::Update, Slot::After, Filter::Method(save_method), "R-AUTOSAVE-HAS-ONE"));
+            out.push(decl(
+                Chain::Create,
+                Slot::After,
+                Filter::Method(save_method.clone()),
+                "R-AUTOSAVE-HAS-ONE",
+            ));
+            out.push(decl(
+                Chain::Update,
+                Slot::After,
+                Filter::Method(save_method),
+                "R-AUTOSAVE-HAS-ONE",
+            ));
             if validate_opt.unwrap_or(autosave) {
-                out.push(decl(Chain::Validate, Slot::Before, Filter::Method(validate_method), "R-AUTOSAVE-HAS-ONE"));
+                out.push(decl(
+                    Chain::Validate,
+                    Slot::Before,
+                    Filter::Method(validate_method),
+                    "R-AUTOSAVE-HAS-ONE",
+                ));
             }
         }
         "belongs_to" => {
-            out.push(decl(Chain::Save, Slot::Before, Filter::Method(save_method), "R-AUTOSAVE-BELONGS-TO"));
+            out.push(decl(
+                Chain::Save,
+                Slot::Before,
+                Filter::Method(save_method),
+                "R-AUTOSAVE-BELONGS-TO",
+            ));
             if validate_opt.unwrap_or(autosave) {
-                out.push(decl(Chain::Validate, Slot::Before, Filter::Method(validate_method), "R-AUTOSAVE-BELONGS-TO"));
+                out.push(decl(
+                    Chain::Validate,
+                    Slot::Before,
+                    Filter::Method(validate_method),
+                    "R-AUTOSAVE-BELONGS-TO",
+                ));
             }
             let required = optional.map_or(fw.belongs_to_required_by_default, |o| !o);
             if required {
@@ -382,7 +456,8 @@ pub fn association_decls(
                     Slot::Before,
                     Filter::Validator(ValidatorSpec::BelongsToRequired {
                         assoc: name.to_string(),
-                        only_if_fk_missing_or_changed: !fw.belongs_to_required_validates_foreign_key,
+                        only_if_fk_missing_or_changed: !fw
+                            .belongs_to_required_validates_foreign_key,
                     }),
                     "R-BELONGS-TO-REQUIRED",
                 ));
@@ -407,8 +482,16 @@ pub fn base_decls() -> Vec<Decl> {
         rule: "R-BASE-CHAIN",
     };
     vec![
-        d(Chain::Validation, Slot::After, "_ensure_no_duplicate_errors"),
-        d(Chain::Validation, Slot::Before, "normalize_changed_in_place_attributes"),
+        d(
+            Chain::Validation,
+            Slot::After,
+            "_ensure_no_duplicate_errors",
+        ),
+        d(
+            Chain::Validation,
+            Slot::Before,
+            "normalize_changed_in_place_attributes",
+        ),
     ]
 }
 
@@ -424,7 +507,9 @@ impl Chains {
     pub fn push(&mut self, d: Decl) {
         let chain = self.chains.entry(d.chain).or_default();
         if let Filter::Method(m) = &d.filter {
-            chain.retain(|e| !(e.slot == d.slot && matches!(&e.filter, Filter::Method(x) if x == m)));
+            chain.retain(|e| {
+                !(e.slot == d.slot && matches!(&e.filter, Filter::Method(x) if x == m))
+            });
         }
         if d.prepend {
             chain.insert(0, d);
@@ -501,7 +586,10 @@ mod tests {
     }
 
     fn names(c: &Chains) -> Vec<String> {
-        c.execution_order().into_iter().map(|(_, d)| d.filter.name()).collect()
+        c.execution_order()
+            .into_iter()
+            .map(|(_, d)| d.filter.name())
+            .collect()
     }
 
     #[test]

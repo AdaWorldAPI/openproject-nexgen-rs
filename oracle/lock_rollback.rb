@@ -192,3 +192,28 @@ Kit.run_commit_callbacks_on_first_saved_instances_in_transaction = false
 $log = []
 Shelf.create!(name: "s2")
 puts "same row twice (first-saved=false): #{$log.inspect}"
+
+# A destroyed record is not saved: `create_or_update` returns false when
+# `destroyed?` (persistence.rb:925). It runs inside `_run_save_callbacks`
+# (callbacks.rb:439-441), after validation, so the validation and before_save
+# callbacks still run; the write and the create/update callbacks do not.
+ActiveRecord::Schema.define { create_table(:gones) { |t| t.string :name } }
+class Gone < ActiveRecord::Base
+  before_validation { $log << "before_validation" }
+  before_save { $log << "before_save" }
+  after_save { $log << "after_save" }
+  after_create { $log << "after_create" }
+  after_update { $log << "after_update" }
+  after_commit { $log << "after_commit" }
+  after_rollback { $log << "after_rollback" }
+end
+$log = []
+fresh = Gone.new(name: "g")
+fresh.destroy
+r = fresh.save
+puts "destroyed new save: returned=#{r} rows=#{Gone.count} new_record=#{fresh.new_record?} #{$log.inspect}"
+kept = Gone.create!(name: "k")
+kept.destroy
+$log = []
+r = kept.save
+puts "destroyed persisted save: returned=#{r} rows=#{Gone.count} #{$log.inspect}"
