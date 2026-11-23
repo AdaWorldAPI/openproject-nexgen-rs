@@ -603,16 +603,31 @@ check of the lifecycle was disabled once as well: control 3 then fails.
 
 ## 12. Adding an application (Zammad)
 
-The generic parts are `reconcile.rs` and `resolution.rs`. They name no application.
-An application supplies data:
+The generic parts are `reconcile.rs`, `resolution.rs` and `ore_slag_config.rs`. They
+name no application. An application supplies:
 
 1. A Charon store for its Rust crates, in the same TSV format, with `PROVENANCE.txt`.
-2. Claims (`ClaimSpec`): join keys, Ruby evidence from its extractors, Rust probes
-   (`Edges` or `Data`), comparability.
-3. Runtime attachments from its own oracle traces.
-4. Proposals per residual. Owner refinements and witness bindings go in its test
-   module, as `tests/ore_slag/resolution.rs` does for OpenProject.
+2. A config file, `oracle/charon/ore-slag/<app>.toml` (OpenProject:
+   `openproject.toml`), holding the data:
+   - `[scope]`, `[extractors]`, `[gates]`;
+   - `[[claim]]`: join key, level, Rust probe (`edges` or `data`), comparability,
+     repair, and a declarative Ruby evidence spec (`fact` with a named predicate,
+     `not_harvested`, `absent_in_body`, or `witness` with a named evaluator);
+   - `[[claim_family]]`: claims a named generator produces from the harvest;
+   - `[[residual]]` per key and `[residual_default.<SlagReason>]` templates: the
+     proposal fields, owner stage, sub-reason, source location and revision specs.
+3. App evaluators in its test module: the named predicates, witnesses and
+   generators the config refers to. `OreSlagConfig::load` rejects unknown keys
+   and duplicate claim or residual keys.
+4. Runtime attachments from its own oracle traces.
 5. A ledger path, checked like this one.
+
+**Learning.** The config's `[[learned]]` block, below its marker line, records each
+residual's computed lifecycle status. The ledger test fails when it is stale.
+`UPDATE_ORE_SLAG=1` rewrites only that block. It also appends a `[[residual]]` stub
+(owner `OwnerStage::default_for(reason)`, every proposal field `"TODO"`) for a slag
+row that has neither an entry nor a default. The test then fails until the stub is
+filled in, so a new residual cannot pass unowned.
 
 zammad-rs already has a typed SLAG model with stage and remedy
 (`crates/rails-codegraph/src/slag.rs`), and its `codegraph-two-readings.md` describes

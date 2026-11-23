@@ -1,0 +1,332 @@
+# ORE/SLAG reconciliation config: WorkPackage create admission (OpenProject -> nexgen).
+#
+# The data of the reconciliation in `crates/op-codegen-pipeline/tests/`. Generic
+# loading, schema checking and rendering live in `src/ore_slag_config.rs`; the app-side
+# evaluators (named predicates, the schedule_manually witness, the effective-guards
+# generator) live in `tests/reconcile_create_admission.rs`.
+#
+# Claim order is the ledger order. Rust paths are the normalized form
+# (`reconcile::normalize`). `UPDATE_ORE_SLAG=1` rewrites only the `[[learned]]` block
+# below the marker at the end of the file, and adds a TODO stub for a slag row that
+# has neither a `[[residual]]` entry nor a default for its reason.
+
+[scope]
+application = "openproject"
+model = "WorkPackage"
+operation = "create"
+source_root = "openproject"
+target_root = "nexgen"
+
+[extractors]
+scan = "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)"
+located = "literal located in the source (no parse)"
+ruff = "ruff_ruby_spo::extract_contract_guards"
+ruff_blocks = "ruff_ruby_spo::extract_attribute_blocks"
+
+[gates]
+witness = "tests/reconcile_create_admission.rs::ore_slag::ore_slag_ledger_and_lifecycle"
+drift = "tests/create_transition_differential.rs::checked_in_admission_table_is_what_the_generator_produces"
+required_companions = ["DriftCheck"]
+
+[[claim]]
+phase = "registration"
+method = "CreateContract.validate(:user_allowed_to_add)"
+effect = "declares-validator"
+level = "registration"
+repair = "none: different levels; the invocation is its own row"
+comparability.different = { ruby = "DSL registration of a validator", rust = "no registration step; admit_create calls the function" }
+ruby = { kind = "fact", produced = "has_validator", extractor = "scan", file = "app/contracts/work_packages/create_contract.rb", needle = "validate :user_allowed_to_add", fact = "CreateContract registers user_allowed_to_add as a validator" }
+rust.edges = [
+  ["op_contracts::work_packages::admission::admit_create", "op_contracts::work_packages::admission::user_allowed_to_add"],
+]
+
+[[claim]]
+phase = "callback"
+method = "CreateContract#validate"
+effect = "invokes:user_allowed_to_add"
+level = "callback_invocation"
+repair = "-"
+comparability = "same"
+ruby = { kind = "fact", produced = "has_validator", extractor = "scan", file = "app/contracts/work_packages/create_contract.rb", needle = "validate :user_allowed_to_add", fact = "validating the create contract runs user_allowed_to_add" }
+rust.edges = [
+  ["op_contracts::work_packages::admission::admit_create", "op_contracts::work_packages::admission::user_allowed_to_add"],
+]
+
+[[claim]]
+phase = "admission"
+method = "CreateWorkPackageService.call"
+effect = "evaluates:WorkPackages::CreateContract"
+level = "admission"
+repair = "-"
+comparability = "same"
+ruby = { kind = "fact", produced = "has_validator", extractor = "located + scan", file = "app/services/work_packages/create_service.rb", needle = "contract_class: WorkPackages::CreateContract", fact = "CreateService admits a create through WorkPackages::CreateContract" }
+rust.edges = [
+  ["op_services::work_packages::create::CreateWorkPackageService::call", "op_services::work_packages::create::CreateWorkPackageService::admit"],
+  ["op_services::work_packages::create::CreateWorkPackageService::admit", "op_contracts::work_packages::admission::admit_create"],
+]
+
+[[claim]]
+phase = "admission"
+method = "user_allowed_to_add"
+effect = "requires:add_work_packages"
+level = "admission"
+repair = "data witness: the generator drift check (create_transition_differential)"
+comparability = "same"
+ruby = { kind = "fact", produced = "add_perm", extractor = "scan", file = "app/contracts/work_packages/create_contract.rb", needle = "allowed_in_project?(:add_work_packages", fact = "the create is authorized by add_work_packages" }
+rust.data = { krate = "op_contracts", file = "crates/op-contracts/src/work_packages/generated_create_admission.rs", item = "ADD_PERMISSION" }
+
+[[claim]]
+phase = "guard"
+method = "user_allowed_to_add"
+effect = "consults:allowed_in_project?"
+level = "guard_evaluation"
+repair = "-"
+comparability = "same"
+ruby = { kind = "fact", produced = "add_perm_and_in_body:allowed_in_project?(", extractor = "scan", file = "app/contracts/work_packages/create_contract.rb", needle = "allowed_in_project?(:add_work_packages", fact = "user_allowed_to_add asks allowed_in_project?" }
+rust.edges = [
+  ["op_contracts::work_packages::admission::user_allowed_to_add", "op_contracts::base::UserContext::allowed_in_project"],
+]
+
+[[claim]]
+phase = "guard"
+method = "user_allowed_to_add"
+effect = "consults:allowed_in_any_project?"
+level = "guard_evaluation"
+repair = "-"
+comparability = "same"
+ruby = { kind = "fact", produced = "in_body:allowed_in_any_project?(", extractor = "located", file = "app/contracts/work_packages/create_contract.rb", needle = "allowed_in_any_project?(:add_work_packages", fact = "user_allowed_to_add asks allowed_in_any_project?" }
+rust.edges = [
+  ["op_contracts::work_packages::admission::user_allowed_to_add", "op_contracts::base::UserContext::allowed_in_any_project"],
+]
+
+[[claim]]
+phase = "guard"
+method = "user_allowed_to_add"
+effect = "consults:admin?"
+level = "guard_evaluation"
+repair = "harvest User#allowed_in_project? to see whether the admin bypass matches"
+comparability = "same"
+ruby = { kind = "absent_in_body", body = "add_body", must_not_contain = "admin", extractor = "located", file = "app/contracts/work_packages/create_contract.rb", looked_for = "an admin check in the body (Ruby's admin bypass is inside User#allowed_in_project?, not harvested)" }
+rust.edges = [
+  ["op_contracts::work_packages::admission::user_allowed_to_add", "op_contracts::base::UserContext::is_admin"],
+]
+
+[[claim]]
+phase = "guard"
+method = "admit_create"
+effect = "evaluates:writable?-per-submitted-attribute"
+level = "guard_evaluation"
+repair = "ruff: lower BaseContract#writable? (condition AND permission)"
+comparability = "same"
+ruby = { kind = "not_harvested", why = "BaseContract#writable? (app/contracts/base_contract.rb) is not harvested by any extractor here" }
+rust.edges = [
+  ["op_contracts::work_packages::admission::admit_create", "op_contracts::work_packages::admission::is_writable"],
+]
+
+[[claim]]
+phase = "guard"
+method = "CreateContract.attribute(:schedule_manually).block"
+effect = "validates:validate_has_predecessors_or_children"
+level = "guard_evaluation"
+repair = "the call is compared, not its condition: Rust calls the validator unconditionally and evaluates `model.schedule_automatically?` inside it (FACT_SCHEDULE_MANUALLY); the condition is witnessed by the schedule_manually runtime differential (ore_slag)"
+comparability = "same"
+ruby = { kind = "witness", name = "schedule_block" }
+rust.edges = [
+  ["op_contracts::work_packages::admission::admit_create", "op_contracts::work_packages::admission::validate_has_predecessors_or_children"],
+]
+
+[[claim]]
+phase = "admission"
+method = "mutation::create"
+effect = "checks:add_work_packages-in-project"
+level = "admission"
+repair = "Charon: structure async bodies (mutation::create)"
+comparability = "same"
+ruby = { kind = "fact", produced = "add_perm", extractor = "scan", file = "app/contracts/work_packages/create_contract.rb", needle = "allowed_in_project?(:add_work_packages", fact = "a create needs add_work_packages in the model's project" }
+rust.edges = [
+  ["op_services::work_packages::mutation::create", "op_services::work_packages::mutation::may"],
+]
+
+[[claim]]
+phase = "persistence"
+method = "mutation::create"
+effect = "inserts:work_packages"
+level = "persistence"
+repair = "Charon: structure async bodies (mutation::create, PgMutationStore::insert_wp)"
+comparability = "same"
+ruby = { kind = "fact", produced = "always", extractor = "located", file = "app/services/work_packages/create_service.rb", needle = "work_package.save(validate: false)", fact = "an admitted create saves the work package" }
+rust.edges = [
+  ["op_services::work_packages::mutation::create", "op_services::work_packages::mutation::CreationStore::insert_wp"],
+]
+
+[[claim]]
+phase = "admission"
+method = "POST /api/v3/work_packages"
+effect = "enters:mutation::create"
+level = "admission"
+repair = "Charon: structure async bodies (create_work_package_core); Ruby: harvest the API v3 create endpoint"
+comparability = "same"
+ruby = { kind = "not_harvested", why = "the API v3 create endpoint is not harvested" }
+rust.edges = [
+  ["op_api::handlers::work_packages::create_work_package_core", "op_services::work_packages::mutation::create"],
+]
+
+# The lowered `writable:` guards of the effective contract chain, one claim per
+# attribute, produced from the harvest by the `effective_guards` generator.
+[[claim_family]]
+generator = "effective_guards"
+phase = "guard"
+level = "guard_evaluation"
+extractor = "ruff"
+comparability = "same"
+repair = "data witness: the generator drift check (create_transition_differential)"
+rust.data = { krate = "op_contracts", file = "crates/op-contracts/src/work_packages/generated_create_admission.rs", item = "ATTRIBUTES" }
+
+# ── residual proposals, by key ──
+
+[[residual]]
+key = "openproject/WorkPackage/create/admission/user_allowed_to_add/requires:add_work_packages"
+missing_fact = "a parsed source fact for the create permission (the generator reads it with a line scan)"
+supplier = "ruff lowering of the permission literal in CreateContract#user_allowed_to_add, fed to admission_gen"
+supplier_exists = false
+claim_change = "lifecycle EVIDENCED -> VERIFIED(DataWitness); structural verdict stays Slag(RepresentedAsData)"
+validating_evidence = "ADD_PERMISSION equals the parsed permission; the drift check; runtime authorization (6 records, 0 mismatches)"
+negative_control = "change the literal in a copy of create_contract.rb: the drift check and this witness must fail"
+sub_reason = "generated constant; its source side is ExtractionGap::ContractDeclScan, not parsed ORE"
+owner_stage = "DataWitness"
+source_location = "ruby_loc"
+source_revision = "openproject"
+
+[[residual]]
+key = "openproject/WorkPackage/create/guard/admit_create/evaluates:writable?-per-submitted-attribute"
+missing_fact = "BaseContract#writable? as a lowered fact (writable condition AND attribute permission)"
+supplier = "ruff contract arm: lower BaseContract#writable?"
+supplier_exists = false
+claim_change = "Slag(RubySideNotHarvested) -> Agreement if the lowered body is 'condition AND permission' and admit_create -> is_writable stays CALLS_RESOLVED"
+validating_evidence = "the lowered fact against the CALLS_RESOLVED edge; runtime axis: create_transition_differential contract-wide writable? (332 pairs)"
+negative_control = "a lowering that yields 'condition OR permission' must not agree with is_writable's truth table"
+sub_reason = "framework-level method of the application's base contract; no extractor reads it"
+owner_stage = "ContractHarvest"
+source_location = { locate = { file = "app/contracts/base_contract.rb", needle = "def writable?", root = "openproject" } }
+source_revision = "openproject"
+
+[[residual]]
+key = "openproject/WorkPackage/create/admission/POST /api/v3/work_packages/enters:mutation::create"
+missing_fact = "a structured body for op_api::handlers::work_packages::create_work_package_core"
+supplier = "Charon structuring of async bodies (op-api is in the store; the function is defined, listed in residuals.tsv as BODY_NOT_STRUCTURED), or a synchronous seam the call graph can see"
+supplier_exists = false
+claim_change = "Slag(RustBodyNotStructured) -> RubySideNotHarvested once the edge create_work_package_core -> mutation::create is structured: the API v3 create endpoint is not harvested either, so Rust structuring alone does not decide the row"
+validating_evidence = "the CALLS_RESOLVED edge create_work_package_core -> mutation::create, plus a harvested endpoint"
+negative_control = "remove the call from a structured body: the row must not stay agreeing; drop op-api again: the row returns to RustSideNotExtracted, never Disagreement"
+sub_reason = "Charon residual BODY_NOT_STRUCTURED (async fn); op-api extracted, no edge visible"
+owner_stage = "RustExtraction"
+source_location = { locate = { file = "crates/op-api/src/handlers/work_packages.rs", needle = "pub async fn create_work_package_core", root = "nexgen" } }
+source_revision = "nexgen"
+
+[[residual]]
+key = "openproject/WorkPackage/create/persistence/mutation::create/inserts:work_packages"
+missing_fact = "a structured body for op_services::work_packages::mutation::create"
+supplier = "Charon structuring of async bodies, or a synchronous seam the call graph can see"
+supplier_exists = false
+claim_change = "Slag(RustBodyNotStructured) -> Agreement or RubyOnly, decided by the structured edge"
+validating_evidence = "the CALLS_RESOLVED edge; the runtime axis stays the EXECUTED_DB journey (cited here; needs PostgreSQL)"
+negative_control = "remove the call from a structured body: the row must become RubyOnly, never stay Agreement"
+sub_reason = "Charon residual {charon_residual}; the create is transactional and writes its creation journal (EXECUTED_DB steps 2, 7)"
+owner_stage = "RustExtraction"
+source_location = "rust_loc"
+source_revision = "nexgen"
+charon_residual_symbol = "op_services::work_packages::mutation::create"
+
+# ── defaults, by slag reason ──
+
+[residual_default.RustBodyNotStructured]
+missing_fact = "a structured body for op_services::work_packages::mutation::create"
+supplier = "Charon structuring of async bodies, or a synchronous seam the call graph can see"
+supplier_exists = false
+claim_change = "Slag(RustBodyNotStructured) -> Agreement or RubyOnly, decided by the structured edge"
+validating_evidence = "the CALLS_RESOLVED edge; the runtime axis stays the EXECUTED_DB journey (cited here; needs PostgreSQL)"
+negative_control = "remove the call from a structured body: the row must become RubyOnly, never stay Agreement"
+sub_reason = "Charon residual {charon_residual}"
+owner_stage = "RustExtraction"
+source_location = "rust_loc"
+source_revision = "nexgen"
+charon_residual_symbol = "op_services::work_packages::mutation::create"
+
+[residual_default.RepresentedAsData]
+missing_fact = "none for the behaviour: table data is invisible to a call graph"
+supplier = "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES"
+supplier_exists = true
+claim_change = "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)"
+validating_evidence = "this witness, bound to the generator drift check"
+negative_control = "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail"
+sub_reason = "generated table row (ATTRIBUTES)"
+owner_stage = "DataWitness"
+source_location = "ruby_loc;rust_loc"
+source_revision = "both"
+
+# ── learned (written by UPDATE_ORE_SLAG=1; do not edit) ──
+
+[[learned]]
+key = "openproject/WorkPackage/create/admission/user_allowed_to_add/requires:add_work_packages"
+status = "EVIDENCED"
+reason = "RepresentedAsData"
+
+[[learned]]
+key = "openproject/WorkPackage/create/guard/admit_create/evaluates:writable?-per-submitted-attribute"
+status = "OPEN"
+reason = "RubySideNotHarvested"
+
+[[learned]]
+key = "openproject/WorkPackage/create/admission/mutation::create/checks:add_work_packages-in-project"
+status = "OPEN"
+reason = "RustBodyNotStructured"
+
+[[learned]]
+key = "openproject/WorkPackage/create/persistence/mutation::create/inserts:work_packages"
+status = "OPEN"
+reason = "RustBodyNotStructured"
+
+[[learned]]
+key = "openproject/WorkPackage/create/admission/POST /api/v3/work_packages/enters:mutation::create"
+status = "OPEN"
+reason = "RustBodyNotStructured"
+
+[[learned]]
+key = "openproject/WorkPackage/create/guard/WorkPackages::CreateContract.attribute(:author_id)/guard:lowered"
+status = "RESOLVED(DataWitness)"
+reason = "RepresentedAsData"
+
+[[learned]]
+key = "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:derived_done_ratio)/guard:lowered"
+status = "RESOLVED(DataWitness)"
+reason = "RepresentedAsData"
+
+[[learned]]
+key = "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:derived_estimated_hours)/guard:lowered"
+status = "RESOLVED(DataWitness)"
+reason = "RepresentedAsData"
+
+[[learned]]
+key = "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:derived_remaining_hours)/guard:lowered"
+status = "RESOLVED(DataWitness)"
+reason = "RepresentedAsData"
+
+[[learned]]
+key = "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:done_ratio)/guard:lowered"
+status = "RESOLVED(DataWitness)"
+reason = "RepresentedAsData"
+
+[[learned]]
+key = "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:due_date)/guard:lowered"
+status = "RESOLVED(DataWitness)"
+reason = "RepresentedAsData"
+
+[[learned]]
+key = "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:ignore_non_working_days)/guard:lowered"
+status = "RESOLVED(DataWitness)"
+reason = "RepresentedAsData"
+
+[[learned]]
+key = "openproject/WorkPackage/create/guard/WorkPackages::BaseContract.attribute(:start_date)/guard:lowered"
+status = "RESOLVED(DataWitness)"
+reason = "RepresentedAsData"
