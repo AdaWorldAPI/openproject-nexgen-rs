@@ -21,7 +21,7 @@
 //! Anything else is recorded as not lowered, with its Ruby text, and the desk
 //! refuses reads of that table.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 use lib_ruby_parser::Node;
@@ -53,16 +53,31 @@ fn src_text(src: &str, n: &Node) -> String {
 
 struct Ctx<'a> {
     h: &'a Harvest,
-    ancestry: Vec<String>,
+    /// The model and its superclasses, nearest first. Included modules are not
+    /// in it: a `def self.x` in a module is not a class method of the
+    /// includer, and a module's default scope is refused (see `lower`).
+    chain: &'a [String],
+    /// The model's table columns: a filter on anything else is not lowered.
+    columns: &'a [String],
+    /// `(class, name)` of every named `scope` declared in the chain.
+    named_scopes: BTreeSet<(String, String)>,
     table: &'a str,
     /// Table name of each harvest class the slice knows, for `X.table_name`.
     tables: &'a BTreeMap<String, String>,
 }
 
 impl Ctx<'_> {
-    /// `def self.<name>` in the body of the model or an ancestor, nearest first.
+    /// `def self.<name>` in the body of the model or a superclass, nearest
+    /// first. A `scope :<name>` met first shadows it, as in Ruby, so the lookup
+    /// stops there with `None`.
     fn class_method(&self, name: &str) -> Option<(Node, String)> {
-        for class in &self.ancestry {
+        for class in self.chain {
+            if self
+                .named_scopes
+                .contains(&(class.clone(), name.to_string()))
+            {
+                return None;
+            }
             for u in self.h.units.get(class).into_iter().flatten() {
                 let (Some(body), Some(file)) = (&u.body, self.h.file(&u.file)) else {
                     continue;
@@ -84,7 +99,7 @@ impl Ctx<'_> {
     /// `enum :<name>, { key: value, … }` in the body of `class` or its
     /// ancestors whose plural is `plural`; the integer value of `key`.
     fn enum_value(&self, plural: &str, key: &str) -> Option<String> {
-        for class in &self.ancestry {
+        for class in self.chain {
             for u in self.h.units.get(class).into_iter().flatten() {
                 let Some(body) = &u.body else { continue };
                 for stmt in stmts(body) {
@@ -115,6 +130,43 @@ impl Ctx<'_> {
     }
 }
 
+impl Ctx<'_> {
+    /// The attribute names `enum :<name>, …` declares in the chain.
+    fn enum_attributes(&self) -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        for class in self.chain {
+            for u in self.h.units.get(class).into_iter().flatten() {
+                let Some(body) = &u.body else { continue };
+                for stmt in stmts(body) {
+                    let Node::Send(s) = stmt else { continue };
+                    if s.recv.is_none() && s.method_name == "enum" {
+                        if let Some(n) = s.args.first().and_then(sym) {
+                            out.insert(n);
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether `recv` names the model or a superclass (`Principal.statuses`),
+    /// or is implicit `self`.
+    fn is_own_class(&self, recv: Option<&Node>) -> bool {
+        match recv {
+            None | Some(Node::Self_(_)) => true,
+            Some(Node::Const(c)) => {
+                c.scope.is_none()
+                    && self
+                        .chain
+                        .iter()
+                        .any(|k| k.rsplit("::").next() == Some(c.name.as_str()))
+            }
+            _ => false,
+        }
+    }
+}
+
 fn stmts(body: &Node) -> Vec<&Node> {
     match body {
         Node::Begin(b) => b.statements.iter().collect(),
@@ -125,7 +177,19 @@ fn stmts(body: &Node) -> Vec<&Node> {
 /// Rust source of a `scopes::Lit` for a literal node.
 fn literal(n: &Node) -> Option<String> {
     Some(match n {
-        Node::Int(i) => format!("Lit::Int({})", i.value.replace('_', "")),
+        // Decimal only: a leading 0 is octal in Ruby (`017` is 15), and 0x / 0b
+        // are other bases; those are not lowered.
+        Node::Int(i) => {
+            let digits = i.value.replace('_', "");
+            let body = digits.strip_prefix('-').unwrap_or(&digits);
+            if body.is_empty()
+                || !body.bytes().all(|b| b.is_ascii_digit())
+                || (body.len() > 1 && body.starts_with('0'))
+            {
+                return None;
+            }
+            format!("Lit::Int({})", digits.parse::<i64>().ok()?)
+        }
         Node::Str(s) => format!("Lit::Str({:?})", bytes(&s.value)),
         Node::True(_) => "Lit::Bool(true)".into(),
         Node::False(_) => "Lit::Bool(false)".into(),
@@ -170,16 +234,21 @@ fn sym(n: &Node) -> Option<String> {
 }
 
 impl Ctx<'_> {
-    /// A `where` value: a literal, or `Model.<plural>[:key]`.
-    fn where_value(&self, n: &Node) -> Option<String> {
+    /// A `where` value for `col`: a literal, or `Model.<plural>[:key]` where
+    /// `Model` is the model or a superclass. A string on an `enum` column is not
+    /// lowered (Rails casts it to the enum's value).
+    fn where_value(&self, col: &str, n: &Node) -> Option<String> {
         if let Some(l) = literal(n) {
+            if matches!(n, Node::Str(_)) && self.enum_attributes().contains(col) {
+                return None;
+            }
             return Some(l);
         }
         let Node::Index(ix) = n else { return None };
         let Node::Send(s) = &*ix.recv else {
             return None;
         };
-        if !s.args.is_empty() {
+        if !s.args.is_empty() || !self.is_own_class(s.recv.as_deref()) {
             return None;
         }
         let [key] = &ix.indexes[..] else { return None };
@@ -188,7 +257,7 @@ impl Ctx<'_> {
     }
 
     /// One `order` argument: `(column, ascending)` keys.
-    fn order_keys(&self, n: &Node, src: &str) -> Option<Vec<(String, bool)>> {
+    fn order_keys(&self, n: &Node) -> Option<Vec<(String, bool)>> {
         match n {
             Node::Sym(s) => Some(vec![(bytes(&s.name), true)]),
             Node::Hash(_) | Node::Kwargs(_) => hash_pairs(std::slice::from_ref(n))?
@@ -223,7 +292,6 @@ impl Ctx<'_> {
                         _ => return None,
                     }
                 }
-                let _ = src;
                 self.order_text(&text)
             }
             _ => None,
@@ -291,11 +359,25 @@ impl Ctx<'_> {
             let name = l.method_name.as_str();
             match name {
                 "all" if l.args.is_empty() => {}
-                n if NO_ROW_EFFECT.contains(&n) => out.no_row_effect.push(src_text(src, body)),
+                n if NO_ROW_EFFECT.contains(&n) => {
+                    let text = src_text(src, body);
+                    if !out.no_row_effect.contains(&text) {
+                        out.no_row_effect.push(text);
+                    }
+                }
                 "order" if !l.args.is_empty() => {
                     for a in &l.args {
-                        match self.order_keys(a, src) {
-                            Some(keys) => out.order.extend(keys),
+                        match self.order_keys(a) {
+                            Some(keys) if keys.iter().all(|(c, _)| self.columns.contains(c)) => {
+                                out.order.extend(keys)
+                            }
+                            Some(_) => {
+                                out.unlowered.push((
+                                    ruby,
+                                    "order column is not a column of the table".into(),
+                                ));
+                                return;
+                            }
                             None => {
                                 out.unlowered.push((ruby, "order argument".into()));
                                 return;
@@ -318,7 +400,13 @@ impl Ctx<'_> {
                         return;
                     };
                     for (k, v) in pairs {
-                        match (sym(k), self.where_value(v)) {
+                        let col = sym(k);
+                        if col.as_ref().is_some_and(|c| !self.columns.contains(c)) {
+                            out.unlowered
+                                .push((ruby, "where key is not a column of the table".into()));
+                            return;
+                        }
+                        match (col.clone(), col.and_then(|c| self.where_value(&c, v))) {
                             (Some(col), Some(lit)) => out.filters.push((col, negated, lit)),
                             _ => {
                                 out.unlowered.push((ruby, "where value".into()));
@@ -337,47 +425,87 @@ impl Ctx<'_> {
     }
 }
 
+/// One slice model, as the generator knows it.
+pub struct ModelInput {
+    pub model: String,
+    pub table: String,
+    /// The model and its superclasses, nearest first.
+    pub chain: Vec<String>,
+    pub columns: Vec<String>,
+}
+
 /// The lowered default scopes of every slice model, in model order.
-pub fn lower(h: &Harvest, models: &[(String, String)]) -> Vec<Lowered> {
+///
+/// ActiveRecord folds `default_scopes` in the order they were declared:
+/// a superclass's first (its body ran before the subclass's), then each
+/// class's own in source order. A default scope declared in an included module
+/// joins at its `include` line, which the catalog does not record, so such a
+/// scope is not lowered; neither are the scopes of a class reopened in more
+/// than one file, whose load order is not known.
+pub fn lower(h: &Harvest, models: &[ModelInput]) -> Vec<Lowered> {
     let catalog = ScopeCatalog::from_harvest(h);
-    let tables: BTreeMap<String, String> = models.iter().cloned().collect();
+    let tables: BTreeMap<String, String> = models
+        .iter()
+        .map(|m| (m.model.clone(), m.table.clone()))
+        .collect();
+    let named_scopes: BTreeSet<(String, String)> = catalog
+        .scopes
+        .iter()
+        .filter(|s| !s.default)
+        .map(|s| (s.class.clone(), s.name.clone()))
+        .collect();
     let mut out = Vec::new();
-    for (model, table) in models {
-        let scopes: Vec<_> = catalog.default_scopes(model).collect();
+    for m in models {
+        let scopes: Vec<_> = catalog.default_scopes(&m.model).collect();
         if scopes.is_empty() {
             continue;
         }
-        let mut ancestry = vec![model.clone()];
-        let mut i = 0;
-        while i < ancestry.len() {
-            for p in catalog.parents.get(&ancestry[i]).into_iter().flatten() {
-                if !ancestry.contains(p) {
-                    ancestry.push(p.clone());
-                }
-            }
-            i += 1;
-        }
         let ctx = Ctx {
             h,
-            ancestry: ancestry.clone(),
-            table,
+            chain: &m.chain,
+            columns: &m.columns,
+            named_scopes: named_scopes.clone(),
+            table: &m.table,
             tables: &tables,
         };
         let mut l = Lowered {
-            model: model.clone(),
-            table: table.clone(),
+            model: m.model.clone(),
+            table: m.table.clone(),
             ..Lowered::default()
         };
-        // Farthest ancestor first, then source order within a class.
-        let mut ordered = scopes;
-        ordered.sort_by_key(|s| {
-            (
-                std::cmp::Reverse(ancestry.iter().position(|a| a == &s.class).unwrap_or(0)),
-                s.provenance.clone(),
-                s.anchor,
-            )
-        });
-        for s in ordered {
+        let file_of = |p: &str| p.rsplit_once(':').map_or(p, |(f, _)| f).to_string();
+        let mut ordered = Vec::new();
+        for s in scopes {
+            let Some(pos) = m.chain.iter().position(|c| c == &s.class) else {
+                l.provenance.push(s.provenance.clone());
+                l.unlowered.push((
+                    s.ruby.clone(),
+                    format!(
+                        "declared in included module {}: its place in the fold is not modelled",
+                        s.class
+                    ),
+                ));
+                continue;
+            };
+            ordered.push((pos, s));
+        }
+        for class in &m.chain {
+            let files: BTreeSet<String> = ordered
+                .iter()
+                .filter(|(_, s)| &s.class == class)
+                .map(|(_, s)| file_of(&s.provenance))
+                .collect();
+            if files.len() > 1 {
+                l.unlowered.push((
+                    class.clone(),
+                    "default scopes of one class in more than one file: load order not known"
+                        .into(),
+                ));
+            }
+        }
+        // Farthest superclass first, then source order (byte offset) within a class.
+        ordered.sort_by_key(|(pos, s)| (std::cmp::Reverse(*pos), s.anchor));
+        for (_, s) in ordered {
             l.provenance.push(s.provenance.clone());
             match &s.body {
                 Some(b) => ctx.lower(b, &s.src, &mut l, 0),

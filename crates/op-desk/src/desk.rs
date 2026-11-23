@@ -217,7 +217,8 @@ impl Desk {
         )?)
     }
 
-    /// How many rows `table` holds, answered by the catalog.
+    /// How many rows of `table` its default-scope filters keep (`Model.count`),
+    /// answered by the catalog.
     pub fn count(&self, table: &str) -> Result<i64, DeskError> {
         let call = json!({
             "table": table, "terminal": "count", "where": scoped_where(table, None)?,

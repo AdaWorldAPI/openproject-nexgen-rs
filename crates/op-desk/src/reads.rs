@@ -18,7 +18,7 @@ pub enum Read {
     All(&'static str),
     /// The rows whose column equals the value, by its default-scope order, then id.
     Eq(&'static str, &'static str, J),
-    /// The table's row count.
+    /// The table's row count within its default-scope filters.
     Count(&'static str),
 }
 
