@@ -36,6 +36,8 @@ use op_db::{
 };
 
 use crate::health::AppState;
+
+pub mod desk_views;
 use crate::layout;
 use crate::nav;
 use crate::signin::Who;
@@ -290,6 +292,12 @@ pub fn view_registry() -> viewfilter::ViewRegistry {
         vec![wp_stacked],
     )
     .expect("wp_stacked is interned above — construction order holds");
+    // The desk-backed pages: a list and a detail skin each (leaves).
+    for view in desk_views::VIEWS {
+        for mask in desk_views::masks(view) {
+            leaf(&mut reg, view.concept, mask);
+        }
+    }
     reg
 }
 
@@ -2893,13 +2901,19 @@ mod tests {
     /// The app's REAL route skins intern into a ViewRegistry whose
     /// nesting construction order and forward/backward bijective round
     /// trip both hold — the compile/test-time form of the boot self-check
-    /// in `main`. Seven distinct nodes today (six leaves + the project
-    /// detail stacking the WP list), each route arm's projection its own
-    /// interned node (no accidental collapse, no duplicate).
+    /// in `main`. Twelve distinct nodes today: the six PostgreSQL-page
+    /// leaves, the project detail stacking the WP list, and five desk-page
+    /// leaves. The desk views give six skins, but a mask is a column *set*:
+    /// priorities' list and detail select the same three columns (in
+    /// different orders) and so intern as one node, as interning must.
     #[test]
     fn real_skin_registry_is_ordered_and_bijective() {
         let mut reg = view_registry();
-        assert_eq!(reg.len(), 7, "6 leaf skins + 1 stacking parent");
+        assert_eq!(
+            reg.len(),
+            12,
+            "6 + 1 PostgreSQL-page nodes, 5 distinct desk-page masks"
+        );
         assert!(reg.verify_stack_order(), "children strictly before parents");
         assert!(reg.verify_bijective(), "resolve∘intern round trip");
         assert!(

@@ -92,7 +92,10 @@ mod tests {
             cell_text(&json!({"t": "2026-07-08T10:38:44.123456Z", "epoch": 1, "usec": 123456})),
             "2026-07-08T10:38:44Z"
         );
-        assert_eq!(cell_text(&json!({"other": "Date", "s": "2026-07-01"})), "2026-07-01");
+        assert_eq!(
+            cell_text(&json!({"other": "Date", "s": "2026-07-01"})),
+            "2026-07-01"
+        );
         assert_eq!(cell_text(&json!({"f": "3.5"})), "3.5");
         assert_eq!(
             cell_text(&json!({"other": "BigDecimal", "s": "12.3456"})),
@@ -124,7 +127,11 @@ mod tests {
         let path = good.to_string_lossy().into_owned();
         let desk = load_desk(|k| (k == SEED_VAR).then(|| path.clone())).expect("file seed");
         assert_eq!(desk.count("statuses"), Ok(1));
-        assert_eq!(desk.count("users"), Ok(0), "the demo seed is not loaded as well");
+        assert_eq!(
+            desk.count("users"),
+            Ok(0),
+            "the demo seed is not loaded as well"
+        );
 
         let bad = dir.join("bad.json");
         std::fs::write(&bad, r#"{"seed": {"no_such_table": []}}"#).expect("write");

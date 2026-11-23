@@ -125,7 +125,7 @@ fn region_concept(name: &str) -> &'static str {
 pub fn left_menu_html() -> String {
     let mut out = String::from("<nav class=\"sidemenu\" aria-label=\"Main\">");
     out.push_str("<ul class=\"sidemenu-primary\">");
-    for (label, href) in nav::menu() {
+    for (label, href) in nav::side_menu() {
         out.push_str(&format!(
             "<li><a href=\"{href}\">{label}</a></li>",
             href = esc(href),
@@ -247,11 +247,18 @@ mod tests {
         // Primary screens are live links.
         assert!(html.contains("href=\"/\""), "Board link present");
         assert!(html.contains("href=\"/projects\""), "Projects link present");
+        // Desk-backed pages are live links too.
+        assert!(html.contains("href=\"/statuses\""), "{html}");
+        assert!(html.contains("href=\"/priorities\""), "{html}");
         // Deferred lanes are shown, disabled — honest about the full surface.
         assert!(html.contains("Coming soon"));
         assert!(html.contains("aria-disabled=\"true\""));
-        // A dead-lane concept is humanized (ProjectStatus -> "Project statuses").
-        assert!(html.contains("Project statuses"), "{html}");
+        // A dead-lane concept is humanized (ProjectJournal -> "Project journals").
+        assert!(html.contains("Project journals"), "{html}");
+        assert!(
+            !html.contains("Project statuses"),
+            "statuses is no longer deferred: {html}"
+        );
     }
 
     #[test]

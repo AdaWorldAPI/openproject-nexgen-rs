@@ -75,7 +75,12 @@ async fn main() -> anyhow::Result<()> {
     // The desk the read-only pages read: OP_DESK_SEED names a seed file, else
     // the demo seed. A seed that cannot be loaded stops the start.
     let desk = desk_pages::load_desk(|k| std::env::var(k).ok()).map_err(|e| anyhow::anyhow!(e))?;
-    info!(seed = std::env::var(desk_pages::SEED_VAR).as_deref().unwrap_or("demo"), "Desk");
+    info!(
+        seed = std::env::var(desk_pages::SEED_VAR)
+            .as_deref()
+            .unwrap_or("demo"),
+        "Desk"
+    );
     let desk = desk_pages::shared(desk);
 
     // Klickweg connectivity affirmation — the runtime counterpart to the
@@ -347,6 +352,12 @@ fn build_router_with(
         )
         .route("/projects", get(board::project_index))
         .route("/projects/:id", get(board::project_detail))
+        .route("/statuses", get(board::desk_views::statuses_list))
+        .route("/statuses/:id", get(board::desk_views::statuses_detail))
+        .route("/types", get(board::desk_views::types_list))
+        .route("/types/:id", get(board::desk_views::types_detail))
+        .route("/priorities", get(board::desk_views::priorities_list))
+        .route("/priorities/:id", get(board::desk_views::priorities_detail))
         .route(
             "/projects/:id/edit",
             get(board::project_edit_form).post(board::project_update),
@@ -491,6 +502,67 @@ mod tests {
         });
 
         build_router(state, metrics)
+    }
+
+    async fn get(uri: &str) -> (StatusCode, String) {
+        let response = test_app()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    fn before(body: &str, a: &str, b: &str) -> bool {
+        match (body.find(a), body.find(b)) {
+            (Some(x), Some(y)) => x < y,
+            _ => false,
+        }
+    }
+
+    /// The desk-backed pages answer with no database (`db: None`): their rows
+    /// come from the desk, in OpenProject's default-scope order (position,
+    /// not id).
+    #[tokio::test]
+    async fn desk_pages_serve_from_the_desk_without_a_database() {
+        let (status, body) = get("/statuses").await;
+        assert_eq!(status, StatusCode::OK);
+        // "On hold" (id 6, position 3) between "In progress" (2) and "Resolved" (4).
+        assert!(before(&body, "In progress", "On hold"), "{body}");
+        assert!(before(&body, "On hold", "Resolved"), "{body}");
+        assert!(body.contains("href=\"/statuses/6\""), "{body}");
+
+        let (status, body) = get("/types").await;
+        assert_eq!(status, StatusCode::OK);
+        // "Epic" (id 5) has position 1, so it comes before "Task" (id 1).
+        assert!(before(&body, "Epic", "Task"), "{body}");
+
+        let (status, body) = get("/statuses/6").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("On hold"), "{body}");
+    }
+
+    /// Priorities are the `IssuePriority` rows of `enumerations`: an
+    /// enumeration of another type is not a priority, list or detail.
+    #[tokio::test]
+    async fn priorities_are_the_issue_priority_subset() {
+        let (status, body) = get("/priorities").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("href=\"/priorities/1\""), "{body}");
+        assert!(
+            !body.contains("href=\"/priorities/5\""),
+            "a TimeEntryActivity row: {body}"
+        );
+
+        assert_eq!(get("/priorities/1").await.0, StatusCode::OK);
+        // id 5 exists in enumerations, but as a TimeEntryActivity.
+        assert_eq!(get("/priorities/5").await.0, StatusCode::NOT_FOUND);
+        let (status, body) = get("/statuses/999").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(body.contains("not found"), "a 404 page has a body: {body}");
     }
 
     #[tokio::test]

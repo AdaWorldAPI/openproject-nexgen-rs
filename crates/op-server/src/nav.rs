@@ -40,6 +40,10 @@ pub fn route_for(target_concept: &str) -> Option<&'static str> {
     match target_concept {
         "Project" => Some("/projects"),
         "ProjectWorkItem" => Some("/work_packages"),
+        // Desk-backed read-only pages (crate::board::desk_views).
+        "ProjectStatus" => Some("/statuses"),
+        "ProjectType" => Some("/types"),
+        "Priority" => Some("/priorities"),
         _ => None,
     }
 }
@@ -52,7 +56,13 @@ pub fn route_for(target_concept: &str) -> Option<&'static str> {
 /// Every entry MUST have a `Some` [`route_for`]; `screen_universe_matches_routes`
 /// proves it. The board (`"/"`) IS the `ProjectWorkItem` screen, so that is the
 /// entry/root ([`NAV_ROOT`] = index 0).
-pub const SCREEN_UNIVERSE: &[&str] = &["ProjectWorkItem", "Project"];
+pub const SCREEN_UNIVERSE: &[&str] = &[
+    "ProjectWorkItem",
+    "Project",
+    "ProjectStatus",
+    "ProjectType",
+    "Priority",
+];
 
 /// The entry screen position — the board (`"/"`), i.e. `ProjectWorkItem`.
 pub const NAV_ROOT: u8 = 0;
@@ -99,6 +109,21 @@ pub const NAV_EDGES: &[ComputeEdge] = &[
         target: 0,
         inputs: &[1],
     },
+    // ProjectWorkItem.status → ProjectStatus
+    ComputeEdge {
+        target: 2,
+        inputs: &[0],
+    },
+    // ProjectWorkItem.type → ProjectType
+    ComputeEdge {
+        target: 3,
+        inputs: &[0],
+    },
+    // ProjectWorkItem.priority → Priority
+    ComputeEdge {
+        target: 4,
+        inputs: &[0],
+    },
 ];
 
 /// The served-screen universe as a [`WideFieldMask`], minted via the
@@ -108,12 +133,12 @@ pub const NAV_EDGES: &[ComputeEdge] = &[
 ///
 /// # Panics
 ///
-/// Never in practice: [`SCREEN_UNIVERSE`] has 2 entries, far under the
+/// Never in practice: [`SCREEN_UNIVERSE`] has 5 entries, far under the
 /// 256-field SoC cap the brick guards.
 #[must_use]
 pub fn served_screens_mask() -> WideFieldMask {
     WideFieldMask::from_universe_present(SCREEN_UNIVERSE, SCREEN_UNIVERSE)
-        .expect("2-screen universe is within the 256-field SoC cap")
+        .expect("5-screen universe is within the 256-field SoC cap")
 }
 
 /// Whether the inter-screen klickweg is fully connected: every served
@@ -148,7 +173,14 @@ pub fn klickweg_is_connected() -> bool {
 /// from [`SCREEN_UNIVERSE`] (screens only) because the render masks index
 /// screen positions and must NOT see the synthetic node; this universe is
 /// the connectivity graph only.
-pub const MENU_UNIVERSE: &[&str] = &["Menu", "ProjectWorkItem", "Project"];
+pub const MENU_UNIVERSE: &[&str] = &[
+    "Menu",
+    "ProjectWorkItem",
+    "Project",
+    "ProjectStatus",
+    "ProjectType",
+    "Priority",
+];
 
 /// The synthetic top-nav menu node — the entry point of the klickweg,
 /// mirroring Odoo's `<menuitem>` root.
@@ -188,6 +220,20 @@ pub const MENU_NAV_EDGES: &[ComputeEdge] = &[
         target: 1,
         inputs: &[2],
     },
+    // Menu → ProjectStatus / ProjectType / Priority (side-menu entries), and
+    // ProjectWorkItem → each (NAV_EDGES[2..5], shifted +1).
+    ComputeEdge {
+        target: 3,
+        inputs: &[0, 1],
+    },
+    ComputeEdge {
+        target: 4,
+        inputs: &[0, 1],
+    },
+    ComputeEdge {
+        target: 5,
+        inputs: &[0, 1],
+    },
 ];
 
 /// The menu-inclusive universe as a [`WideFieldMask`], minted on-brick
@@ -195,11 +241,11 @@ pub const MENU_NAV_EDGES: &[ComputeEdge] = &[
 ///
 /// # Panics
 ///
-/// Never: [`MENU_UNIVERSE`] has 3 entries, far under the 256-field cap.
+/// Never: [`MENU_UNIVERSE`] has 6 entries, far under the 256-field cap.
 #[must_use]
 pub fn menu_screens_mask() -> WideFieldMask {
     WideFieldMask::from_universe_present(MENU_UNIVERSE, MENU_UNIVERSE)
-        .expect("3-node menu universe is within the 256-field SoC cap")
+        .expect("6-node menu universe is within the 256-field SoC cap")
 }
 
 /// The concept a top-nav menu href routes to (the inverse of
@@ -232,9 +278,6 @@ pub fn menu_klickweg_is_connected() -> bool {
 /// (not a bug). Adding a new association without a route AND without an
 /// entry here breaks the static prober below.
 pub const NOT_YET_NAVIGABLE: &[&str] = &[
-    "ProjectStatus",
-    "ProjectType",
-    "Priority",
     "ProjectActor",
     "ProjectJournal",
     "ProjectRelation",
@@ -272,6 +315,19 @@ pub fn nav_edges(class: &Class) -> Vec<NavEdge> {
 /// The top-level nav menu — concepts with a live list/index page.
 pub fn menu() -> &'static [(&'static str, &'static str)] {
     &[("Board", "/"), ("Projects", "/projects")]
+}
+
+/// The side menu: the top-nav [`menu`] followed by the desk-backed pages.
+/// The top bar keeps [`menu`] alone; every side-menu entry is a menu edge in
+/// [`MENU_NAV_EDGES`].
+pub fn side_menu() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("Board", "/"),
+        ("Projects", "/projects"),
+        ("Statuses", "/statuses"),
+        ("Types", "/types"),
+        ("Priorities", "/priorities"),
+    ]
 }
 
 /// Every association (across `project_work_item()` and `project()`)
@@ -340,20 +396,26 @@ mod tests {
             .iter()
             .find(|e| e.role == "status")
             .expect("status edge present");
-        assert_eq!(status_edge.route, None);
+        assert_eq!(status_edge.route, Some("/statuses"));
         assert!(!status_edge.has_many);
+
+        let journals_edge = edges
+            .iter()
+            .find(|e| e.role == "journals")
+            .expect("journals edge present");
+        assert_eq!(journals_edge.route, None, "still a dead lane");
     }
 
     #[test]
     fn menu_targets_are_all_routable() {
-        for (_, href) in menu() {
+        for (_, href) in side_menu() {
             assert!(
-                *href == "/"
-                    || route_for("Project") == Some(*href)
-                    || route_for("ProjectWorkItem") == Some(*href),
+                menu_target_concept(href).is_some(),
                 "menu href {href} is not a known route"
             );
         }
+        // The top bar is a prefix of the side menu.
+        assert_eq!(&side_menu()[..menu().len()], menu());
     }
 
     /// Every screen in [`SCREEN_UNIVERSE`] must actually be routed — the
@@ -463,8 +525,8 @@ mod tests {
 
         let mut derived: Vec<(u8, u8)> = Vec::new(); // (target, source)
 
-        // Menu → each tab's target concept.
-        for (_label, href) in menu() {
+        // Menu → each side-menu entry's target concept.
+        for (_label, href) in side_menu() {
             if *href == "/" || route_for_is_menu_reachable(href) {
                 if let Some(target) = menu_target_concept(href).and_then(menu_pos) {
                     derived.push((target, MENU_ROOT));
@@ -509,9 +571,15 @@ mod tests {
             census
                 .iter()
                 .any(|(owner, role, target)| *owner == "ProjectWorkItem"
-                    && role == "status"
-                    && target == "ProjectStatus"),
-            "expected WorkItem.status -> ProjectStatus dead lane in census, got {census:?}"
+                    && role == "journals"
+                    && target == "ProjectJournal"),
+            "expected WorkItem.journals -> ProjectJournal dead lane in census, got {census:?}"
+        );
+        assert!(
+            !census
+                .iter()
+                .any(|(_, _, target)| target == "ProjectStatus"),
+            "ProjectStatus has a page now: {census:?}"
         );
     }
 }
