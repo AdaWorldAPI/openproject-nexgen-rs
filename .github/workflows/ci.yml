@@ -47,6 +47,15 @@ jobs:
           OP_TEST_DATABASE_URL: postgres://op:op@localhost:5432/op
           REQUIRE_DB: "1"
         run: cargo test -p op-server executed_db -- --nocapture
+      # The desk's reads (op-desk, Quack over the polyfill store) against PostgreSQL: the slice
+      # tables from OpenProject's db/structure.sql, the desk's rows, every read of
+      # op_desk::reads::demo_reads answered in SQL and compared with oracle/desk-reads.pg.json.
+      # After an intended change, regenerate with UPDATE_DESK_READS_CAPTURE=1 and review the diff.
+      - name: desk reads oracle
+        env:
+          OP_TEST_DATABASE_URL: postgres://op:op@localhost:5432/op
+          REQUIRE_DB: "1"
+        run: cargo test -p op-desk --test pg_oracle -- --nocapture
 
   test:
     runs-on: ubuntu-latest
