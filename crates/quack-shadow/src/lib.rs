@@ -792,6 +792,30 @@ fn column_specs<'a>(
     }
 }
 
+/// For each of the table's columns, its position in the feed entry's
+/// `columns` declaration; `None` when the entry declares none, or declares
+/// them in the table's own order. A declaration naming other columns is
+/// refused rather than read by position.
+fn incoming_order(table: &Table, entry: &Json) -> Result<Option<Vec<usize>>, CaptureError> {
+    let Some(columns) = entry.get("columns") else { return Ok(None) };
+    let declared: Vec<&str> = column_specs(&table.name, columns)?.into_iter().map(|(n, _)| n).collect();
+    if declared.iter().copied().eq(table.columns.iter().map(|c| c.name.as_str())) {
+        return Ok(None);
+    }
+    let order = table
+        .columns
+        .iter()
+        .map(|c| declared.iter().position(|d| *d == c.name))
+        .collect::<Option<Vec<usize>>>();
+    match order {
+        Some(order) if declared.len() == table.columns.len() => Ok(Some(order)),
+        _ => capture_err(format!(
+            "{}: feed columns {declared:?} differ from the table's",
+            table.name
+        )),
+    }
+}
+
 fn live_plane(rows: usize) -> Vec<u64> {
     let mut live = vec![u64::MAX; words_for(rows)];
     if !rows.is_multiple_of(64)
@@ -1922,8 +1946,27 @@ fn apply_entry(
     let name = table.name.clone();
     let id_col = table.columns.iter().position(|c| c.name == "id");
     let mut writes = TextWrites::new();
+    // The feed's own column declaration says which cell is which: map each
+    // incoming row onto the table's column order by name.
+    let order = incoming_order(table, entry)?;
+    let reorder = |row: &Json| -> Option<Json> {
+        let cells = row.as_array()?;
+        match &order {
+            None => Some(row.clone()),
+            Some(order) => (cells.len() == order.len())
+                .then(|| Json::Array(order.iter().map(|&i| cells[i].clone()).collect())),
+        }
+    };
+    let replace: Option<Vec<Json>> = entry
+        .get("replace")
+        .and_then(Json::as_array)
+        .map(|rows| rows.iter().map(|r| reorder(r).unwrap_or(Json::Null)).collect());
+    let upsert: Option<Vec<Json>> = entry
+        .get("upsert")
+        .and_then(Json::as_array)
+        .map(|rows| rows.iter().map(|r| reorder(r).unwrap_or(Json::Null)).collect());
     // A table without a key cannot be addressed by row: the feed sends it whole.
-    if let Some(rows) = entry.get("replace").and_then(Json::as_array) {
+    if let Some(rows) = replace.as_ref() {
         if table.layout == Layout::Identity {
             return capture_err(format!("{name}: replace of a table laid out by key"));
         }
@@ -1950,8 +1993,7 @@ fn apply_entry(
         }
     }
     let mut live_rows = live_count(table);
-    let upserts = entry.get("upsert").and_then(Json::as_array);
-    for row in upserts.into_iter().flatten() {
+    for row in upsert.iter().flatten() {
         let cells = row
             .as_array()
             .filter(|cells| cells.len() == table.columns.len())

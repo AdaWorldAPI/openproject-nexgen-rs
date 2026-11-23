@@ -197,6 +197,10 @@ pub struct ScopeBody {
 #[derive(Debug, Clone, Default)]
 pub struct ScopeCatalog {
     pub scopes: Vec<ScopeBody>,
+    /// Direct parents of a class or module whose scopes apply to it: its
+    /// included modules and its superclass, resolved to harvest names. A
+    /// default_scope declared on any ancestor applies to the class.
+    pub parents: BTreeMap<String, Vec<String>>,
 }
 
 #[must_use]
@@ -230,6 +234,29 @@ fn statements(body: &Node) -> Vec<&Node> {
 }
 
 /// `-> { … }`, `lambda { … }`, `proc { … }`: the parameter count and body.
+/// A constant as Ruby resolves it from a lexical nesting (innermost first):
+/// the first `<nesting>::<name>` the harvest defines, else `name` as written.
+fn resolve_const(h: &rails_compiler::harvest::Harvest, nesting: &[String], name: &str) -> String {
+    nesting
+        .iter()
+        .map(|n| format!("{n}::{name}"))
+        .find(|q| h.units.contains_key(q))
+        .unwrap_or_else(|| name.to_string())
+}
+
+/// Whether a constant reference is absolute (`::Name`, `::A::B`): its
+/// leftmost scope is the top-level base, so Ruby skips the lexical lookup.
+fn is_absolute_const(node: &Node) -> bool {
+    match node {
+        Node::Const(c) => match c.scope.as_deref() {
+            Some(Node::Cbase(_)) => true,
+            Some(other) => is_absolute_const(other),
+            None => false,
+        },
+        _ => false,
+    }
+}
+
 fn lambda_parts(n: &Node) -> Option<(usize, Option<Node>)> {
     match n {
         Node::Block(b) => {
@@ -362,6 +389,27 @@ impl ScopeCatalog {
                 if let Some(b) = &u.body {
                     c.collect_body(name, b, &src, &file.rel);
                 }
+                let parents = c.parents.entry(name.clone()).or_default();
+                for body in [u.body.as_ref(), u.included_body.as_ref()].into_iter().flatten() {
+                    for stmt in statements(body) {
+                        let Node::Send(send) = stmt else { continue };
+                        if send.recv.is_some() || send.method_name != "include" {
+                            continue;
+                        }
+                        for arg in &send.args {
+                            if let Some(m) = rails_compiler::harvest::const_name(arg) {
+                                if is_absolute_const(arg) {
+                                    parents.push(m);
+                                } else {
+                                    parents.push(resolve_const(h, &u.nesting, &m));
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(sup) = &u.superclass {
+                    parents.push(resolve_const(h, &u.nesting, sup));
+                }
             }
         }
         c
@@ -380,7 +428,23 @@ impl ScopeCatalog {
     /// Every `default_scope` of `class`, in declaration order. ActiveRecord
     /// combines them all (`default_scopes` accumulates), so each one applies.
     pub fn default_scopes<'a>(&'a self, class: &'a str) -> impl Iterator<Item = &'a ScopeBody> + 'a {
-        self.scopes.iter().filter(move |s| s.default && s.class == class)
+        let owners = self.ancestry(class);
+        self.scopes.iter().filter(move |s| s.default && owners.contains(&s.class))
+    }
+
+    /// `class` and every ancestor reachable through `parents`, each once.
+    fn ancestry(&self, class: &str) -> Vec<String> {
+        let mut seen = vec![class.to_string()];
+        let mut i = 0;
+        while i < seen.len() {
+            for p in self.parents.get(&seen[i]).into_iter().flatten() {
+                if !seen.contains(p) {
+                    seen.push(p.clone());
+                }
+            }
+            i += 1;
+        }
+        seen
     }
 }
 
@@ -1141,6 +1205,79 @@ mod tests {
         assert_eq!(cat.default_scopes("State").count(), 2, "both declarations are collected");
         let t = transpose(&mut b, &cat, &Request { receiver: Receiver::Class("State"), scope: Some("ranked"), terminal: Terminal::Count });
         assert!(matches!(t.verdict, Verdict::Refuse(RefuseReason::DefaultScopeFilters { .. })), "{:?}", t.verdict);
+    }
+
+    /// A default_scope declared in an included concern or a superclass
+    /// applies to the class, so a filtering one there refuses the plan too.
+    #[test]
+    fn a_filtering_default_scope_on_an_ancestor_refuses_too() {
+        for ancestor in ["Activatable", "BaseState"] {
+            let mut b = basis();
+            let mut cat = ScopeCatalog::from_class_source("State", "scope :ranked, -> { where(rank: 7) }\n");
+            cat.scopes.extend(
+                ScopeCatalog::from_class_source(ancestor, "included do\n  default_scope { where(active: true) }\nend\n").scopes,
+            );
+            cat.parents.insert("State".into(), vec![ancestor.into()]);
+            let t = transpose(&mut b, &cat, &Request { receiver: Receiver::Class("State"), scope: Some("ranked"), terminal: Terminal::Count });
+            assert!(matches!(t.verdict, Verdict::Refuse(RefuseReason::DefaultScopeFilters { .. })), "{ancestor}: {:?}", t.verdict);
+        }
+        // Without the parent link the same catalog is admitted: the link is
+        // what carries the restriction.
+        let mut b = basis();
+        let mut cat = ScopeCatalog::from_class_source("State", "scope :ranked, -> { where(rank: 7) }\n");
+        cat.scopes.extend(ScopeCatalog::from_class_source("Activatable", "included do\n  default_scope { where(active: true) }\nend\n").scopes);
+        let t = transpose(&mut b, &cat, &Request { receiver: Receiver::Class("State"), scope: Some("ranked"), terminal: Terminal::Count });
+        assert_eq!(t.verdict, Verdict::Compose);
+    }
+
+    /// `from_harvest` links a class to its included modules and superclass,
+    /// resolved through the class's nesting, so the ancestor's default_scope
+    /// is found from real Ruby sources.
+    #[test]
+    fn from_harvest_links_includes_and_superclass() {
+        let dir = std::env::temp_dir().join(format!("f000-ancestry-{}", std::process::id()));
+        let models = dir.join("app/models");
+        std::fs::create_dir_all(models.join("concerns")).unwrap();
+        std::fs::write(
+            models.join("state.rb"),
+            "class State < BaseState\n  include Activatable\n  scope :ranked, -> { where(rank: 7) }\nend\n",
+        )
+        .unwrap();
+        std::fs::write(models.join("base_state.rb"), "class BaseState < ApplicationRecord\n  default_scope { order(id: :asc) }\nend\n").unwrap();
+        std::fs::write(
+            models.join("concerns/activatable.rb"),
+            "module Activatable\n  extend ActiveSupport::Concern\n  included do\n    default_scope { where(active: true) }\n  end\nend\n",
+        )
+        .unwrap();
+        let h = rails_compiler::harvest::Harvest::collect(&dir, &["app/models".into(), "app/models/concerns".into()], "app");
+        let cat = ScopeCatalog::from_harvest(&h);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(cat.parents.get("State").map(Vec::as_slice), Some(&["Activatable".to_string(), "BaseState".to_string()][..]));
+        let mut owners: Vec<&str> = cat.default_scopes("State").map(|d| d.class.as_str()).collect();
+        owners.sort_unstable();
+        assert_eq!(owners, ["Activatable", "BaseState"]);
+    }
+
+    #[test]
+    fn an_absolute_include_skips_the_lexical_lookup() {
+        let dir = std::env::temp_dir().join(format!("f000-absolute-{}", std::process::id()));
+        let models = dir.join("app/models");
+        std::fs::create_dir_all(models.join("admin")).unwrap();
+        std::fs::write(models.join("admin/state.rb"), "module Admin\n  class State < ApplicationRecord\n    include ::Activatable\n    include Activatable\n  end\nend\n").unwrap();
+        std::fs::write(models.join("activatable.rb"), "module Activatable\n  extend ActiveSupport::Concern\nend\n").unwrap();
+        std::fs::write(
+            models.join("admin/activatable.rb"),
+            "module Admin\n  module Activatable\n    extend ActiveSupport::Concern\n    included do\n      default_scope { where(active: true) }\n    end\n  end\nend\n",
+        )
+        .unwrap();
+        let h = rails_compiler::harvest::Harvest::collect(&dir, &["app/models".into()], "app");
+        let cat = ScopeCatalog::from_harvest(&h);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(h.units.contains_key("Admin::Activatable"), "fixture must define the namespaced concern");
+        assert_eq!(
+            cat.parents.get("Admin::State").map(Vec::as_slice),
+            Some(&["Activatable".to_string(), "Admin::Activatable".to_string(), "ApplicationRecord".to_string()][..])
+        );
     }
 
     #[test]
