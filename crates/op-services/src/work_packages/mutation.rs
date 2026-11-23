@@ -1721,7 +1721,7 @@ impl PgCreateScope {
         let existing = authorize_edit(self, caller, id).await?;
         validate_update(&existing, &dto)?;
         let user_id = self.acting_user_id(caller).await?;
-        let mut row = self.update_row(id, dto).await?;
+        let row = self.update_row(id, dto).await?;
         self.write_update_journal(id, user_id, aggregation_minutes)
             .await?;
         // `after_perform` -> `update_related_work_packages` (`update_service.rb:54-81`): the totals
@@ -1736,18 +1736,23 @@ impl PgCreateScope {
             self.reschedule_after_edit(id, existing.parent_id, row.parent_id, user_id)
                 .await?;
         }
-        // `touch_journable` and the initiator's re-save may have advanced `updated_at` and
-        // `lock_version` past the UPDATE's values: answer with the committed ones.
+        // `touch_journable`, the initiator's re-save and the rescheduling (which can move an
+        // automatically scheduled work package's own dates again, e.g. a parent restored to the
+        // span of its children) may have changed the row after the UPDATE: answer with the
+        // committed record, not an intermediate state.
         let mut tx = self.tx.lock().await;
-        let (updated_at, lock_version): (chrono::DateTime<chrono::Utc>, i32) =
-            sqlx::query_as("SELECT updated_at, lock_version FROM work_packages WHERE id = $1")
-                .bind(id)
-                .fetch_one(&mut **tx)
-                .await
-                .map_err(db_failure)?;
-        row.updated_at = updated_at;
-        row.lock_version = lock_version;
-        Ok(row)
+        sqlx::query_as::<_, WorkPackageRow>(
+            "SELECT id, subject, description, project_id, type_id, status_id, \
+                    priority_id, author_id, assigned_to_id, responsible_id, \
+                    start_date, due_date, estimated_hours, done_ratio, \
+                    parent_id, version_id, category_id, lock_version, \
+                    created_at, updated_at \
+             FROM work_packages WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|e| db_failure(e).into())
     }
 
     async fn lock_work_package(&self, id: Id) -> Result<(), StoreFailure> {

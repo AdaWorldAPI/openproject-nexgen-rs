@@ -3015,6 +3015,34 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         data_dates(&verify, pj[1].data_id).await,
         (Some(day("2026-03-16")), Some(day("2026-03-24")), Some(7))
     );
+    // Editing the automatic parent P's own due date: the rescheduling runs from P and restores
+    // the span of its children, so the update must answer with the committed dates, not the ones
+    // its UPDATE wrote (Codex review on #153).
+    let returned = set_due(p13, "2026-03-27")
+        .await
+        .expect("C moves P's own due date");
+    let committed = dates(&verify, p13).await;
+    assert_eq!(
+        (
+            returned.start_date,
+            returned.due_date,
+            returned.lock_version
+        ),
+        (committed.0, committed.1, committed.4),
+        "the update answers with the committed row"
+    );
+    assert_eq!(
+        committed,
+        (
+            Some(day("2026-03-16")),
+            Some(day("2026-03-24")),
+            Some(7),
+            false,
+            3
+        ),
+        "P is restored to its children's span Mon 16 .. Tue 24 (edit + reschedule: lock 1 -> 3)"
+    );
+    t.rows += 2;
     // A manually scheduled parent does not: PM (manual) keeps Mon 16 .. Wed 18 when its child D2's
     // due date moves to Fri 20, and neither its row nor its journals change.
     let pm13 = seed_dated("resched PM", "2026-03-16", "2026-03-18", 3, true).await;
