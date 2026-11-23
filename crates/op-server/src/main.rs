@@ -563,6 +563,16 @@ mod tests {
         let (status, body) = get("/statuses/999").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert!(body.contains("not found"), "a 404 page has a body: {body}");
+        // An id the desk's integer lane cannot hold cannot name a row: 404, not 500.
+        for uri in [
+            "/statuses/-1",
+            "/types/4294967296",
+            "/priorities/9223372036854775807",
+        ] {
+            let (status, body) = get(uri).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+            assert!(body.contains("not found"), "{uri}: {body}");
+        }
     }
 
     #[tokio::test]

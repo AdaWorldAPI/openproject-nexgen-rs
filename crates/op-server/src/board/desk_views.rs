@@ -345,6 +345,18 @@ pub async fn list(view: &'static DeskView, state: Arc<AppState>) -> Response {
 
 /// GET `<route>/:id`.
 pub async fn detail(view: &'static DeskView, id: i64, state: Arc<AppState>) -> Response {
+    let not_found = || {
+        error_page(
+            StatusCode::NOT_FOUND,
+            &format!("{} not found", view.singular),
+            &format!("{} #{id} not found.", view.singular),
+        )
+    };
+    // Quack's integer lane holds ids as u32: an id outside it (negative, or
+    // above u32::MAX) cannot name a row, and the desk would refuse the read.
+    if u32::try_from(id).is_err() {
+        return not_found();
+    }
     match read(&state, view, Some(id)) {
         Ok(rows) => match render_view_detail(view, &rows) {
             Some(fragment) => Html(page_shell(
@@ -352,11 +364,7 @@ pub async fn detail(view: &'static DeskView, id: i64, state: Arc<AppState>) -> R
                 &format!("{BREADCRUMB}<main>{fragment}</main>"),
             ))
             .into_response(),
-            None => error_page(
-                StatusCode::NOT_FOUND,
-                &format!("{} not found", view.singular),
-                &format!("{} #{id} not found.", view.singular),
-            ),
+            None => not_found(),
         },
         Err(e) => {
             tracing::error!(table = view.table, error = %e, "desk read refused");
