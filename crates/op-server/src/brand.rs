@@ -140,7 +140,8 @@ impl Brand {
             (None, None) => Ok(Brand::default()),
             (None, Some(text)) => Brand::from_toml(&text),
             (Some(path), None) => {
-                let text = std::fs::read_to_string(path.trim())
+                let path = path.trim();
+                let text = std::fs::read_to_string(path)
                     .map_err(|e| BrandError::Read(format!("{path}: {e}")))?;
                 Brand::from_toml(&text)
             }
@@ -176,6 +177,12 @@ impl Brand {
                     value: value.to_string(),
                 });
             }
+        }
+        if self.name.trim().is_empty() {
+            return Err(BrandError::Value {
+                key: "name",
+                value: self.name.clone(),
+            });
         }
         if let Some(url) = &self.logo_url {
             if !https_url_ok(url) {
@@ -215,12 +222,55 @@ impl Brand {
     }
 }
 
-/// A CSS value that cannot close its declaration, block or style element:
-/// no `;`, braces, `<`, `>`, backslash or line break.
+/// A CSS value that cannot close its declaration, block or style element, and
+/// cannot load anything: no `;`, braces, `<`, `>`, backslash, `:`, `@` or line
+/// break; brackets and quotes balanced (an open `(` or string would swallow
+/// every rule after it); and the only functions are colour functions, so
+/// `url(…)`, `image-set(…)` and the like are refused.
 fn css_value_ok(v: &str) -> bool {
-    !v.trim().is_empty()
-        && v.chars()
+    if v.trim().is_empty()
+        || !v
+            .chars()
             .all(|c| c.is_ascii_alphanumeric() || " #(),.%-_+/\"'".contains(c))
+    {
+        return false;
+    }
+    let mut depth = 0usize;
+    let mut quote: Option<char> = None;
+    let mut word = String::new();
+    for c in v.chars() {
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        match c {
+            '"' | '\'' => quote = Some(c),
+            '(' => {
+                if !matches!(
+                    word.to_ascii_lowercase().as_str(),
+                    "rgb" | "rgba" | "hsl" | "hsla"
+                ) {
+                    return false;
+                }
+                depth += 1;
+            }
+            ')' => {
+                if depth == 0 {
+                    return false;
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
+        if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+            word.push(c);
+        } else {
+            word.clear();
+        }
+    }
+    depth == 0 && quote.is_none()
 }
 
 /// An `https://` address with a host that cannot leave its attribute.
@@ -366,8 +416,30 @@ mod tests {
                 "{bad:?} must be refused"
             );
         }
+        for bad in [
+            "rgba(0,0,0",
+            "rgb(0,0,0))",
+            "Arial \"x",
+            "url(//tracker.example/p.png)",
+            "url(x.png)",
+            "image-set(x)",
+            "expression(alert(1))",
+            "x:y",
+        ] {
+            let text = format!("[brand]\nbg = {bad:?}\n");
+            assert!(
+                matches!(
+                    Brand::from_toml(&text),
+                    Err(BrandError::Value { key: "bg", .. })
+                ),
+                "{bad:?} must be refused"
+            );
+        }
         for ok in [
             "#c8102e",
+            "hsl(210, 50%, 40%)",
+            "RGBA(1,2,3,.5)",
+            "\"Segoe UI\", Roboto, sans-serif",
             "rgba(255,255,255,.08)",
             "0 4px 16px rgba(0,0,0,.08)",
             "14px",
@@ -377,6 +449,14 @@ mod tests {
                 "{ok:?}"
             );
         }
+    }
+
+    #[test]
+    fn an_empty_name_is_refused() {
+        assert!(matches!(
+            Brand::from_toml("[brand]\nname = \"  \"\n"),
+            Err(BrandError::Value { key: "name", .. })
+        ));
     }
 
     #[test]

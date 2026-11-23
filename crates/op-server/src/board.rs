@@ -2163,8 +2163,8 @@ fn page_shell_with(title: &str, body_html: &str, regions: &WideFieldMask) -> Str
     margin-left: 0.4rem;
     padding: 0 0.4rem;
     border-radius: 10px;
-    background: var(--brand-muted);
-    color: var(--brand-on-accent);
+    background: var(--brand-side-bg);
+    color: var(--brand-side-fg);
     font-size: 0.72rem;
     font-weight: 700;
   }}
@@ -2251,6 +2251,56 @@ mod tests {
         );
     }
 
+    /// Colour literals in a stylesheet fragment: hex (3, 4, 6 or 8 digits),
+    /// colour functions, and common named colours used as a value.
+    fn fixed_colours(css: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let b = css.as_bytes();
+        let mut i = 0;
+        while i < b.len() {
+            if b[i] == b'#' {
+                let n = b[i + 1..]
+                    .iter()
+                    .take_while(|c| c.is_ascii_hexdigit())
+                    .count();
+                let end = i + 1 + n;
+                let boundary = b.get(end).is_none_or(|c| !c.is_ascii_alphanumeric());
+                if matches!(n, 3 | 4 | 6 | 8) && boundary {
+                    out.push(css[i..end].to_string());
+                }
+                i = end.max(i + 1);
+                continue;
+            }
+            i += 1;
+        }
+        for f in [
+            "rgba(", "rgb(", "hsla(", "hsl(", "hwb(", "lab(", "lch(", "oklab(", "oklch(", "color(",
+        ] {
+            let mut rest = css;
+            while let Some(p) = rest.find(f) {
+                let before = rest[..p].chars().last();
+                if !before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '-') {
+                    out.push(f.to_string());
+                }
+                rest = &rest[p + f.len()..];
+            }
+        }
+        for name in [
+            "white", "black", "red", "blue", "green", "gray", "grey", "silver", "navy",
+        ] {
+            for sep in [":", ": "] {
+                for end in [";", " ", "}"] {
+                    if css.contains(&format!("{sep}{name}{end}"))
+                        && !out.contains(&name.to_string())
+                    {
+                        out.push(name.to_string());
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// The page renders with the brand: its tokens are declared, and the
     /// stylesheet uses them instead of fixed colours (the progress bar's status
     /// green is the one colour that is not part of the identity).
@@ -2266,17 +2316,19 @@ mod tests {
         // declarations, which are the only places colour values may appear.
         let vars = crate::brand::current().css_vars();
         let ours = &style[style.find(&vars).expect("brand vars emitted") + vars.len()..];
-        let fixed: Vec<&str> = ours
-            .match_indices('#')
-            .map(|(i, _)| &ours[i..(i + 7).min(ours.len())])
-            .filter(|h| h.len() == 7 && h[1..].chars().all(|c| c.is_ascii_hexdigit()))
-            .filter(|h| *h != "#36b37e")
+        let fixed: Vec<String> = fixed_colours(ours)
+            .into_iter()
+            .filter(|c| c != "#36b37e")
             .collect();
         assert!(
             fixed.is_empty(),
             "fixed colours outside the brand: {fixed:?}"
         );
-        assert!(!ours.contains("rgb("), "fixed rgb colour outside the brand");
+        // The scanner itself sees every form it claims to.
+        assert_eq!(
+            fixed_colours("a{color:#fff} b{color:#ffff} c{background:rgba(0,0,0,.1)} d{color:hsl(1,2%,3%)} e{color: white;} f{color:#36b37e}"),
+            ["#fff", "#ffff", "#36b37e", "rgba(", "hsl(", "white"]
+        );
     }
 
     /// At phone width the side menu is hidden and the center is the only
