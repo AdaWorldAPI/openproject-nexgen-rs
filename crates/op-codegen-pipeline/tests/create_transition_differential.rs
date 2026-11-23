@@ -739,7 +739,8 @@ fn layer2(
             None => {
                 out.both += 1;
                 if let Some(r) = entry_rank.into_iter().min() {
-                    let unread = ctx.order_unknown_scopes.contains(&regs[r].origin);
+                    let unread = ctx.order_unknown_scopes.contains(&regs[r].origin)
+                        || expanded.iter().any(|f| cb::hidden_could_register(ctx, f));
                     ranks
                         .entry((model.clone(), phase.clone()))
                         .or_default()
@@ -757,7 +758,7 @@ fn layer2(
     for (model, regs) in &registered {
         let empty = BTreeSet::new();
         let u = used.get(model).unwrap_or(&empty);
-        let chains = fired_chains.get(model).cloned().unwrap_or_default();
+        let chains = cb::exercised_chains(&fired_chains.get(model).cloned().unwrap_or_default());
         for (i, d) in regs.iter().enumerate() {
             if on_create_path(d).is_err() || u.contains(&i) {
                 continue;
