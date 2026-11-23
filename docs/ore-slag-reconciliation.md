@@ -318,7 +318,7 @@ Separate denominators. Before means #138 as it was; after means this change.
 | Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | AssociationNotInCheckout 2, GeneratedUndecided 1 |
 | Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 29 definite, 0 UNKNOWN, 0 differ (ruff ce96aae `hidden_complete`; 16 / 13 between the #140 review fix and this change) |
 | Callback bodies executed | 0 | 0 |
-| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 12/12, 236 rows asserted; create transactional, creation journal, default priority, creator as watcher, ancestor totals on create and on update (derived hours and done ratio, excluded status, caused journals, former and new chains after a move, rollback, concurrent create caught by lock_version), switch to automatic mode and `ignore_non_working_days` of the ancestors; update transactional with its journal (no-op, aggregated, new version, rollback); cited by the reconciliation, run separately |
+| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 13/13, 270 rows asserted; create transactional, creation journal, default priority, creator as watcher, ancestor totals on create and on update (derived hours and done ratio, excluded status, caused journals, former and new chains after a move, rollback, concurrent create caught by lock_version), switch to automatic mode and `ignore_non_working_days` of the ancestors, rescheduling (successors by working days with lag, calendar days, a non-working day, parent dates from children, the former parent after a move, rollback, a stale rescheduled row caught by lock_version); update transactional with its journal (no-op, aggregated, new version, rollback); cited by the reconciliation, run separately |
 
 The P3b gaps are reported, not hidden:
 
@@ -423,8 +423,8 @@ The P3b gaps are reported, not hidden:
   new journal each, a subject-only edit writing no ancestor row and journal (with a
   hand-corrupted derived value that a recompute would repair), the done-ratio-only edit, and
   a failure after the ancestor writes leaving everything unchanged (with a committing
-  control). Not ported: `simple_average` and status-based modes, `update_related`
-  (`reschedule_related`, `update_descendants` on a project change), notifications.
+  control). Not ported: `simple_average` and status-based modes, `update_descendants` on a
+  project change, notifications (`reschedule_related` is the bullet below).
 - Closed: the two remaining `UpdateAncestorsService` derivations, on create and on update
   (update_ancestors_service.rb:96-121), both selected by a `parent` / `parent_id` change and run
   per candidate in Ruby's order, on the totals' save, journal and `lock_version` path (an
@@ -460,13 +460,66 @@ The P3b gaps are reported, not hidden:
   an automatic parent with another child makes it true, and under a manual parent with two
   children changes nothing; moving the true child away resets the former parent that keeps a
   false child, and leaves one with no child true. Not ported: `simple_average` and status-based
-  modes, `reschedule_related`, notifications.
+  modes, notifications (`reschedule_related` is the bullet below).
 - Not ported, schema-absent: `apply_patterns` (create_service.rb:74,
   `app/services/types/apply_patterns.rb`) is a no-op over this schema. It resolves
   `model.type_variant&.enabled_patterns` (`WorkPackage#type_variant`, work_package.rb:289-292),
   and the `patterns text` column lives in `type_variants` (structure.sql:8072), a table this schema
   does not have (there is no `types.patterns` either): no type variant means no pattern to apply.
-- Open: the rest of Ruby's `after_create` (reschedule) is not ported.
+- Closed (core, with a Not-ported list): `reschedule_related`, on create (`after_create`, after the
+  ancestors and before the watcher, create_service.rb:79, :90-110) and on update
+  (`update_related`, after the ancestors, update_service.rb:62-65, :149-170), over
+  `SetScheduleService` (set_schedule_service.rb:30-203). The pure part is
+  `work_packages/scheduling.rs`, the loading and saving is `mutation/reschedule.rs`.
+  - Which work packages are looked at: `WorkPackage.for_scheduling`
+    (work_packages/scopes/for_scheduling.rb:119-262), ported as a walk over the moved ones:
+    successors by `follows` relations, children and ancestors (the ancestors also from an origin
+    that is itself manual), stopping at a manually scheduled work package unless it is the
+    origin, and a parent counts as manual only if all its descendants are. Then the descendants
+    and predecessors that influence the dates (`preload_scheduling_data`,
+    schedule_dependency.rb:160-190). The hierarchy is read from `parent_id`: this schema has no
+    `work_package_hierarchies`.
+  - The order and the dates: `DependencyGraph#schedule_order` (dependency_graph.rb:34-51), then
+    per work package, with the state the earlier ones just produced: switch to automatic if it is
+    forced (create of an automatic work package), then by its descendants (`start` = earliest and
+    `due` = latest of all their dates, a parent whose children have no dates loses its own), else by
+    its predecessors (soonest start from `due_date || start_date` plus the lag in working days,
+    moved to the next working day of the successor; the due date follows the duration and is at
+    least the start; no due date and no duration leaves it nil), else, unless forced automatic, it
+    becomes manual (set_schedule_service.rb:108-116). Moving a predecessor earlier moves the
+    successor earlier: the code assigns the soonest start whichever way, whatever the comment at
+    :143-146 says.
+  - Working days: `Setting.working_days` is the constant Monday to Friday (definition.rb:1548-1553),
+    `non_working_days` is migration 0005 (structure.sql:5299-5305, :15401), `ignore_non_working_days`
+    on the work package selects calendar days (`AllDays`, shared/days.rb); the lag is always counted
+    in working days (all_days.rb:46-49).
+  - Saving: each altered work package once (Ruby consolidates per work package,
+    update_service.rb:172-185; here there is one source, so one save), `UPDATE ... WHERE
+    lock_version = <as loaded>` (a mismatch is a conflict that rolls the create or update back),
+    `lock_version` and `updated_at`, one journal through the same aggregation rules. The cause is
+    `Journal::CausedByWorkPackageRelatedChange` with the edited work package
+    (`{"type": "work_package_related_changed_times", "work_package_id": ...}`,
+    set_schedule_service.rb:184-203; the predecessor and child causes are commented out in Ruby).
+    It is assigned only when a date or the duration changed, and a create has no initiator, so a
+    create writes no cause.
+  - Two existing expectations changed because Ruby now acts: a former parent that is automatic,
+    has lost its last child and has no predecessor becomes manual (step 11 D for M1: lock 3 and a
+    second journal with an empty cause, which cannot aggregate into the child-values one; step 12 I
+    for F2: now manual, lock 2).
+  EXECUTED_DB step 13 asserts, by hand (comments give the dates): a successor with lag 2 moved
+  from Mon 9 .. Tue 10 to Wed 11 .. Thu 12 by the predecessor's due date moving to Fri 6, with the
+  related-change journal (and back, aggregated); a manual successor, a manual parent and the work
+  packages behind a manual one untouched; an edited manual parent keeping its own dates;
+  `ignore_non_working_days` giving Sat 7 .. Mon 9; a non-working day moving the result to Thu 12 ..
+  Fri 13; an automatic parent spanning its children (Mon 16 .. Tue 24, 7 working days); a create
+  under an automatic parent (aggregated, no cause); a move recomputing the former parent; rollback
+  with a committing control; a second transaction's stale save of a rescheduled row a conflict.
+  Not ported: `SetAttributesService`'s derivation of `duration` from the dates (a Rust create or
+  edit never writes it, so such a work package has a NULL duration until a rescheduling sets one
+  and keeps its due date when it is moved; rows that carry a duration are handled as Ruby does),
+  `update_descendants` on a project change (update_service.rb:67-82), non-member and module checks
+  of `WorkPackage.visible` for the former parent, `parent_id_changed?` of schedule_following
+  (:84-90, never true after a save), notifications, `apply_patterns`.
 
 A committed row in that journey is evidence about the Rust paths, not Rails
 persistence parity.
