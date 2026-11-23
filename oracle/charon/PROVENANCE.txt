@@ -1,6 +1,6 @@
 charon: AdaWorldAPI/charon c69e231ea8d71566d4b728e90c12efc432d11b8c
 toolchain: rustc 1.100.0-nightly (923c95cdf 2026-09-16)
 ruff_charon: AdaWorldAPI/ruff 52eb6c856824ccc7d5bc044d0cdb145a223a7e4e
-nexgen: 915754a9639424b8a044fee6c3ab405bc6dd3c1f
+nexgen: 480f0f1a594c27d7583b4691aab39134321f4592
 crates: op-contracts op-services
 extraction-only patch: sqlx-postgres 0.7.4, 5x .recv_expect::<()>() on discarded results (executor.rs ParseComplete; copy.rs 3x ReadyForQuery, 1x CommandComplete) for nightly never-type fallback; applied via cargo --config patch, nexgen unchanged

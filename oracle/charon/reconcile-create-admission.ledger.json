@@ -27,7 +27,7 @@
       "runtime_evidence": "none (no runtime gate attached)",
       "runtime_verdict": "NotExecuted",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 9294..9328 (line 263): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::user_allowed_to_add"
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 11500..11534 (line 318): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::user_allowed_to_add"
       },
       "structural_verdict": "NotComparable (ruby: DSL registration of a validator; rust: no registration step; admit_create calls the function)"
     },
@@ -54,7 +54,7 @@
       "runtime_evidence": "none (no runtime gate attached)",
       "runtime_verdict": "NotExecuted",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 9294..9328 (line 263): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::user_allowed_to_add"
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 11500..11534 (line 318): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::user_allowed_to_add"
       },
       "structural_verdict": "Agreement"
     },
@@ -81,7 +81,7 @@
       "runtime_evidence": "CITED, not run here: tests/create_transition_differential.rs asserts CreateWorkPackageService::call verdicts, error codes and writable? against the frozen traces with zero mismatches",
       "runtime_verdict": "Unverified",
       "rust": {
-        "span": "crates/op-services/src/work_packages/create.rs bytes 3195..3239 (line 90): CALLS_RESOLVED op_services::work_packages::create::CreateWorkPackageService::call -> op_services::work_packages::create::CreateWorkPackageService::admit"
+        "span": "crates/op-services/src/work_packages/create.rs bytes 4546..4591 (line 123): CALLS_RESOLVED op_services::work_packages::create::CreateWorkPackageService::call -> op_services::work_packages::create::CreateWorkPackageService::admit"
       },
       "structural_verdict": "Agreement"
     },
@@ -150,7 +150,7 @@
                 "root": "Target"
               },
               {
-                "fnv64": "bc4d0d8a6a10e947",
+                "fnv64": "b9d9f87baa83ffa8",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
@@ -286,7 +286,7 @@
       "residual": {
         "attempts": [],
         "evidence": [],
-        "locator": "ruby -; rust crates/op-contracts/src/work_packages/admission.rs bytes 9537..9576 (line 271)",
+        "locator": "ruby -; rust crates/op-contracts/src/work_packages/admission.rs bytes 12061..12100 (line 334)",
         "owner_stage": "ContractHarvest",
         "proposed_remedy": {
           "claim_change": "Slag(RubySideNotHarvested) -> Agreement if the lowered body is 'condition AND permission' and admit_create -> is_writable stays CALLS_RESOLVED",
@@ -310,12 +310,12 @@
       "runtime_evidence": "none (no runtime gate attached)",
       "runtime_verdict": "NotExecuted",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 9537..9576 (line 271): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::is_writable"
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 12061..12100 (line 334): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::is_writable"
       },
       "structural_verdict": "Slag(RubySideNotHarvested)"
     },
     {
-      "coverage": "ruby: not harvested; rust: 0/1 edges ()",
+      "coverage": "ruby: not harvested; rust: 1/1 edges (CALLS_RESOLVED COMPILER)",
       "identity": {
         "application": "openproject",
         "effect": "validates:validate_has_predecessors_or_children",
@@ -330,7 +330,7 @@
       "residual": {
         "attempts": [],
         "evidence": [],
-        "locator": "ruby -; rust crates/op-contracts/src/work_packages/admission.rs bytes 8956..10167 (lines 254-292)",
+        "locator": "ruby -; rust crates/op-contracts/src/work_packages/admission.rs bytes 11669..11713 (line 324)",
         "owner_stage": "ContractHarvest",
         "proposed_remedy": {
           "claim_change": "Slag(RubySideNotHarvested) -> RubyOnly: Charon inspected admit_create (defined, structured, current) and it has no edge to such a validator; NOT_EVALUATED_VALIDATORS does not name it either",
@@ -340,7 +340,7 @@
           "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068",
           "supplier": "ruff contract arm: harvest validator calls inside attribute blocks (base_contract.rb:89 registers the block with validate(attribute, &block))",
           "supplier_exists": false,
-          "validating_evidence": "the harvested validator with its condition; the runtime axis already records ExecutedDisagreement on leaf_automatic"
+          "validating_evidence": "the harvested validator with its condition; the runtime axis records ExecutedAgreement on leaf_automatic: admit_create now evaluates the validator"
         },
         "reason": "RubySideNotHarvested",
         "regression_gate": null,
@@ -351,10 +351,10 @@
         "state": "not_harvested",
         "why": "the scan reads `attribute :schedule_manually do` as a declaration and skips its block; ruff lowers `writable:` only"
       },
-      "runtime_evidence": "EXECUTED 1 compared, 1 mismatches (ore_slag schedule_manually differential: op_services CreateWorkPackageService::admit vs contract trace errors[schedule_manually] = cannot_be_automatically_scheduled; 6 CreateContract records, Ruby fires on [\"leaf_automatic\"], Rust on []; separate from the 350)",
-      "runtime_verdict": "ExecutedDisagreement",
+      "runtime_evidence": "EXECUTED 1 compared, 0 mismatches (ore_slag schedule_manually differential: op_services CreateWorkPackageService::admit vs contract trace errors[schedule_manually] = cannot_be_automatically_scheduled; 6 CreateContract records, Ruby fires on [\"leaf_automatic\"], Rust on [\"leaf_automatic\"]; separate from the 350)",
+      "runtime_verdict": "ExecutedAgreement",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 8956..10167 (lines 254-292): DEFINES op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::admit_create"
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 11669..11713 (line 324): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::validate_has_predecessors_or_children"
       },
       "structural_verdict": "Slag(RubySideNotHarvested)"
     },
@@ -381,7 +381,7 @@
           "missing_fact": "a structured body for op_services::work_packages::mutation::create",
           "negative_control": "remove the call from a structured body: the row must become RubyOnly, never stay Agreement",
           "source_location": "crates/op-services/src/work_packages/mutation.rs bytes 16189..20209 (lines 402-515)",
-          "source_revision": "nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "source_revision": "nexgen 480f0f1a594c27d7583b4691aab39134321f4592 (store files hash-checked against the checkout)",
           "supplier": "Charon structuring of async bodies, or a synchronous seam the call graph can see",
           "supplier_exists": false,
           "validating_evidence": "the CALLS_RESOLVED edge; the runtime axis stays the EXECUTED_DB journey (cited here; needs PostgreSQL)"
@@ -427,7 +427,7 @@
           "missing_fact": "a structured body for op_services::work_packages::mutation::create",
           "negative_control": "remove the call from a structured body: the row must become RubyOnly, never stay Agreement",
           "source_location": "crates/op-services/src/work_packages/mutation.rs bytes 16189..20209 (lines 402-515)",
-          "source_revision": "nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "source_revision": "nexgen 480f0f1a594c27d7583b4691aab39134321f4592 (store files hash-checked against the checkout)",
           "supplier": "Charon structuring of async bodies, or a synchronous seam the call graph can see",
           "supplier_exists": false,
           "validating_evidence": "the CALLS_RESOLVED edge; the runtime axis stays the EXECUTED_DB journey (cited here; needs PostgreSQL)"
@@ -473,7 +473,7 @@
           "missing_fact": "op-api in the Charon store",
           "negative_control": "drop op-api again: the row returns to RustSideNotExtracted, never Disagreement",
           "source_location": "crates/op-api/src/handlers/work_packages.rs:175",
-          "source_revision": "nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "source_revision": "nexgen 480f0f1a594c27d7583b4691aab39134321f4592 (store files hash-checked against the checkout)",
           "supplier": "run Charon on op-api and add its four artifacts (not run here: no changed source requires it)",
           "supplier_exists": true,
           "validating_evidence": "the CALLS_RESOLVED edge create_work_package_core -> mutation::create, plus a harvested endpoint"
@@ -559,7 +559,7 @@
                 "root": "Target"
               },
               {
-                "fnv64": "bc4d0d8a6a10e947",
+                "fnv64": "b9d9f87baa83ffa8",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
@@ -575,7 +575,7 @@
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
           "source_location": "app/contracts/work_packages/create_contract.rb:37 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 480f0f1a594c27d7583b4691aab39134321f4592 (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -663,7 +663,7 @@
                 "root": "Target"
               },
               {
-                "fnv64": "bc4d0d8a6a10e947",
+                "fnv64": "b9d9f87baa83ffa8",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
@@ -679,7 +679,7 @@
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
           "source_location": "app/contracts/work_packages/base_contract.rb:77 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 480f0f1a594c27d7583b4691aab39134321f4592 (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -767,7 +767,7 @@
                 "root": "Target"
               },
               {
-                "fnv64": "bc4d0d8a6a10e947",
+                "fnv64": "b9d9f87baa83ffa8",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
@@ -783,7 +783,7 @@
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
           "source_location": "app/contracts/work_packages/base_contract.rb:83 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 480f0f1a594c27d7583b4691aab39134321f4592 (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -871,7 +871,7 @@
                 "root": "Target"
               },
               {
-                "fnv64": "bc4d0d8a6a10e947",
+                "fnv64": "b9d9f87baa83ffa8",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
@@ -887,7 +887,7 @@
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
           "source_location": "app/contracts/work_packages/base_contract.rb:91 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 480f0f1a594c27d7583b4691aab39134321f4592 (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -975,7 +975,7 @@
                 "root": "Target"
               },
               {
-                "fnv64": "bc4d0d8a6a10e947",
+                "fnv64": "b9d9f87baa83ffa8",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
@@ -991,7 +991,7 @@
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
           "source_location": "app/contracts/work_packages/base_contract.rb:67 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 480f0f1a594c27d7583b4691aab39134321f4592 (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -1079,7 +1079,7 @@
                 "root": "Target"
               },
               {
-                "fnv64": "bc4d0d8a6a10e947",
+                "fnv64": "b9d9f87baa83ffa8",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
@@ -1095,7 +1095,7 @@
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
           "source_location": "app/contracts/work_packages/base_contract.rb:132 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 480f0f1a594c27d7583b4691aab39134321f4592 (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -1183,7 +1183,7 @@
                 "root": "Target"
               },
               {
-                "fnv64": "bc4d0d8a6a10e947",
+                "fnv64": "b9d9f87baa83ffa8",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
@@ -1199,7 +1199,7 @@
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
           "source_location": "app/contracts/work_packages/base_contract.rb:120 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 480f0f1a594c27d7583b4691aab39134321f4592 (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -1287,7 +1287,7 @@
                 "root": "Target"
               },
               {
-                "fnv64": "bc4d0d8a6a10e947",
+                "fnv64": "b9d9f87baa83ffa8",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
@@ -1303,7 +1303,7 @@
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
           "source_location": "app/contracts/work_packages/base_contract.rb:125 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 480f0f1a594c27d7583b4691aab39134321f4592 (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -1391,7 +1391,7 @@
                 "root": "Target"
               },
               {
-                "fnv64": "bc4d0d8a6a10e947",
+                "fnv64": "b9d9f87baa83ffa8",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
@@ -1407,7 +1407,7 @@
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
           "source_location": "app/contracts/work_packages/base_contract.rb:39 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 480f0f1a594c27d7583b4691aab39134321f4592 (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -1437,7 +1437,7 @@
     "charon_extractor": "AdaWorldAPI/ruff 52eb6c856824ccc7d5bc044d0cdb145a223a7e4e",
     "source_app": "openproject 2725194454c895dfab6ff2685d9688b0cba53068",
     "source_extractor": "ruff b3bdfb19c26ccde9c354d22597b4156d24542fc4",
-    "target": "nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f"
+    "target": "nexgen 480f0f1a594c27d7583b4691aab39134321f4592"
   },
   "scorecard": {
     "claims": 21,
@@ -1464,13 +1464,12 @@
     "ruby_facts_from_parser": 9,
     "ruby_facts_inspected": 18,
     "runtime": {
-      "ExecutedAgreement": 10,
-      "ExecutedDisagreement": 1,
+      "ExecutedAgreement": 11,
       "NotExecuted": 7,
       "Unverified": 3
     },
     "runtime_items_compared_overlapping": 55,
-    "runtime_items_mismatched": 1,
+    "runtime_items_mismatched": 0,
     "rust_counterparts_inspectable": 18,
     "structural": {
       "Agreement": 4,
