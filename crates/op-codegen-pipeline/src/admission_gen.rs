@@ -345,9 +345,14 @@ mod tests {
 
     /// A synthetic contract chain: `C` declares one readable and one unreadable
     /// permission, `D < C` adds a default.
-    fn synthetic() -> Vec<ContractPermissions> {
-        let root =
-            std::env::temp_dir().join(format!("op_admission_gen_perms_{}", std::process::id()));
+    ///
+    /// `test` names the directory: tests run in parallel threads of one process,
+    /// so a shared directory would be deleted under another test's extraction.
+    fn synthetic(test: &str) -> Vec<ContractPermissions> {
+        let root = std::env::temp_dir().join(format!(
+            "op_admission_gen_perms_{}_{test}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("temp dir");
         std::fs::write(
@@ -366,7 +371,7 @@ mod tests {
 
     #[test]
     fn each_lookup_outcome_maps_to_its_own_fact() {
-        let all = synthetic();
+        let all = synthetic("each_lookup");
         let (c, d) = (class(&all, "C"), class(&all, "D"));
         let pr = vec!["p".to_string(), "r".to_string()];
         // Explicit.
@@ -386,7 +391,7 @@ mod tests {
 
     #[test]
     fn an_unreadable_permission_is_unresolved_never_no_restriction() {
-        let all = synthetic();
+        let all = synthetic("unreadable");
         let fact = permission_fact(class(&all, "C"), "a");
         let PermissionFact::Unresolved(reason) = &fact else {
             panic!("expected Unresolved, got {fact:?}");
