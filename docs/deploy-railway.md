@@ -1,5 +1,12 @@
 # Deploying to Railway
 
+> **To deploy the current server, use the `sqlx` branch.** It freezes the server with
+> its SQLx/PostgreSQL storage as it was at `20e8d95`, with its own `Dockerfile.sqlx` and
+> a copy of this guide. In Railway, set the service's **Settings → Source** branch to
+> `sqlx`. `main` is moving to the Rails polyfill + Quack in lance-graph, where
+> SQLx/PostgreSQL is the oracle only; the steps below describe the SQLx deploy and are
+> replaced when that migration lands.
+
 The repository root holds everything Railway needs:
 
 - `Dockerfile`: builds the `openproject-server` binary (crate `op-server`) in a Rust
