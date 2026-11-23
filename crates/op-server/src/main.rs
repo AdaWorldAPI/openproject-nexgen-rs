@@ -497,12 +497,22 @@ mod tests {
         // missing or wrong must not go live, while /health (the container's liveness
         // probe) keeps answering.
         let ready = test_app()
-            .oneshot(Request::builder().uri("/health/ready").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health/ready")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(ready.status(), StatusCode::SERVICE_UNAVAILABLE);
         let live = test_app()
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(live.status(), StatusCode::OK);
