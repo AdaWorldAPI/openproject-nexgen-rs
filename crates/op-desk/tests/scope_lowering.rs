@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use rails_compiler::harvest::Harvest;
 use rails_compiler::semantic::Assembler;
-use scopes::{lower, Lowered, ModelInput};
+use scopes::{emit, lower, Lowered, ModelInput};
 
 /// Writes `files` (path under app/models → Ruby) into a fresh directory and
 /// lowers the default scopes of `model` on `table` with `columns`.
@@ -107,6 +107,20 @@ fn a_superclass_scope_folds_before_the_subclass_scope() {
     assert_eq!(
         l.filters,
         [("state".to_string(), true, "Lit::Int(5)".to_string())]
+    );
+    assert_eq!((l.model.as_str(), l.table.as_str()), ("Thing", "things"));
+    // The emitted Rust carries the fold order and the negated filter.
+    let rust = emit(std::slice::from_ref(&l), "");
+    let a = rust
+        .find(r#"Order { col: "a", dir: Dir::Asc }"#)
+        .expect("a");
+    let b = rust
+        .find(r#"Order { col: "b", dir: Dir::Desc }"#)
+        .expect("b");
+    assert!(a < b, "{rust}");
+    assert!(
+        rust.contains(r#"Filter { col: "state", op: Op::Ne, lit: Lit::Int(5) }"#),
+        "{rust}"
     );
 }
 
