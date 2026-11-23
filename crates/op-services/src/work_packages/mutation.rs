@@ -624,6 +624,9 @@ pub async fn create_in<S: CreationStore>(
     Ok(store.insert_wp(dto).await?)
 }
 
+mod reschedule;
+pub use reschedule::scheduling_changes;
+
 // ── ancestor totals (pure part) ──────────────────────────────────────
 
 /// `Journal::CausedByWorkPackageChildValuesChange.new(work_package).to_hash`
@@ -1061,8 +1064,9 @@ impl PgMutationStore {
     /// transaction (OpenProject runs `after_create`: ancestors, rescheduling, watcher, and the
     /// journal in its save callbacks, inside `in_user_context`). The journal is written here
     /// ([`PgCreateScope::write_creation_journal`]), then the ancestors' totals
-    /// ([`PgCreateScope::update_ancestors_of_created`]), then the creator as watcher
-    /// ([`PgCreateScope::add_creator_as_watcher`]); `apply_patterns` and rescheduling are not
+    /// ([`PgCreateScope::update_ancestors_of_created`]), then the rescheduling
+    /// ([`PgCreateScope::reschedule_after_create`]), then the creator as watcher
+    /// ([`PgCreateScope::add_creator_as_watcher`]); `apply_patterns` is not
     /// ported. `None` is the production call. `post_insert` exists so the
     /// failure-after-the-journal case can be exercised through the real transaction code.
     pub async fn create_then(
@@ -1091,6 +1095,13 @@ impl PgMutationStore {
                 {
                     out = Err(e.into());
                 }
+            }
+        }
+        // `after_create`'s `reschedule_related` (create_service.rb:79, :90-110), after the
+        // ancestors (a parent may just have switched to automatic mode) and before the watcher.
+        if let Ok(row) = &out {
+            if let Err(e) = scope.reschedule_after_create(row.id, row.author_id).await {
+                out = Err(e.into());
             }
         }
         // `after_create`'s last step, `set_user_as_watcher` (create_service.rb:82, :118-122). The
@@ -1294,9 +1305,10 @@ impl PgCreateScope {
     /// `derive_ignore_non_working_days` run when the parent changed, the latter for the former
     /// chain as well.
     ///
-    /// Not ported: `simple_average` and status-based modes, `update_related`
-    /// (`reschedule_related`, `update_descendants` on a project change, :62-81), the
-    /// apply-patterns subject generation and notifications.
+    /// Not ported: `simple_average` and status-based modes, `update_descendants` on a project
+    /// change (`update_service.rb:67-82`), the apply-patterns subject generation and
+    /// notifications. The rescheduling of `update_related` is
+    /// [`PgCreateScope::reschedule_after_edit`], run by `update_in` after this.
     async fn update_totals_after_edit(
         &self,
         work_package_id: Id,
@@ -1715,6 +1727,12 @@ impl PgCreateScope {
         // of the edited work package and of its current and former ancestors, after the journal.
         if let Some(plan) = DerivationPlan::for_changes(&derivation_changes(&existing, &row)) {
             self.update_totals_after_edit(id, existing.parent_id, row.parent_id, user_id, plan)
+                .await?;
+        }
+        // `update_related` (`update_service.rb:62-65`), after the ancestors: the rescheduling of
+        // what follows the edited work package, its parent and its former parent.
+        if scheduling_changes(&existing, &row) {
+            self.reschedule_after_edit(id, existing.parent_id, row.parent_id, user_id)
                 .await?;
         }
         // `touch_journable` and the initiator's re-save may have advanced `updated_at` and
