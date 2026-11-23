@@ -130,7 +130,7 @@ async fn executed_db_work_package_journey() {
 
     match outcome {
         Ok(tally) => eprintln!(
-            "EXECUTED_DB: journey steps {}/7, rows asserted {}, transactional create: NO (gap, step 7)",
+            "EXECUTED_DB: journey steps {}/7, rows asserted {}, transactional create: YES (step 7)",
             tally.steps, tally.rows
         ),
         Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
@@ -514,11 +514,16 @@ async fn journey(db_url: String) -> Tally {
     t.steps += 1;
 
     // ── 7. transactionality of the create ────────────────────────────
-    // The boundary exposes no transaction: `create` reads its facts and then issues one INSERT on
-    // the pool, in autocommit. To observe what a failure after the insert would leave, the store
-    // seam is wrapped so that a statement fails right after the real insert (the place a journal
-    // write would go). The insert is already committed by then, and the row stays.
-    let probe = FailAfterInsert(PgMutationStore { pool: pool.clone() });
+    // `create` runs authorization reads, defaults and the INSERT on one transaction
+    // (`PgMutationStore::create_then`), as OpenProject's `in_user_context` does. To
+    // observe a failure after the insert (the place a journal write would go), the unit of work
+    // runs a failing statement on the same transaction right after the real insert.
+    // The insert must roll back with it: no row survives. (Two-sided: the control below inserts
+    // through the same wrapper without the failure and the row is committed.)
+    let probe = FailAfterInsert {
+        fail: true,
+        pool: pool.clone(),
+    };
     let mut p = WorkPackageParams::new().with_subject("transaction probe");
     p.project_id = Some(TARGET_PROJECT);
     let r = mutation::create(&probe, &caller_a, p).await;
@@ -528,17 +533,32 @@ async fn journey(db_url: String) -> Tally {
         "SELECT count(*) FROM work_packages WHERE subject = 'transaction probe'",
     )
     .await;
-    // GAP, pinned: the row survives the failure. A transactional create makes this 0; when it
-    // lands, flip this assertion deliberately.
     assert_eq!(
-        survivors, 1,
-        "the create is not transactional: a post-insert failure leaves the row"
+        survivors, 0,
+        "the create is transactional: a post-insert failure must leave no row"
     );
+    // Control: the same wrapper without the injected failure commits, so the 0 above is the
+    // rollback and not a create that never inserts.
+    let control = FailAfterInsert {
+        fail: false,
+        pool: pool.clone(),
+    };
+    let mut p = WorkPackageParams::new().with_subject("transaction control");
+    p.project_id = Some(TARGET_PROJECT);
+    mutation::create(&control, &caller_a, p)
+        .await
+        .expect("the control create succeeds");
+    let committed = count(
+        &verify,
+        "SELECT count(*) FROM work_packages WHERE subject = 'transaction control'",
+    )
+    .await;
+    assert_eq!(committed, 1, "the control create commits its row");
     eprintln!(
-        "EXECUTED_DB step 7: GAP: create is not wrapped in a transaction; \
-         a failure after the INSERT left {survivors} row committed"
+        "EXECUTED_DB step 7: create is one transaction; a failure after the INSERT left \
+         {survivors} rows (control committed {committed})"
     );
-    t.row();
+    t.rows += 2;
     t.steps += 1;
 
     verify.close().await;
@@ -546,56 +566,101 @@ async fn journey(db_url: String) -> Tally {
     t
 }
 
-/// [`PgMutationStore`] with one change: after the real insert has committed, the next statement
-/// fails.
-struct FailAfterInsert(PgMutationStore);
+/// [`PgMutationStore`] whose unit of work, when `fail` is set, runs a failing statement on the
+/// create's own transaction right after the real insert.
+struct FailAfterInsert {
+    fail: bool,
+    pool: PgPool,
+}
 
 impl MutationStore for FailAfterInsert {
     async fn find_wp(
         &self,
         id: i64,
     ) -> Result<Option<op_db::work_packages::WorkPackageRow>, StoreFailure> {
-        self.0.find_wp(id).await
+        PgMutationStore {
+            pool: self.pool.clone(),
+        }
+        .find_wp(id)
+        .await
     }
     async fn project_active(&self, project_id: i64) -> Result<bool, StoreFailure> {
-        self.0.project_active(project_id).await
+        PgMutationStore {
+            pool: self.pool.clone(),
+        }
+        .project_active(project_id)
+        .await
     }
     async fn principal(&self, caller: &Caller, project_id: i64) -> Result<Principal, StoreFailure> {
-        self.0.principal(caller, project_id).await
+        PgMutationStore {
+            pool: self.pool.clone(),
+        }
+        .principal(caller, project_id)
+        .await
     }
     async fn update_wp(
         &self,
         id: i64,
         dto: op_db::UpdateWorkPackageDto,
     ) -> Result<op_db::work_packages::WorkPackageRow, StoreFailure> {
-        self.0.update_wp(id, dto).await
+        PgMutationStore {
+            pool: self.pool.clone(),
+        }
+        .update_wp(id, dto)
+        .await
     }
 }
 
 impl CreationStore for FailAfterInsert {
     async fn author_id(&self, caller: &Caller) -> Result<Option<i64>, StoreFailure> {
-        self.0.author_id(caller).await
+        PgMutationStore {
+            pool: self.pool.clone(),
+        }
+        .author_id(caller)
+        .await
     }
     async fn first_enabled_type(&self, project_id: i64) -> Result<Option<i64>, StoreFailure> {
-        self.0.first_enabled_type(project_id).await
+        PgMutationStore {
+            pool: self.pool.clone(),
+        }
+        .first_enabled_type(project_id)
+        .await
     }
     async fn default_status(&self) -> Result<Option<i64>, StoreFailure> {
-        self.0.default_status().await
+        PgMutationStore {
+            pool: self.pool.clone(),
+        }
+        .default_status()
+        .await
     }
     async fn status_is_closed(&self, status_id: i64) -> Result<Option<bool>, StoreFailure> {
-        self.0.status_is_closed(status_id).await
+        PgMutationStore {
+            pool: self.pool.clone(),
+        }
+        .status_is_closed(status_id)
+        .await
     }
     async fn insert_wp(
         &self,
         dto: op_db::CreateWorkPackageDto,
     ) -> Result<op_db::work_packages::WorkPackageRow, StoreFailure> {
-        self.0.insert_wp(dto).await?;
-        match sqlx::query("SELECT 1 / 0").execute(&self.0.pool).await {
-            Err(e) => Err(StoreFailure::Other(e.to_string())),
-            Ok(_) => Err(StoreFailure::Other(
-                "the injected failure did not fail".into(),
-            )),
+        PgMutationStore {
+            pool: self.pool.clone(),
         }
+        .insert_wp(dto)
+        .await
+    }
+    async fn create_unit_of_work(
+        &self,
+        caller: &Caller,
+        params: WorkPackageParams,
+    ) -> Result<op_db::work_packages::WorkPackageRow, MutationError> {
+        // The production transaction, with a failing statement after the insert when `fail`.
+        PgMutationStore {
+            pool: self.pool.clone(),
+        }
+        .create_then(caller, params, self.fail.then_some("SELECT 1 / 0"))
+        .await
     }
 }
 

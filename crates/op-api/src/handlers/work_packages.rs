@@ -502,6 +502,13 @@ mod tests {
             self.inserts.lock().unwrap().push(dto);
             Ok(r)
         }
+        async fn create_unit_of_work(
+            &self,
+            caller: &Caller,
+            params: WorkPackageParams,
+        ) -> Result<WorkPackageRow, MutationError> {
+            mutation::create_in(self, caller, params).await
+        }
     }
 
     fn alice() -> Caller {
