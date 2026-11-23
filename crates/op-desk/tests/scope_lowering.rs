@@ -4,13 +4,14 @@
 //! see a lowering error; these cases pin the lowering itself, including the
 //! shapes no OpenProject slice model has yet.
 
-mod gen;
+#[path = "gen/scopes.rs"]
+mod scopes;
 
 use std::path::{Path, PathBuf};
 
-use gen::scopes::{lower, Lowered, ModelInput};
 use rails_compiler::harvest::Harvest;
 use rails_compiler::semantic::Assembler;
+use scopes::{lower, Lowered, ModelInput};
 
 /// Writes `files` (path under app/models → Ruby) into a fresh directory and
 /// lowers the default scopes of `model` on `table` with `columns`.
