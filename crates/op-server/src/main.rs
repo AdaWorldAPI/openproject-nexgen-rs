@@ -358,6 +358,17 @@ fn build_router_with(
         .route("/types/:id", get(board::desk_views::types_detail))
         .route("/priorities", get(board::desk_views::priorities_list))
         .route("/priorities/:id", get(board::desk_views::priorities_detail))
+        .route("/users", get(board::desk_views::users_list))
+        .route("/users/:id", get(board::desk_views::users_detail))
+        .route("/journals", get(board::desk_views::journals_list))
+        .route("/journals/:id", get(board::desk_views::journals_detail))
+        .route("/relations", get(board::desk_views::relations_list))
+        .route("/relations/:id", get(board::desk_views::relations_detail))
+        .route("/time_entries", get(board::desk_views::time_entries_list))
+        .route(
+            "/time_entries/:id",
+            get(board::desk_views::time_entries_detail),
+        )
         .route(
             "/projects/:id/edit",
             get(board::project_edit_form).post(board::project_update),
@@ -543,6 +554,57 @@ mod tests {
         let (status, body) = get("/statuses/6").await;
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains("On hold"), "{body}");
+    }
+
+    /// Users follow Principal's default scope: the deleted user (frank, id 7,
+    /// status 5) is neither listed nor reachable, the locked one (erin) is.
+    /// Status is shown by its label, not its integer.
+    #[tokio::test]
+    async fn users_follow_the_principal_default_scope() {
+        let (status, body) = get("/users").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("href=\"/users/6\""), "erin is listed: {body}");
+        assert!(
+            !body.contains("href=\"/users/7\""),
+            "frank is deleted: {body}"
+        );
+        assert_eq!(get("/users/7").await.0, StatusCode::NOT_FOUND);
+
+        let (status, body) = get("/users/6").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("erin"), "{body}");
+        assert!(body.contains("locked"), "status label: {body}");
+    }
+
+    /// Journals, relations and time entries link their foreign ids to the
+    /// pages of the records they name.
+    #[tokio::test]
+    async fn association_pages_link_the_records_they_name() {
+        let (status, body) = get("/relations/1").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("href=\"/work_packages/2\""), "from: {body}");
+        assert!(body.contains("href=\"/work_packages/3\""), "to: {body}");
+        assert!(body.contains("follows"), "{body}");
+
+        let (status, body) = get("/time_entries/1").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("3.5"), "hours: {body}");
+        assert!(body.contains("2026-07-01"), "spent_on: {body}");
+        assert!(body.contains("href=\"/work_packages/2\""), "entity: {body}");
+        assert!(body.contains("href=\"/projects/1\""), "project: {body}");
+        assert!(body.contains("href=\"/users/4\""), "user: {body}");
+
+        let (status, body) = get("/journals/2").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("href=\"/work_packages/2\""),
+            "journable: {body}"
+        );
+        assert!(body.contains("href=\"/users/3\""), "user: {body}");
+
+        for uri in ["/journals", "/relations", "/time_entries"] {
+            assert_eq!(get(uri).await.0, StatusCode::OK, "{uri}");
+        }
     }
 
     /// Priorities are the `IssuePriority` rows of `enumerations`: an

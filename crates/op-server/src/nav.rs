@@ -44,6 +44,10 @@ pub fn route_for(target_concept: &str) -> Option<&'static str> {
         "ProjectStatus" => Some("/statuses"),
         "ProjectType" => Some("/types"),
         "Priority" => Some("/priorities"),
+        "ProjectActor" => Some("/users"),
+        "ProjectJournal" => Some("/journals"),
+        "ProjectRelation" => Some("/relations"),
+        "BillableWorkEntry" => Some("/time_entries"),
         _ => None,
     }
 }
@@ -62,6 +66,10 @@ pub const SCREEN_UNIVERSE: &[&str] = &[
     "ProjectStatus",
     "ProjectType",
     "Priority",
+    "ProjectActor",
+    "ProjectJournal",
+    "ProjectRelation",
+    "BillableWorkEntry",
 ];
 
 /// The entry screen position — the board (`"/"`), i.e. `ProjectWorkItem`.
@@ -126,6 +134,26 @@ pub const NAV_EDGES: &[ComputeEdge] = &[
         target: 4,
         inputs: &[0],
     },
+    // ProjectWorkItem.author/assignee → ProjectActor (detail context line);
+    // Project.members → ProjectActor (project detail's related links).
+    ComputeEdge {
+        target: 5,
+        inputs: &[0, 1],
+    },
+    // ProjectWorkItem.journals / .relations (has_many; detail's related links).
+    ComputeEdge {
+        target: 6,
+        inputs: &[0],
+    },
+    ComputeEdge {
+        target: 7,
+        inputs: &[0],
+    },
+    // ProjectWorkItem.time_entries and Project.time_entries → BillableWorkEntry.
+    ComputeEdge {
+        target: 8,
+        inputs: &[0, 1],
+    },
 ];
 
 /// The served-screen universe as a [`WideFieldMask`], minted via the
@@ -135,12 +163,12 @@ pub const NAV_EDGES: &[ComputeEdge] = &[
 ///
 /// # Panics
 ///
-/// Never in practice: [`SCREEN_UNIVERSE`] has 5 entries, far under the
+/// Never in practice: [`SCREEN_UNIVERSE`] has 9 entries, far under the
 /// 256-field SoC cap the brick guards.
 #[must_use]
 pub fn served_screens_mask() -> WideFieldMask {
     WideFieldMask::from_universe_present(SCREEN_UNIVERSE, SCREEN_UNIVERSE)
-        .expect("5-screen universe is within the 256-field SoC cap")
+        .expect("9-screen universe is within the 256-field SoC cap")
 }
 
 /// Whether the inter-screen klickweg is fully connected: every served
@@ -182,6 +210,10 @@ pub const MENU_UNIVERSE: &[&str] = &[
     "ProjectStatus",
     "ProjectType",
     "Priority",
+    "ProjectActor",
+    "ProjectJournal",
+    "ProjectRelation",
+    "BillableWorkEntry",
 ];
 
 /// The synthetic top-nav menu node — the entry point of the klickweg,
@@ -236,6 +268,24 @@ pub const MENU_NAV_EDGES: &[ComputeEdge] = &[
         target: 5,
         inputs: &[0, 1],
     },
+    // Menu → users/journals/relations/time entries, and the NAV_EDGES into
+    // them (+1): ProjectWorkItem (1) → each, Project (2) → users, time entries.
+    ComputeEdge {
+        target: 6,
+        inputs: &[0, 1, 2],
+    },
+    ComputeEdge {
+        target: 7,
+        inputs: &[0, 1],
+    },
+    ComputeEdge {
+        target: 8,
+        inputs: &[0, 1],
+    },
+    ComputeEdge {
+        target: 9,
+        inputs: &[0, 1, 2],
+    },
 ];
 
 /// The menu-inclusive universe as a [`WideFieldMask`], minted on-brick
@@ -243,11 +293,11 @@ pub const MENU_NAV_EDGES: &[ComputeEdge] = &[
 ///
 /// # Panics
 ///
-/// Never: [`MENU_UNIVERSE`] has 6 entries, far under the 256-field cap.
+/// Never: [`MENU_UNIVERSE`] has 10 entries, far under the 256-field cap.
 #[must_use]
 pub fn menu_screens_mask() -> WideFieldMask {
     WideFieldMask::from_universe_present(MENU_UNIVERSE, MENU_UNIVERSE)
-        .expect("6-node menu universe is within the 256-field SoC cap")
+        .expect("10-node menu universe is within the 256-field SoC cap")
 }
 
 /// The concept a top-nav menu href routes to (the inverse of
@@ -279,12 +329,7 @@ pub fn menu_klickweg_is_connected() -> bool {
 /// that have NO page today, and that gap is a known, intentional debt
 /// (not a bug). Adding a new association without a route AND without an
 /// entry here breaks the static prober below.
-pub const NOT_YET_NAVIGABLE: &[&str] = &[
-    "ProjectActor",
-    "ProjectJournal",
-    "ProjectRelation",
-    "BillableWorkEntry",
-];
+pub const NOT_YET_NAVIGABLE: &[&str] = &[];
 
 /// One navigation edge derived from a `Class`'s `associations`.
 #[derive(Debug, Clone)]
@@ -329,6 +374,10 @@ pub fn side_menu() -> &'static [(&'static str, &'static str)] {
         ("Statuses", "/statuses"),
         ("Types", "/types"),
         ("Priorities", "/priorities"),
+        ("Users", "/users"),
+        ("Journals", "/journals"),
+        ("Relations", "/relations"),
+        ("Time entries", "/time_entries"),
     ]
 }
 
@@ -405,7 +454,8 @@ mod tests {
             .iter()
             .find(|e| e.role == "journals")
             .expect("journals edge present");
-        assert_eq!(journals_edge.route, None, "still a dead lane");
+        assert_eq!(journals_edge.route, Some("/journals"));
+        assert!(journals_edge.has_many);
     }
 
     #[test]
@@ -566,22 +616,11 @@ mod tests {
     }
 
     #[test]
-    fn census_lists_the_known_dead_lanes() {
+    fn every_association_target_has_a_page() {
+        // Every association of ProjectWorkItem and Project now resolves to a
+        // page, so the dead-lane census is empty and nothing is deferred.
         let census = dead_lane_census();
-        assert!(!census.is_empty(), "expected non-empty dead lane census");
-        assert!(
-            census
-                .iter()
-                .any(|(owner, role, target)| *owner == "ProjectWorkItem"
-                    && role == "journals"
-                    && target == "ProjectJournal"),
-            "expected WorkItem.journals -> ProjectJournal dead lane in census, got {census:?}"
-        );
-        assert!(
-            !census
-                .iter()
-                .any(|(_, _, target)| target == "ProjectStatus"),
-            "ProjectStatus has a page now: {census:?}"
-        );
+        assert!(census.is_empty(), "dead lanes left: {census:?}");
+        assert!(NOT_YET_NAVIGABLE.is_empty());
     }
 }

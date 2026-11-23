@@ -38,6 +38,45 @@ pub struct DeskView {
     pub headline: &'static str,
     pub list: &'static [&'static str],
     pub detail: &'static [&'static str],
+    /// Foreign-key columns rendered as links to their target's page.
+    pub links: &'static [DeskLink],
+    /// Columns whose integer values have names (`users.status`).
+    pub labels: &'static [(&'static str, &'static [(i64, &'static str)])],
+}
+
+/// A foreign-key column shown as a link: `<route>/<value>`, to `concept`'s
+/// page. With `when`, only on rows whose column holds that value (a
+/// polymorphic key such as `journable_id` links only for `WorkPackage`).
+pub struct DeskLink {
+    pub col: &'static str,
+    pub route: &'static str,
+    pub concept: &'static str,
+    pub when: Option<(&'static str, &'static str)>,
+}
+
+const WORK_PACKAGE: (&str, &str) = ("/work_packages", "ProjectWorkItem");
+const USER: (&str, &str) = ("/users", "ProjectActor");
+
+const fn link(col: &'static str, to: (&'static str, &'static str)) -> DeskLink {
+    DeskLink {
+        col,
+        route: to.0,
+        concept: to.1,
+        when: None,
+    }
+}
+
+const fn link_when(
+    col: &'static str,
+    to: (&'static str, &'static str),
+    when: (&'static str, &'static str),
+) -> DeskLink {
+    DeskLink {
+        col,
+        route: to.0,
+        concept: to.1,
+        when: Some(when),
+    }
 }
 
 /// Statuses: list per `app/components/statuses/table_component.rb:40-48`
@@ -62,6 +101,8 @@ pub const STATUSES: DeskView = DeskView {
         "default_done_ratio",
         "position",
     ],
+    links: &[],
+    labels: &[],
 };
 
 /// Types: OpenProject has no flat types table to follow (its admin index is
@@ -85,6 +126,8 @@ pub const TYPES: DeskView = DeskView {
         "created_at",
         "updated_at",
     ],
+    links: &[],
+    labels: &[],
 };
 
 /// Priorities (`IssuePriority`, an STI subset of `enumerations`): list per
@@ -102,10 +145,145 @@ pub const PRIORITIES: DeskView = DeskView {
     headline: "name",
     list: &["is_default", "active", "position"],
     detail: &["position", "is_default", "active"],
+    links: &[],
+    labels: &[],
+};
+
+/// Users (ProjectActor): list per `app/components/users/table_component.rb:32`
+/// (`login firstname lastname mail admin created_at last_login_on`), detail per
+/// `lib/api/v3/users/user_representer.rb:107-171`. `status` is labelled per
+/// `app/models/principal.rb:38-44`. Principal's default scope hides deleted
+/// users (status 5).
+pub const USERS: DeskView = DeskView {
+    concept: "ProjectActor",
+    canonical: "project_actor",
+    title: "Users",
+    singular: "User",
+    route: "/users",
+    table: "users",
+    only: None,
+    headline: "login",
+    list: &[
+        "firstname",
+        "lastname",
+        "mail",
+        "admin",
+        "created_at",
+        "last_login_on",
+    ],
+    detail: &[
+        "admin",
+        "firstname",
+        "lastname",
+        "mail",
+        "status",
+        "identity_url",
+        "language",
+    ],
+    links: &[],
+    labels: &[(
+        "status",
+        &[
+            (1, "active"),
+            (2, "registered"),
+            (3, "locked"),
+            (4, "invited"),
+            (5, "deleted"),
+        ],
+    )],
+};
+
+/// Journals (ProjectJournal): OpenProject shows journals only as a work
+/// package's activity; columns per `lib/api/v3/activities/activity_representer.rb:75-92`
+/// (`notes`, `version`, the journable and its user, `created_at`).
+pub const JOURNALS: DeskView = DeskView {
+    concept: "ProjectJournal",
+    canonical: "project_journal",
+    title: "Journals",
+    singular: "Journal",
+    route: "/journals",
+    table: "journals",
+    only: None,
+    headline: "created_at",
+    list: &["journable_type", "journable_id", "version", "user_id"],
+    detail: &[
+        "notes",
+        "version",
+        "journable_type",
+        "journable_id",
+        "user_id",
+    ],
+    links: &[
+        link_when(
+            "journable_id",
+            WORK_PACKAGE,
+            ("journable_type", "WorkPackage"),
+        ),
+        link("user_id", USER),
+    ],
+    labels: &[],
+};
+
+/// Relations (ProjectRelation): columns per
+/// `lib/api/v3/relations/relation_representer.rb:54-79`.
+pub const RELATIONS: DeskView = DeskView {
+    concept: "ProjectRelation",
+    canonical: "project_relation",
+    title: "Relations",
+    singular: "Relation",
+    route: "/relations",
+    table: "relations",
+    only: None,
+    headline: "relation_type",
+    list: &["from_id", "to_id", "lag"],
+    detail: &["description", "from_id", "to_id", "lag"],
+    links: &[link("from_id", WORK_PACKAGE), link("to_id", WORK_PACKAGE)],
+    labels: &[],
+};
+
+/// Time entries (BillableWorkEntry, costs module): columns per
+/// `modules/costs/lib/api/v3/time_entries/time_entry_representer.rb:74-128`.
+pub const TIME_ENTRIES: DeskView = DeskView {
+    concept: "BillableWorkEntry",
+    canonical: "billable_work_entry",
+    title: "Time entries",
+    singular: "Time entry",
+    route: "/time_entries",
+    table: "time_entries",
+    only: None,
+    headline: "spent_on",
+    list: &["user_id", "activity_id", "entity_id", "hours", "comments"],
+    detail: &[
+        "ongoing",
+        "comments",
+        "hours",
+        "entity_type",
+        "entity_id",
+        "project_id",
+        "user_id",
+        "activity_id",
+        "start_time",
+        "created_at",
+        "updated_at",
+    ],
+    links: &[
+        link_when("entity_id", WORK_PACKAGE, ("entity_type", "WorkPackage")),
+        link("project_id", ("/projects", "Project")),
+        link("user_id", USER),
+    ],
+    labels: &[],
 };
 
 /// Every desk view, in side-menu order.
-pub const VIEWS: &[&DeskView] = &[&STATUSES, &TYPES, &PRIORITIES];
+pub const VIEWS: &[&DeskView] = &[
+    &STATUSES,
+    &TYPES,
+    &PRIORITIES,
+    &USERS,
+    &JOURNALS,
+    &RELATIONS,
+    &TIME_ENTRIES,
+];
 
 /// The desk table's column names: the basis the skin masks index.
 fn basis(view: &DeskView) -> Vec<String> {
@@ -167,6 +345,62 @@ fn cell(rows: &Rows, row: &[J], col: &str) -> String {
         .map_or_else(|| "—".to_string(), |i| cell_text(&row[i]))
 }
 
+/// A shown cell: its text, and a link when the column is a [`DeskLink`] that
+/// applies to this row (the key is set, and any `when` condition holds).
+struct Shown {
+    text: String,
+    link: Option<(String, &'static str)>,
+}
+
+fn raw<'r>(rows: &Rows, row: &'r [J], col: &str) -> Option<&'r J> {
+    rows.columns.iter().position(|c| c == col).map(|i| &row[i])
+}
+
+fn shown(view: &DeskView, rows: &Rows, row: &[J], col: &str) -> Shown {
+    let value = raw(rows, row, col);
+    let label = view
+        .labels
+        .iter()
+        .find(|(c, _)| *c == col)
+        .and_then(|(_, names)| {
+            let n = value?.as_i64()?;
+            names
+                .iter()
+                .find(|(k, _)| *k == n)
+                .map(|(_, l)| (*l).to_string())
+        });
+    let text = label.unwrap_or_else(|| cell(rows, row, col));
+    let link = view.links.iter().find(|l| l.col == col).and_then(|l| {
+        if let Some((c, v)) = l.when {
+            if raw(rows, row, c).and_then(J::as_str) != Some(v) {
+                return None;
+            }
+        }
+        let id = value?.as_u64()?;
+        Some((format!("{}/{id}", l.route), l.concept))
+    });
+    Shown { text, link }
+}
+
+fn kind(view: &DeskView, col: &str) -> ColumnKind {
+    if view.links.iter().any(|l| l.col == col) {
+        ColumnKind::RecordRef
+    } else {
+        ColumnKind::Plain
+    }
+}
+
+fn data(s: &Shown) -> CellData<'_> {
+    match &s.link {
+        Some((href, concept)) => CellData::RecordRef {
+            label: &s.text,
+            href,
+            target_concept: concept,
+        },
+        None => CellData::Plain { value: &s.text },
+    }
+}
+
 fn id_of(rows: &Rows, row: &[J]) -> u64 {
     rows.columns
         .iter()
@@ -203,14 +437,14 @@ pub fn render_view_list(view: &DeskView, rows: &Rows) -> String {
     ];
     columns.extend(
         tail.iter()
-            .map(|c| RenderColumn::new(*c, caption(c), ColumnKind::Plain)),
+            .map(|c| RenderColumn::new(*c, caption(c), kind(view, c))),
     );
 
     struct Owned {
         id: u64,
         href: String,
         headline: String,
-        cells: Vec<String>,
+        cells: Vec<Shown>,
     }
     let owned: Vec<Owned> = rows
         .rows
@@ -220,8 +454,8 @@ pub fn render_view_list(view: &DeskView, rows: &Rows) -> String {
             Owned {
                 id,
                 href: format!("{}/{id}", view.route),
-                headline: cell(rows, r, view.headline),
-                cells: tail.iter().map(|c| cell(rows, r, c)).collect(),
+                headline: shown(view, rows, r, view.headline).text,
+                cells: tail.iter().map(|c| shown(view, rows, r, c)).collect(),
             }
         })
         .collect();
@@ -249,7 +483,7 @@ pub fn render_view_list(view: &DeskView, rows: &Rows) -> String {
             inline.extend(o.cells.iter().enumerate().map(|(i, v)| CellSource {
                 column: &columns[i + 2],
                 css_classes: "",
-                data: CellData::Plain { value: v },
+                data: data(v),
             }));
             RowSource {
                 record_id: o.id,
@@ -280,10 +514,10 @@ pub fn render_view_detail(view: &DeskView, rows: &Rows) -> Option<String> {
     let mut columns = vec![RenderColumn::new("id", "#", ColumnKind::IdLink)];
     columns.extend(
         tail.iter()
-            .map(|c| RenderColumn::new(*c, caption(c), ColumnKind::Plain)),
+            .map(|c| RenderColumn::new(*c, caption(c), kind(view, c))),
     );
     let href = format!("{}/{id}", view.route);
-    let values: Vec<String> = tail.iter().map(|c| cell(rows, row, c)).collect();
+    let values: Vec<Shown> = tail.iter().map(|c| shown(view, rows, row, c)).collect();
     let mut cells = vec![CellSource {
         column: &columns[0],
         css_classes: "",
@@ -292,10 +526,10 @@ pub fn render_view_detail(view: &DeskView, rows: &Rows) -> Option<String> {
     cells.extend(values.iter().enumerate().map(|(i, v)| CellSource {
         column: &columns[i + 1],
         css_classes: "",
-        data: CellData::Plain { value: v },
+        data: data(v),
     }));
     let class_id = canonical_concept_id(view.canonical).unwrap_or(0);
-    let headline = esc(&cell(rows, row, view.headline));
+    let headline = esc(&shown(view, rows, row, view.headline).text);
     Some(
         render_detail(
             class_id,
@@ -391,3 +625,40 @@ macro_rules! desk_routes {
 desk_routes!(statuses_list, statuses_detail, STATUSES);
 desk_routes!(types_list, types_detail, TYPES);
 desk_routes!(priorities_list, priorities_detail, PRIORITIES);
+desk_routes!(users_list, users_detail, USERS);
+desk_routes!(journals_list, journals_detail, JOURNALS);
+desk_routes!(relations_list, relations_detail, RELATIONS);
+desk_routes!(time_entries_list, time_entries_detail, TIME_ENTRIES);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn journal_rows(journable_type: &str) -> Rows {
+        Rows {
+            columns: vec![
+                "journable_type".into(),
+                "journable_id".into(),
+                "user_id".into(),
+            ],
+            rows: vec![vec![json!(journable_type), json!(4), json!(2)]],
+        }
+    }
+
+    /// A polymorphic id links only when its type column names the target:
+    /// a journal of a Project is not a work-package link.
+    #[test]
+    fn a_polymorphic_link_needs_its_type() {
+        let rows = journal_rows("WorkPackage");
+        let s = shown(&JOURNALS, &rows, &rows.rows[0], "journable_id");
+        assert_eq!(s.link.map(|(h, _)| h), Some("/work_packages/4".to_string()));
+
+        let rows = journal_rows("Project");
+        let s = shown(&JOURNALS, &rows, &rows.rows[0], "journable_id");
+        assert!(s.link.is_none(), "a Project journal is not a work package");
+        assert_eq!(s.text, "4", "the id is still shown");
+        // An unconditional link is unaffected by the type column.
+        let s = shown(&JOURNALS, &rows, &rows.rows[0], "user_id");
+        assert_eq!(s.link.map(|(h, _)| h), Some("/users/2".to_string()));
+    }
+}
