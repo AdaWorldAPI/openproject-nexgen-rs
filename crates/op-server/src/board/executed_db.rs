@@ -13,7 +13,8 @@
 //!   the JSON API's create calls);
 //! * read: `PgWpStore::find_wp`, the lookup the detail and edit pages use;
 //! * edit: `edit_form_core` (GET, issues the CSRF cookie and token) and `update_core` (POST, RBAC
-//!   then CSRF then write), both over `PgWpStore` through the `PageStore` adapter.
+//!   then CSRF then write), both over `PgWpStore` through the `PageStore` adapter; the update is
+//!   `PgMutationStore::update_then`, one transaction with the journal (steps 4 and 8).
 //!
 //! The database comes from `OP_TEST_DATABASE_URL`. `DATABASE_URL` is deliberately not read: it is
 //! the server's runtime setting, and a developer shell that points it at a real database must not
@@ -47,8 +48,11 @@ const SECRET: &[u8] = b"executed-db-csrf-secret-0123456789";
 // that silently falls back to "id 1" cannot pass.
 const USER_A: i64 = 10;
 const USER_B: i64 = 11;
+/// A second member of project 5: the "other user" of the journal aggregation rule.
+const USER_C: i64 = 12;
 const LOGIN_A: &str = "oidc:member-a";
 const LOGIN_B: &str = "oidc:member-b";
+const LOGIN_C: &str = "oidc:member-c";
 const TARGET_PROJECT: i64 = 5;
 const FOREIGN_PROJECT: i64 = 1;
 const B_PROJECT: i64 = 7;
@@ -135,7 +139,7 @@ async fn executed_db_work_package_journey() {
 
     match outcome {
         Ok(tally) => eprintln!(
-            "EXECUTED_DB: journey steps {}/7, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7)",
+            "EXECUTED_DB: journey steps {}/9, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7), update journal: YES (steps 4, 8, 9: no-op, aggregated, new version, closed predecessor, rollback)",
             tally.steps, tally.rows
         ),
         Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
@@ -149,7 +153,8 @@ async fn seed(pool: &PgPool) {
         format!(
             "INSERT INTO users (id, login, firstname, lastname, mail, admin, status) VALUES \
              ({USER_A}, '{LOGIN_A}', 'Ada', 'Member', 'a@example.test', false, 1), \
-             ({USER_B}, '{LOGIN_B}', 'Bo', 'Outsider', 'b@example.test', false, 1)"
+             ({USER_B}, '{LOGIN_B}', 'Bo', 'Outsider', 'b@example.test', false, 1), \
+             ({USER_C}, '{LOGIN_C}', 'Cy', 'Colleague', 'c@example.test', false, 1)"
         ),
         format!(
             "INSERT INTO projects (id, name, identifier, active) VALUES \
@@ -171,10 +176,12 @@ async fn seed(pool: &PgPool) {
         // A is a member of project 5 only; B of project 7 only. Nobody is a member of project 1.
         format!(
             "INSERT INTO members (id, user_id, project_id) VALUES \
-             (50, {USER_A}, {TARGET_PROJECT}), (51, {USER_B}, {B_PROJECT})"
+             (50, {USER_A}, {TARGET_PROJECT}), (51, {USER_B}, {B_PROJECT}), \
+             (52, {USER_C}, {TARGET_PROJECT})"
         ),
         format!(
-            "INSERT INTO member_roles (member_id, role_id) VALUES (50, {ROLE_A}), (51, {ROLE_B})"
+            "INSERT INTO member_roles (member_id, role_id) VALUES \
+             (50, {ROLE_A}), (51, {ROLE_B}), (52, {ROLE_A})"
         ),
         format!(
             "INSERT INTO types (id, name, position) VALUES \
@@ -218,6 +225,102 @@ async fn count(verify: &PgPool, sql: &str) -> i64 {
         .fetch_one(verify)
         .await
         .expect("count")
+}
+
+/// One `journals` row of a work package as the verification pool reads it back.
+#[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
+struct JRow {
+    id: i64,
+    version: i32,
+    user_id: i64,
+    notes: Option<String>,
+    restricted: bool,
+    data_id: i64,
+    cause: serde_json::Value,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+    /// `lower(validity_period)`.
+    lo: chrono::DateTime<chrono::Utc>,
+    /// `upper(validity_period)`: `None` while the journal is the current one.
+    hi: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// The journals of work package `id`, oldest version first.
+async fn journals(verify: &PgPool, id: i64) -> Vec<JRow> {
+    sqlx::query_as::<_, JRow>(
+        "SELECT id, version, user_id, notes, restricted, data_id, cause, created_at, updated_at, \
+                lower(validity_period) AS lo, upper(validity_period) AS hi \
+         FROM journals WHERE journable_type = 'WorkPackage' AND journable_id = $1 \
+         ORDER BY version",
+    )
+    .bind(id)
+    .fetch_all(verify)
+    .await
+    .expect("read journals")
+}
+
+/// Every journal row and every data row of work package `id`, as JSON text, for byte-identity
+/// checks ("nothing was written").
+async fn journal_state(verify: &PgPool, id: i64) -> (Vec<String>, Vec<String>) {
+    let j = sqlx::query_scalar::<_, String>(
+        "SELECT row_to_json(j)::text FROM journals j \
+         WHERE j.journable_type = 'WorkPackage' AND j.journable_id = $1 ORDER BY j.version",
+    )
+    .bind(id)
+    .fetch_all(verify)
+    .await
+    .expect("journal rows");
+    let d = sqlx::query_scalar::<_, String>(
+        "SELECT row_to_json(d)::text FROM work_package_journals d \
+         JOIN journals j ON j.data_id = d.id \
+         WHERE j.journable_type = 'WorkPackage' AND j.journable_id = $1 ORDER BY j.version",
+    )
+    .bind(id)
+    .fetch_all(verify)
+    .await
+    .expect("journal data rows");
+    (j, d)
+}
+
+async fn data_subject(verify: &PgPool, data_id: i64) -> Option<String> {
+    sqlx::query_scalar::<_, String>("SELECT subject FROM work_package_journals WHERE id = $1")
+        .bind(data_id)
+        .fetch_optional(verify)
+        .await
+        .expect("data row")
+}
+
+async fn wp_updated_at(verify: &PgPool, id: i64) -> chrono::DateTime<chrono::Utc> {
+    sqlx::query_scalar("SELECT updated_at FROM work_packages WHERE id = $1")
+        .bind(id)
+        .fetch_one(verify)
+        .await
+        .expect("updated_at")
+}
+
+/// The update the JSON API's PATCH builds: the record's current values carried forward, with
+/// only the subject replaced, at the record's current `lock_version`.
+fn patch_subject(
+    row: &op_db::work_packages::WorkPackageRow,
+    subject: &str,
+) -> op_db::UpdateWorkPackageDto {
+    op_db::UpdateWorkPackageDto {
+        subject: Some(subject.into()),
+        description: row.description.clone(),
+        type_id: Some(row.type_id),
+        status_id: Some(row.status_id),
+        priority_id: row.priority_id,
+        assigned_to_id: row.assigned_to_id,
+        responsible_id: row.responsible_id,
+        start_date: row.start_date,
+        due_date: row.due_date,
+        estimated_hours: row.estimated_hours,
+        done_ratio: Some(row.done_ratio),
+        parent_id: row.parent_id,
+        version_id: row.version_id,
+        category_id: row.category_id,
+        lock_version: row.lock_version,
+    }
 }
 
 fn who(login: &str) -> Who {
@@ -534,6 +637,9 @@ async fn journey(db_url: String) -> Tally {
         );
         t.row();
     }
+    let j_before = journals(&verify, id).await;
+    assert_eq!(j_before.len(), 1);
+    let old_data_id = j_before[0].data_id;
     let resp = update_core(
         &page_store,
         id,
@@ -562,6 +668,78 @@ async fn journey(db_url: String) -> Tally {
         "untouched columns are unchanged"
     );
     t.rows += 3;
+
+    // The journal of the edit. A created the work package seconds ago, so A's edit is within the
+    // aggregation window (`journal_aggregation_time_minutes`, default 5,
+    // config/constants/settings/definition.rb:770-773) by the SAME user with an empty cause and no
+    // note: `Journals::CreateService#aggregatable?` (create_service.rb:595-601) is true, so the
+    // creation journal is REWRITTEN, not followed by a version 2 (`update_journal_sql`,
+    // :437-461): same id, version, created_at and validity_period; the old data row deleted
+    // (`cleanup_predecessor_data_sql`, :118-120); a new data row; updated_at = the work package's
+    // updated_at (`fetch_time`, :331-392).
+    let j_after = journals(&verify, id).await;
+    assert_eq!(
+        j_after.len(),
+        1,
+        "same user within the window: no version 2, the creation journal is aggregated"
+    );
+    let (b, a) = (&j_before[0], &j_after[0]);
+    assert_eq!(
+        (a.id, a.version, a.user_id, a.created_at, a.lo, a.hi),
+        (b.id, 1, USER_A, b.created_at, b.lo, None),
+        "aggregation keeps id, version, user, created_at and the open validity period"
+    );
+    assert_eq!(a.hi, None);
+    assert_ne!(a.data_id, old_data_id, "a new data row");
+    assert_eq!(
+        data_subject(&verify, old_data_id).await,
+        None,
+        "the predecessor's data row is deleted"
+    );
+    assert_eq!(
+        data_subject(&verify, a.data_id).await.as_deref(),
+        Some("Persisted journey, edited"),
+        "the journal now snapshots the edited work package"
+    );
+    assert_eq!(
+        a.updated_at,
+        wp_updated_at(&verify, id).await,
+        "the aggregated journal's updated_at is the work package's updated_at"
+    );
+    assert!(
+        a.updated_at > b.updated_at,
+        "the aggregated journal moved forward"
+    );
+    assert_eq!(
+        count(&verify, "SELECT count(*) FROM work_package_journals").await,
+        1,
+        "still exactly one data row: the old one was replaced, not kept"
+    );
+    t.rows += 6;
+
+    // A no-op edit (the form resubmitted as it stands): nothing journaled changed, so the
+    // `changes` CTE is empty and no CTE writes (create_service.rb:425-427, helpers.rb:54-60).
+    // Control: the edit above changed the subject and DID rewrite the journal (a.data_id differs).
+    let current = page_store.find_wp(id).await.unwrap().unwrap();
+    let state_before_noop = journal_state(&verify, id).await;
+    let resp = update_core(
+        &page_store,
+        id,
+        &ctx(&who_a, &headers_a),
+        &edit_form(&current, &current.subject, &token_a),
+    )
+    .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::SEE_OTHER,
+        "the no-op edit is accepted"
+    );
+    assert_eq!(
+        journal_state(&verify, id).await,
+        state_before_noop,
+        "a no-op edit writes no journal and touches no data row (byte-identical)"
+    );
+    t.rows += 1;
     t.steps += 1;
 
     // ── 5. B attempts the same edit: refused, the row is byte-identical
@@ -688,9 +866,289 @@ async fn journey(db_url: String) -> Tally {
     t.rows += 4;
     t.steps += 1;
 
+    // ── 8. the update journal: other user, closed predecessor, window, cause, rollback ──
+    let store_c = PgMutationStore { pool: pool.clone() };
+    let caller_c = Caller::Actor {
+        login: LOGIN_C.into(),
+    };
+    let v1 = journals(&verify, id).await;
+    assert_eq!(v1.len(), 1);
+    let v1_state = journal_state(&verify, id).await;
+
+    // A stale lock_version is a conflict and rolls the whole unit back: no journal either.
+    let current = page_store.find_wp(id).await.unwrap().unwrap();
+    let mut stale = patch_subject(&current, "stale write");
+    stale.lock_version -= 1;
+    let r = mutation::update(&store_c, &caller_c, id, stale).await;
+    assert!(matches!(r, Err(MutationError::Conflict(_))), "{r:?}");
+    assert_eq!(
+        journal_state(&verify, id).await,
+        v1_state,
+        "a conflict writes no journal"
+    );
+    t.row();
+
+    // C (another member of project 5) edits: a different user cannot aggregate
+    // (`same_user?`, create_service.rb:611-613), so version 2 is added and version 1 is closed.
+    let r = mutation::update(
+        &store_c,
+        &caller_c,
+        id,
+        patch_subject(&current, "edited by C"),
+    )
+    .await
+    .expect("C may edit in project 5");
+    assert_eq!(r.subject, "edited by C");
+    let two = journals(&verify, id).await;
+    assert_eq!(two.len(), 2, "another user's edit adds version 2");
+    let (p, n) = (&two[0], &two[1]);
+    let wp_ts = wp_updated_at(&verify, id).await;
+    assert_eq!((n.version, n.user_id), (2, USER_C));
+    assert_eq!((n.notes.as_deref(), n.restricted), (Some(""), false));
+    assert_eq!(n.cause, serde_json::json!({}));
+    assert_eq!(
+        (n.created_at, n.updated_at, n.lo, n.hi),
+        (wp_ts, wp_ts, wp_ts, None),
+        "created_at = updated_at = lower(validity_period) = the work package's updated_at; open"
+    );
+    assert_eq!(
+        (p.id, p.version, p.created_at, p.lo, p.data_id),
+        (v1[0].id, 1, v1[0].created_at, v1[0].lo, v1[0].data_id),
+        "version 1 keeps its identity and its snapshot"
+    );
+    assert_eq!(
+        p.hi,
+        Some(n.created_at),
+        "the predecessor's validity period is closed at the new journal's start"
+    );
+    assert_eq!(
+        data_subject(&verify, p.data_id).await.as_deref(),
+        Some("Persisted journey, edited"),
+        "version 1 still snapshots the state before C's edit"
+    );
+    assert_eq!(
+        data_subject(&verify, n.data_id).await.as_deref(),
+        Some("edited by C")
+    );
+    let wp_row = page_store.find_wp(id).await.unwrap().unwrap();
+    let (nd_matches,): (bool,) = sqlx::query_as(
+        "SELECT (d.type_id, d.project_id, d.status_id, d.author_id, d.done_ratio, d.priority_id, \
+                 COALESCE(d.description, '')) \
+                IS NOT DISTINCT FROM \
+                (w.type_id, w.project_id, w.status_id, w.author_id, w.done_ratio, w.priority_id, \
+                 COALESCE(w.description, '')) \
+         FROM work_package_journals d, work_packages w WHERE d.id = $1 AND w.id = $2",
+    )
+    .bind(n.data_id)
+    .bind(id)
+    .fetch_one(&verify)
+    .await
+    .unwrap();
+    assert!(nd_matches, "the new data row is a copy of the work package");
+    assert_eq!(wp_row.lock_version, current.lock_version + 1);
+    t.rows += 9;
+
+    // C edits again within the window: now the last journal IS C's, so it is aggregated: same
+    // id/version/created_at/validity, a new data row, the old one deleted, version 1 untouched.
+    let before_c2 = journals(&verify, id).await;
+    let v1_json_before = journal_state(&verify, id).await.0[0].clone();
+    let current = page_store.find_wp(id).await.unwrap().unwrap();
+    mutation::update(
+        &store_c,
+        &caller_c,
+        id,
+        patch_subject(&current, "edited by C again"),
+    )
+    .await
+    .expect("C edits again");
+    let after_c2 = journals(&verify, id).await;
+    assert_eq!(
+        after_c2.len(),
+        2,
+        "same user within the window aggregates into version 2"
+    );
+    assert_eq!(
+        (
+            after_c2[1].id,
+            after_c2[1].version,
+            after_c2[1].created_at,
+            after_c2[1].lo,
+            after_c2[1].hi
+        ),
+        (
+            before_c2[1].id,
+            2,
+            before_c2[1].created_at,
+            before_c2[1].lo,
+            None
+        )
+    );
+    assert_ne!(after_c2[1].data_id, before_c2[1].data_id);
+    assert_eq!(data_subject(&verify, before_c2[1].data_id).await, None);
+    assert_eq!(
+        data_subject(&verify, after_c2[1].data_id).await.as_deref(),
+        Some("edited by C again")
+    );
+    assert_eq!(
+        journal_state(&verify, id).await.0[0],
+        v1_json_before,
+        "aggregating into version 2 does not touch version 1"
+    );
+    t.rows += 5;
+
+    // A edits after C: the last journal is C's, so A cannot aggregate. First the failing
+    // attempt: a statement that fails AFTER the UPDATE and the journal, on the same transaction
+    // (`PgMutationStore::update_then`'s hook), must roll BOTH back
+    // (service_context.rb:34-49 `raise ActiveRecord::Rollback if result.failure?`).
+    let current = page_store.find_wp(id).await.unwrap().unwrap();
+    let wp_before_fail = row_json(&verify, id).await.unwrap();
+    let state_before_fail = journal_state(&verify, id).await;
+    let r = pg_store(&pool)
+        .update_then(
+            &caller_a,
+            id,
+            patch_subject(&current, "A after C"),
+            Some("SELECT 1 / 0"),
+        )
+        .await;
+    assert!(matches!(r, Err(MutationError::Store(_))), "{r:?}");
+    assert_eq!(
+        row_json(&verify, id).await.unwrap(),
+        wp_before_fail,
+        "a failure after the journal leaves the work package byte-identical (no partial update)"
+    );
+    assert_eq!(
+        journal_state(&verify, id).await,
+        state_before_fail,
+        "...and the journals and data rows byte-identical (no journal)"
+    );
+    t.rows += 2;
+    // Control: the same call without the failing statement commits, so the identity above is
+    // the rollback, not an update that never writes. It is a new version 3 by A.
+    pg_store(&pool)
+        .update_then(&caller_a, id, patch_subject(&current, "A after C"), None)
+        .await
+        .expect("the control update commits");
+    let three = journals(&verify, id).await;
+    assert_eq!(three.len(), 3, "the control commits version 3");
+    assert_eq!((three[2].version, three[2].user_id), (3, USER_A));
+    assert_eq!(
+        three[1].hi,
+        Some(three[2].created_at),
+        "version 2 is closed at version 3's start"
+    );
+    assert_eq!(three[2].hi, None);
+    assert_eq!(
+        three[0].hi,
+        Some(two[1].created_at),
+        "version 1 stays closed where it was"
+    );
+    t.rows += 4;
+
+    // Outside the window: A is the last journal's user again, but its updated_at is older than
+    // the window (`within_aggregation_time?`, :603-607), so a new version is added. Age the
+    // journal by ten minutes (created_at, updated_at and the start of its validity period), as
+    // if the edit had been made then.
+    sqlx::query(
+        "UPDATE journals SET created_at = created_at - interval '10 minutes', \
+             updated_at = updated_at - interval '10 minutes', \
+             validity_period = tstzrange(lower(validity_period) - interval '10 minutes', \
+                                         upper(validity_period)) \
+         WHERE id = $1",
+    )
+    .bind(three[2].id)
+    .execute(&pool)
+    .await
+    .expect("age the journal");
+    let current = page_store.find_wp(id).await.unwrap().unwrap();
+    mutation::update(
+        &store,
+        &caller_a,
+        id,
+        patch_subject(&current, "A, much later"),
+    )
+    .await
+    .expect("A edits");
+    let four = journals(&verify, id).await;
+    assert_eq!(
+        four.len(),
+        4,
+        "same user, but outside the window: a new version"
+    );
+    assert_eq!((four[3].version, four[3].user_id), (4, USER_A));
+    assert_eq!(four[2].hi, Some(four[3].created_at), "version 3 is closed");
+    t.rows += 3;
+
+    // A non-empty cause on the last journal blocks aggregation (`only_one_or_same_cause?`:
+    // NoCause merges into nothing, :615-617), even for the same user within the window.
+    sqlx::query("UPDATE journals SET cause = '{\"type\": \"system_update\"}'::jsonb WHERE id = $1")
+        .bind(four[3].id)
+        .execute(&pool)
+        .await
+        .expect("set a cause");
+    let current = page_store.find_wp(id).await.unwrap().unwrap();
+    mutation::update(
+        &store,
+        &caller_a,
+        id,
+        patch_subject(&current, "A, after a caused journal"),
+    )
+    .await
+    .expect("A edits");
+    let five = journals(&verify, id).await;
+    assert_eq!(
+        five.len(),
+        5,
+        "a predecessor with a cause is not aggregated into"
+    );
+    assert_eq!(five[4].cause, serde_json::json!({}));
+    assert_eq!(five[3].hi, Some(five[4].created_at));
+    t.rows += 3;
+    t.steps += 1;
+
+    // ── 9. a work package that predates journalling gets a version-1 journal on its first edit
+    // (the `changes` comparison against no data row finds every column different; there is no
+    // predecessor to close or aggregate).
+    let legacy: i64 = sqlx::query_scalar(
+        "INSERT INTO work_packages (subject, project_id, type_id, status_id, priority_id, \
+                                    author_id, done_ratio, lock_version) \
+         VALUES ('legacy', $1, $2, $3, $4, $5, 0, 0) RETURNING id",
+    )
+    .bind(TARGET_PROJECT)
+    .bind(TYPE_BUG)
+    .bind(STATUS_DEFAULT)
+    .bind(PRIORITY_DEFAULT)
+    .bind(USER_A)
+    .fetch_one(&pool)
+    .await
+    .expect("a legacy work package without journals");
+    assert!(journals(&verify, legacy).await.is_empty());
+    let row = page_store.find_wp(legacy).await.unwrap().unwrap();
+    mutation::update(
+        &store,
+        &caller_a,
+        legacy,
+        patch_subject(&row, "legacy, edited"),
+    )
+    .await
+    .expect("A edits the legacy work package");
+    let lj = journals(&verify, legacy).await;
+    assert_eq!(lj.len(), 1, "a first journal appears");
+    assert_eq!((lj[0].version, lj[0].user_id, lj[0].hi), (1, USER_A, None));
+    assert_eq!(
+        data_subject(&verify, lj[0].data_id).await.as_deref(),
+        Some("legacy, edited")
+    );
+    t.rows += 3;
+    t.steps += 1;
+
     verify.close().await;
     db.close().await;
     t
+}
+
+fn pg_store(pool: &PgPool) -> PgMutationStore {
+    PgMutationStore { pool: pool.clone() }
 }
 
 /// [`PgMutationStore`] whose unit of work, when `fail` is set, runs a failing statement on the
