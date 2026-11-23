@@ -9,6 +9,16 @@
 use crate::schema::TableSpec;
 use crate::value::Value;
 
+/// What a transaction restores on rollback; see
+/// [`Record::restore_transaction_state`].
+#[derive(Debug, Clone)]
+pub(crate) struct TransactionState {
+    id: Option<Value>,
+    original: Vec<Value>,
+    new_record: bool,
+    destroyed: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct Record {
     pub table: &'static TableSpec,
@@ -16,6 +26,8 @@ pub struct Record {
     /// Values as last loaded or persisted. `changes_to_save` is the diff.
     original: Vec<Value>,
     new_record: bool,
+    /// `destroyed?`: the row was deleted through `destroy` / `delete`.
+    destroyed: bool,
     /// `saved_changes` after the last successful save.
     saved: Vec<(usize, Value, Value)>,
     /// Loaded `belongs_to` targets: `(association, foreign key at load, target)`.
@@ -51,6 +63,7 @@ impl Record {
             original: values.clone(),
             values,
             new_record: true,
+            destroyed: false,
             saved: Vec::new(),
             assoc_cache: Vec::new(),
             virtuals: Vec::new(),
@@ -65,6 +78,7 @@ impl Record {
             original: values.clone(),
             values,
             new_record: false,
+            destroyed: false,
             saved: Vec::new(),
             assoc_cache: Vec::new(),
             virtuals: Vec::new(),
@@ -76,9 +90,21 @@ impl Record {
         self.new_record
     }
 
+    /// `persisted?`: not new and not destroyed (persistence.rb:361-363).
     #[must_use]
     pub fn persisted(&self) -> bool {
-        !self.new_record
+        !(self.new_record || self.destroyed)
+    }
+
+    /// `destroyed?`.
+    #[must_use]
+    pub fn destroyed(&self) -> bool {
+        self.destroyed
+    }
+
+    /// `@destroyed = value`; `destroy` sets it, a rolled back destroy restores it.
+    pub(crate) fn set_destroyed(&mut self, value: bool) {
+        self.destroyed = value;
     }
 
     #[must_use]
@@ -177,6 +203,31 @@ impl Record {
     pub fn cache_assoc(&mut self, assoc: &'static str, fk: Value, target: Option<Record>) {
         self.assoc_cache.retain(|(a, _, _)| *a != assoc);
         self.assoc_cache.push((assoc, fk, target.map(Box::new)));
+    }
+
+    /// `remember_transaction_record_state` (transactions.rb:467-476).
+    pub(crate) fn transaction_state(&self) -> TransactionState {
+        TransactionState {
+            id: self.table.index_of("id").map(|c| self.values[c].clone()),
+            original: self.original.clone(),
+            new_record: self.new_record,
+            destroyed: self.destroyed,
+        }
+    }
+
+    /// `restore_transaction_record_state` (transactions.rb:494-517): the
+    /// baseline, `new_record?` and `destroyed?` go back to the start of the
+    /// transaction; current values stay (a value that differs from the
+    /// restored baseline reads as changed); `saved_changes` is cleared; the
+    /// primary key is restored.
+    pub(crate) fn restore_transaction_state(&mut self, state: TransactionState) {
+        self.original = state.original;
+        self.new_record = state.new_record;
+        self.destroyed = state.destroyed;
+        self.saved.clear();
+        if let (Some(c), Some(id)) = (self.table.index_of("id"), state.id) {
+            self.values[c] = id;
+        }
     }
 
     /// Called by the store once a row is written: the record is no longer
