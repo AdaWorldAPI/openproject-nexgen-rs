@@ -135,10 +135,10 @@ fn dispatch_commits(ctx: &mut Ctx) -> Result<(), Halt> {
     let mut claimed: std::collections::BTreeSet<(&'static str, i64)> = std::collections::BTreeSet::new();
     for mut p in pending {
         let Some(did) = p.action else { continue };
-        if let Some(id) = p.record.id() {
-            if !claimed.insert((p.model.name, id)) {
-                continue;
-            }
+        if let Some(id) = p.record.id()
+            && !claimed.insert((p.model.name, id))
+        {
+            continue;
         }
         let action = match did {
             Action::Destroy => Action::Destroy,
