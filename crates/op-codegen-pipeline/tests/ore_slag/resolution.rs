@@ -215,7 +215,7 @@ fn drift_evidence(src: &std::path::Path, roots: &Roots, parsed: bool) -> Option<
 
 /// `ADD_PERMISSION` through production: a user holding only the scanned permission
 /// is authorized and a user holding the other oracle permissions is not. The Ruby
-/// side is the line scan (`ExtractionGap::PermissionDeclScan`), not parsed ORE.
+/// side is the line scan (`ExtractionGap::ContractDeclScan`), not parsed ORE.
 fn add_permission_evidence(ruby: &Ruby, roots: &Roots) -> Option<EvidenceRef> {
     let perm = ruby.scan.add_permission.clone()?;
     struct Holds(Vec<String>);
@@ -415,7 +415,7 @@ fn residual_for(
                 "ADD_PERMISSION equals the parsed permission; the drift check; runtime authorization (6 records, 0 mismatches)",
                 "change the literal in a copy of create_contract.rb: the drift check and this witness must fail",
             ),
-            "generated constant; its source side is ExtractionGap::PermissionDeclScan, not parsed ORE".to_string(),
+            "generated constant; its source side is ExtractionGap::ContractDeclScan, not parsed ORE".to_string(),
             OwnerStage::DataWitness,
         )
     } else if key == KEY_WRITABLE {

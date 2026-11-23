@@ -5,7 +5,7 @@
   ],
   "claims": [
     {
-      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan)); rust: 1/1 edges (CALLS_RESOLVED COMPILER)",
+      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)); rust: 1/1 edges (CALLS_RESOLVED COMPILER)",
       "identity": {
         "application": "openproject",
         "effect": "declares-validator",
@@ -19,7 +19,7 @@
       "representation": "Declaration",
       "residual": null,
       "ruby": {
-        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan)",
+        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)",
         "fact": "CreateContract registers user_allowed_to_add as a validator",
         "span": "app/contracts/work_packages/create_contract.rb:52",
         "state": "fact"
@@ -27,12 +27,12 @@
       "runtime_evidence": "none (no runtime gate attached)",
       "runtime_verdict": "NotExecuted",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 8084..8118 (line 234): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::user_allowed_to_add"
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 9294..9328 (line 263): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::user_allowed_to_add"
       },
       "structural_verdict": "NotComparable (ruby: DSL registration of a validator; rust: no registration step; admit_create calls the function)"
     },
     {
-      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan)); rust: 1/1 edges (CALLS_RESOLVED COMPILER)",
+      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)); rust: 1/1 edges (CALLS_RESOLVED COMPILER)",
       "identity": {
         "application": "openproject",
         "effect": "invokes:user_allowed_to_add",
@@ -46,7 +46,7 @@
       "representation": "Callback",
       "residual": null,
       "ruby": {
-        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan)",
+        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)",
         "fact": "validating the create contract runs user_allowed_to_add",
         "span": "app/contracts/work_packages/create_contract.rb:52",
         "state": "fact"
@@ -54,12 +54,12 @@
       "runtime_evidence": "none (no runtime gate attached)",
       "runtime_verdict": "NotExecuted",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 8084..8118 (line 234): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::user_allowed_to_add"
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 9294..9328 (line 263): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::user_allowed_to_add"
       },
       "structural_verdict": "Agreement"
     },
     {
-      "coverage": "ruby: fact (literal located in the source (no parse) + admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan)); rust: 2/2 edges (CALLS_RESOLVED COMPILER, CALLS_RESOLVED COMPILER)",
+      "coverage": "ruby: fact (literal located in the source (no parse) + admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)); rust: 2/2 edges (CALLS_RESOLVED COMPILER, CALLS_RESOLVED COMPILER)",
       "identity": {
         "application": "openproject",
         "effect": "evaluates:WorkPackages::CreateContract",
@@ -73,7 +73,7 @@
       "representation": "Call",
       "residual": null,
       "ruby": {
-        "extractor": "literal located in the source (no parse) + admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan)",
+        "extractor": "literal located in the source (no parse) + admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)",
         "fact": "CreateService admits a create through WorkPackages::CreateContract",
         "span": "app/services/work_packages/create_service.rb:38",
         "state": "fact"
@@ -86,7 +86,7 @@
       "structural_verdict": "Agreement"
     },
     {
-      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan)); rust: data item ADD_PERMISSION, file extracted, no call-graph fact",
+      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)); rust: data item ADD_PERMISSION, file extracted, no call-graph fact",
       "identity": {
         "application": "openproject",
         "effect": "requires:add_work_packages",
@@ -124,12 +124,12 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d; admission_gen",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -145,21 +145,21 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               },
               {
-                "fnv64": "1f04c9ad86c42108",
+                "fnv64": "bc4d0d8a6a10e947",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan); ruff 79ed2baa007d24000d651e23efc4a207122bd08d",
+            "revision": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan); ruff 954ed21450cc0766124905643a3d8c54f44191e4",
             "source_side_parsed": false
           }
         ],
-        "locator": "ruby app/contracts/work_packages/create_contract.rb:57; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 471..514 (line 8)",
+        "locator": "ruby app/contracts/work_packages/create_contract.rb:57; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 541..584 (line 8)",
         "owner_stage": "DataWitness",
         "proposed_remedy": {
           "claim_change": "lifecycle EVIDENCED -> VERIFIED(DataWitness); structural verdict stays Slag(RepresentedAsData)",
@@ -174,10 +174,10 @@
         "reason": "RepresentedAsData",
         "regression_gate": null,
         "status": "EVIDENCED",
-        "sub_reason": "generated constant; its source side is ExtractionGap::PermissionDeclScan, not parsed ORE"
+        "sub_reason": "generated constant; its source side is ExtractionGap::ContractDeclScan, not parsed ORE"
       },
       "ruby": {
-        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan)",
+        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)",
         "fact": "the create is authorized by add_work_packages",
         "span": "app/contracts/work_packages/create_contract.rb:57",
         "state": "fact"
@@ -185,12 +185,12 @@
       "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_services CreateWorkPackageService::admit vs trace errors[base], per CreateContract case)",
       "runtime_verdict": "ExecutedAgreement",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 471..514 (line 8): source item ADD_PERMISSION (no store row)"
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 541..584 (line 8): source item ADD_PERMISSION (no store row)"
       },
       "structural_verdict": "Slag(RepresentedAsData)"
     },
     {
-      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan)); rust: 1/1 edges (MAY_DISPATCH COMPILER)",
+      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)); rust: 1/1 edges (MAY_DISPATCH COMPILER)",
       "identity": {
         "application": "openproject",
         "effect": "consults:allowed_in_project?",
@@ -204,7 +204,7 @@
       "representation": "Guard",
       "residual": null,
       "ruby": {
-        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan)",
+        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)",
         "fact": "user_allowed_to_add asks allowed_in_project?",
         "span": "app/contracts/work_packages/create_contract.rb:57",
         "state": "fact"
@@ -212,7 +212,7 @@
       "runtime_evidence": "none (no runtime gate attached)",
       "runtime_verdict": "NotExecuted",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 7424..7457 (line 217): MAY_DISPATCH op_contracts::work_packages::admission::user_allowed_to_add -> op_contracts::base::UserContext::allowed_in_project"
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 8634..8667 (line 246): MAY_DISPATCH op_contracts::work_packages::admission::user_allowed_to_add -> op_contracts::base::UserContext::allowed_in_project"
       },
       "structural_verdict": "Agreement"
     },
@@ -239,7 +239,7 @@
       "runtime_evidence": "none (no runtime gate attached)",
       "runtime_verdict": "NotExecuted",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 7475..7508 (line 218): MAY_DISPATCH op_contracts::work_packages::admission::user_allowed_to_add -> op_contracts::base::UserContext::allowed_in_any_project"
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 8685..8718 (line 247): MAY_DISPATCH op_contracts::work_packages::admission::user_allowed_to_add -> op_contracts::base::UserContext::allowed_in_any_project"
       },
       "structural_verdict": "Agreement"
     },
@@ -266,7 +266,7 @@
       "runtime_evidence": "none (no runtime gate attached)",
       "runtime_verdict": "NotExecuted",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 7339..7354 (line 213): MAY_DISPATCH op_contracts::work_packages::admission::user_allowed_to_add -> op_contracts::base::UserContext::is_admin"
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 8549..8564 (line 242): MAY_DISPATCH op_contracts::work_packages::admission::user_allowed_to_add -> op_contracts::base::UserContext::is_admin"
       },
       "structural_verdict": "CharonOnly"
     },
@@ -286,7 +286,7 @@
       "residual": {
         "attempts": [],
         "evidence": [],
-        "locator": "ruby -; rust crates/op-contracts/src/work_packages/admission.rs bytes 8327..8366 (line 242)",
+        "locator": "ruby -; rust crates/op-contracts/src/work_packages/admission.rs bytes 9537..9576 (line 271)",
         "owner_stage": "ContractHarvest",
         "proposed_remedy": {
           "claim_change": "Slag(RubySideNotHarvested) -> Agreement if the lowered body is 'condition AND permission' and admit_create -> is_writable stays CALLS_RESOLVED",
@@ -310,7 +310,7 @@
       "runtime_evidence": "none (no runtime gate attached)",
       "runtime_verdict": "NotExecuted",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 8327..8366 (line 242): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::is_writable"
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 9537..9576 (line 271): CALLS_RESOLVED op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::is_writable"
       },
       "structural_verdict": "Slag(RubySideNotHarvested)"
     },
@@ -330,7 +330,7 @@
       "residual": {
         "attempts": [],
         "evidence": [],
-        "locator": "ruby -; rust crates/op-contracts/src/work_packages/admission.rs bytes 7746..8957 (lines 225-263)",
+        "locator": "ruby -; rust crates/op-contracts/src/work_packages/admission.rs bytes 8956..10167 (lines 254-292)",
         "owner_stage": "ContractHarvest",
         "proposed_remedy": {
           "claim_change": "Slag(RubySideNotHarvested) -> RubyOnly: Charon inspected admit_create (defined, structured, current) and it has no edge to such a validator; NOT_EVALUATED_VALIDATORS does not name it either",
@@ -354,12 +354,12 @@
       "runtime_evidence": "EXECUTED 1 compared, 1 mismatches (ore_slag schedule_manually differential: op_services CreateWorkPackageService::admit vs contract trace errors[schedule_manually] = cannot_be_automatically_scheduled; 6 CreateContract records, Ruby fires on [\"leaf_automatic\"], Rust on []; separate from the 350)",
       "runtime_verdict": "ExecutedDisagreement",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 7746..8957 (lines 225-263): DEFINES op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::admit_create"
+        "span": "crates/op-contracts/src/work_packages/admission.rs bytes 8956..10167 (lines 254-292): DEFINES op_contracts::work_packages::admission::admit_create -> op_contracts::work_packages::admission::admit_create"
       },
       "structural_verdict": "Slag(RubySideNotHarvested)"
     },
     {
-      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan)); rust: op_services::work_packages::mutation::create (RustBodyNotStructured)",
+      "coverage": "ruby: fact (admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)); rust: op_services::work_packages::mutation::create (RustBodyNotStructured)",
       "identity": {
         "application": "openproject",
         "effect": "checks:add_work_packages-in-project",
@@ -381,7 +381,7 @@
           "missing_fact": "a structured body for op_services::work_packages::mutation::create",
           "negative_control": "remove the call from a structured body: the row must become RubyOnly, never stay Agreement",
           "source_location": "crates/op-services/src/work_packages/mutation.rs bytes 16189..20209 (lines 402-515)",
-          "source_revision": "nexgen 8f2680ebad0ee1a348fd35b8bb06ab0410e0d924 (store files hash-checked against the checkout)",
+          "source_revision": "nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
           "supplier": "Charon structuring of async bodies, or a synchronous seam the call graph can see",
           "supplier_exists": false,
           "validating_evidence": "the CALLS_RESOLVED edge; the runtime axis stays the EXECUTED_DB journey (cited here; needs PostgreSQL)"
@@ -392,7 +392,7 @@
         "sub_reason": "Charon residual BODY_NOT_STRUCTURED"
       },
       "ruby": {
-        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::PermissionDeclScan)",
+        "extractor": "admission_gen::contract_scan_facts (ExtractionGap::ContractDeclScan)",
         "fact": "a create needs add_work_packages in the model's project",
         "span": "app/contracts/work_packages/create_contract.rb:57",
         "state": "fact"
@@ -427,7 +427,7 @@
           "missing_fact": "a structured body for op_services::work_packages::mutation::create",
           "negative_control": "remove the call from a structured body: the row must become RubyOnly, never stay Agreement",
           "source_location": "crates/op-services/src/work_packages/mutation.rs bytes 16189..20209 (lines 402-515)",
-          "source_revision": "nexgen 8f2680ebad0ee1a348fd35b8bb06ab0410e0d924 (store files hash-checked against the checkout)",
+          "source_revision": "nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
           "supplier": "Charon structuring of async bodies, or a synchronous seam the call graph can see",
           "supplier_exists": false,
           "validating_evidence": "the CALLS_RESOLVED edge; the runtime axis stays the EXECUTED_DB journey (cited here; needs PostgreSQL)"
@@ -473,7 +473,7 @@
           "missing_fact": "op-api in the Charon store",
           "negative_control": "drop op-api again: the row returns to RustSideNotExtracted, never Disagreement",
           "source_location": "crates/op-api/src/handlers/work_packages.rs:175",
-          "source_revision": "nexgen 8f2680ebad0ee1a348fd35b8bb06ab0410e0d924 (store files hash-checked against the checkout)",
+          "source_revision": "nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
           "supplier": "run Charon on op-api and add its four artifacts (not run here: no changed source requires it)",
           "supplier_exists": true,
           "validating_evidence": "the CALLS_RESOLVED edge create_work_package_core -> mutation::create, plus a harvested endpoint"
@@ -533,12 +533,12 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d; admission_gen",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -554,28 +554,28 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               },
               {
-                "fnv64": "1f04c9ad86c42108",
+                "fnv64": "bc4d0d8a6a10e947",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4",
             "source_side_parsed": true
           }
         ],
-        "locator": "ruby app/contracts/work_packages/create_contract.rb:37; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
+        "locator": "ruby app/contracts/work_packages/create_contract.rb:37; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
         "owner_stage": "DataWitness",
         "proposed_remedy": {
           "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
-          "source_location": "app/contracts/work_packages/create_contract.rb:37 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 8f2680ebad0ee1a348fd35b8bb06ab0410e0d924 (store files hash-checked against the checkout)",
+          "source_location": "app/contracts/work_packages/create_contract.rb:37 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -594,7 +594,7 @@
       "runtime_evidence": "EXECUTED 5 compared, 0 mismatches (op_contracts is_writable vs trace writable[author_id] (1 unresolved, not compared))",
       "runtime_verdict": "ExecutedAgreement",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
       },
       "structural_verdict": "Slag(RepresentedAsData)"
     },
@@ -637,12 +637,12 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d; admission_gen",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -658,28 +658,28 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               },
               {
-                "fnv64": "1f04c9ad86c42108",
+                "fnv64": "bc4d0d8a6a10e947",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4",
             "source_side_parsed": true
           }
         ],
-        "locator": "ruby app/contracts/work_packages/base_contract.rb:77; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:77; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
         "owner_stage": "DataWitness",
         "proposed_remedy": {
           "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
-          "source_location": "app/contracts/work_packages/base_contract.rb:77 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 8f2680ebad0ee1a348fd35b8bb06ab0410e0d924 (store files hash-checked against the checkout)",
+          "source_location": "app/contracts/work_packages/base_contract.rb:77 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -698,7 +698,7 @@
       "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[derived_done_ratio] (0 unresolved, not compared))",
       "runtime_verdict": "ExecutedAgreement",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
       },
       "structural_verdict": "Slag(RepresentedAsData)"
     },
@@ -741,12 +741,12 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d; admission_gen",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -762,28 +762,28 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               },
               {
-                "fnv64": "1f04c9ad86c42108",
+                "fnv64": "bc4d0d8a6a10e947",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4",
             "source_side_parsed": true
           }
         ],
-        "locator": "ruby app/contracts/work_packages/base_contract.rb:83; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:83; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
         "owner_stage": "DataWitness",
         "proposed_remedy": {
           "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
-          "source_location": "app/contracts/work_packages/base_contract.rb:83 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 8f2680ebad0ee1a348fd35b8bb06ab0410e0d924 (store files hash-checked against the checkout)",
+          "source_location": "app/contracts/work_packages/base_contract.rb:83 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -802,7 +802,7 @@
       "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[derived_estimated_hours] (0 unresolved, not compared))",
       "runtime_verdict": "ExecutedAgreement",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
       },
       "structural_verdict": "Slag(RepresentedAsData)"
     },
@@ -845,12 +845,12 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d; admission_gen",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -866,28 +866,28 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               },
               {
-                "fnv64": "1f04c9ad86c42108",
+                "fnv64": "bc4d0d8a6a10e947",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4",
             "source_side_parsed": true
           }
         ],
-        "locator": "ruby app/contracts/work_packages/base_contract.rb:91; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:91; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
         "owner_stage": "DataWitness",
         "proposed_remedy": {
           "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
-          "source_location": "app/contracts/work_packages/base_contract.rb:91 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 8f2680ebad0ee1a348fd35b8bb06ab0410e0d924 (store files hash-checked against the checkout)",
+          "source_location": "app/contracts/work_packages/base_contract.rb:91 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -906,7 +906,7 @@
       "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[derived_remaining_hours] (0 unresolved, not compared))",
       "runtime_verdict": "ExecutedAgreement",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
       },
       "structural_verdict": "Slag(RepresentedAsData)"
     },
@@ -949,12 +949,12 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d; admission_gen",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -970,28 +970,28 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               },
               {
-                "fnv64": "1f04c9ad86c42108",
+                "fnv64": "bc4d0d8a6a10e947",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4",
             "source_side_parsed": true
           }
         ],
-        "locator": "ruby app/contracts/work_packages/base_contract.rb:67; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:67; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
         "owner_stage": "DataWitness",
         "proposed_remedy": {
           "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
-          "source_location": "app/contracts/work_packages/base_contract.rb:67 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 8f2680ebad0ee1a348fd35b8bb06ab0410e0d924 (store files hash-checked against the checkout)",
+          "source_location": "app/contracts/work_packages/base_contract.rb:67 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -1010,7 +1010,7 @@
       "runtime_evidence": "EXECUTED 1 compared, 0 mismatches (op_contracts is_writable vs trace writable[done_ratio] (5 unresolved, not compared))",
       "runtime_verdict": "ExecutedAgreement",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
       },
       "structural_verdict": "Slag(RepresentedAsData)"
     },
@@ -1053,12 +1053,12 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d; admission_gen",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -1074,28 +1074,28 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               },
               {
-                "fnv64": "1f04c9ad86c42108",
+                "fnv64": "bc4d0d8a6a10e947",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4",
             "source_side_parsed": true
           }
         ],
-        "locator": "ruby app/contracts/work_packages/base_contract.rb:132; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:132; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
         "owner_stage": "DataWitness",
         "proposed_remedy": {
           "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
-          "source_location": "app/contracts/work_packages/base_contract.rb:132 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 8f2680ebad0ee1a348fd35b8bb06ab0410e0d924 (store files hash-checked against the checkout)",
+          "source_location": "app/contracts/work_packages/base_contract.rb:132 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -1114,7 +1114,7 @@
       "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[due_date] (0 unresolved, not compared))",
       "runtime_verdict": "ExecutedAgreement",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
       },
       "structural_verdict": "Slag(RepresentedAsData)"
     },
@@ -1157,12 +1157,12 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d; admission_gen",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -1178,28 +1178,28 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               },
               {
-                "fnv64": "1f04c9ad86c42108",
+                "fnv64": "bc4d0d8a6a10e947",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4",
             "source_side_parsed": true
           }
         ],
-        "locator": "ruby app/contracts/work_packages/base_contract.rb:120; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:120; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
         "owner_stage": "DataWitness",
         "proposed_remedy": {
           "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
-          "source_location": "app/contracts/work_packages/base_contract.rb:120 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 8f2680ebad0ee1a348fd35b8bb06ab0410e0d924 (store files hash-checked against the checkout)",
+          "source_location": "app/contracts/work_packages/base_contract.rb:120 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -1218,7 +1218,7 @@
       "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[ignore_non_working_days] (0 unresolved, not compared))",
       "runtime_verdict": "ExecutedAgreement",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
       },
       "structural_verdict": "Slag(RepresentedAsData)"
     },
@@ -1261,12 +1261,12 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d; admission_gen",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -1282,28 +1282,28 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               },
               {
-                "fnv64": "1f04c9ad86c42108",
+                "fnv64": "bc4d0d8a6a10e947",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4",
             "source_side_parsed": true
           }
         ],
-        "locator": "ruby app/contracts/work_packages/base_contract.rb:125; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:125; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
         "owner_stage": "DataWitness",
         "proposed_remedy": {
           "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
-          "source_location": "app/contracts/work_packages/base_contract.rb:125 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 8f2680ebad0ee1a348fd35b8bb06ab0410e0d924 (store files hash-checked against the checkout)",
+          "source_location": "app/contracts/work_packages/base_contract.rb:125 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -1322,7 +1322,7 @@
       "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[start_date] (0 unresolved, not compared))",
       "runtime_verdict": "ExecutedAgreement",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
       },
       "structural_verdict": "Slag(RepresentedAsData)"
     },
@@ -1365,12 +1365,12 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d; admission_gen",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4; admission_gen",
             "source_side_parsed": false
           },
           {
@@ -1386,28 +1386,28 @@
                 "root": "Source"
               },
               {
-                "fnv64": "063d216f9e146ef2",
+                "fnv64": "26c83f1d0aaec607",
                 "path": "crates/op-contracts/src/work_packages/generated_create_admission.rs",
                 "root": "Target"
               },
               {
-                "fnv64": "1f04c9ad86c42108",
+                "fnv64": "bc4d0d8a6a10e947",
                 "path": "crates/op-contracts/src/work_packages/admission.rs",
                 "root": "Target"
               }
             ],
-            "revision": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d",
+            "revision": "ruff 954ed21450cc0766124905643a3d8c54f44191e4",
             "source_side_parsed": true
           }
         ],
-        "locator": "ruby app/contracts/work_packages/base_contract.rb:39; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
+        "locator": "ruby app/contracts/work_packages/base_contract.rb:39; rust crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
         "owner_stage": "DataWitness",
         "proposed_remedy": {
           "claim_change": "none structurally (stays Slag(RepresentedAsData)); lifecycle -> RESOLVED(DataWitness)",
           "missing_fact": "none for the behaviour: table data is invisible to a call graph",
           "negative_control": "swap And/Or in the ruff expression, or rotate the attribute mapping: the witness must fail",
-          "source_location": "app/contracts/work_packages/base_contract.rb:39 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46)",
-          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 8f2680ebad0ee1a348fd35b8bb06ab0410e0d924 (store files hash-checked against the checkout)",
+          "source_location": "app/contracts/work_packages/base_contract.rb:39 ; crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46)",
+          "source_revision": "openproject 2725194454c895dfab6ff2685d9688b0cba53068; nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f (store files hash-checked against the checkout)",
           "supplier": "data witness: ruff's GuardExpr truth table against production is_writable over the generated ATTRIBUTES",
           "supplier_exists": true,
           "validating_evidence": "this witness, bound to the generator drift check"
@@ -1426,7 +1426,7 @@
       "runtime_evidence": "EXECUTED 6 compared, 0 mismatches (op_contracts is_writable vs trace writable[status_id] (0 unresolved, not compared))",
       "runtime_verdict": "ExecutedAgreement",
       "rust": {
-        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 1987..5866 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
+        "span": "crates/op-contracts/src/work_packages/generated_create_admission.rs bytes 2057..6429 (lines 16-46): SYNTHETIC op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const -> op_contracts::work_packages::generated_create_admission::ATTRIBUTES::promoted_const"
       },
       "structural_verdict": "Slag(RepresentedAsData)"
     }
@@ -1436,8 +1436,8 @@
     "charon": "AdaWorldAPI/charon c69e231ea8d71566d4b728e90c12efc432d11b8c",
     "charon_extractor": "AdaWorldAPI/ruff 52eb6c856824ccc7d5bc044d0cdb145a223a7e4e",
     "source_app": "openproject 2725194454c895dfab6ff2685d9688b0cba53068",
-    "source_extractor": "ruff 79ed2baa007d24000d651e23efc4a207122bd08d",
-    "target": "nexgen 8f2680ebad0ee1a348fd35b8bb06ab0410e0d924"
+    "source_extractor": "ruff 954ed21450cc0766124905643a3d8c54f44191e4",
+    "target": "nexgen 915754a9639424b8a044fee6c3ab405bc6dd3c1f"
   },
   "scorecard": {
     "claims": 21,
