@@ -759,8 +759,8 @@ impl PgMutationStore {
     /// only if both succeed. `post_insert` is the statement that runs after the INSERT on the same
     /// transaction (OpenProject runs `after_create`: ancestors, rescheduling, watcher, and the
     /// journal in its save callbacks, inside `in_user_context`). The journal is written here
-    /// ([`PgCreateScope::write_creation_journal`]); the ancestors, rescheduling and watcher are
-    /// not ported. `None` is the production call. `post_insert` exists so the
+    /// ([`PgCreateScope::write_creation_journal`]), then the creator as watcher
+    /// ([`PgCreateScope::add_creator_as_watcher`]); the ancestors and rescheduling are not ported. `None` is the production call. `post_insert` exists so the
     /// failure-after-the-journal case can be exercised through the real transaction code.
     pub async fn create_then(
         &self,
@@ -774,6 +774,16 @@ impl PgMutationStore {
         // transaction as the INSERT: a failure here rolls the work package back with it.
         if let Ok(row) = &out {
             if let Err(e) = scope.write_creation_journal(row.id, row.author_id).await {
+                out = Err(e.into());
+            }
+        }
+        // `after_create`'s last step, `set_user_as_watcher` (create_service.rb:82, :118-122). The
+        // creator is the author here (`create_in` sets `author_id` from the caller).
+        if let Ok(row) = &out {
+            if let Err(e) = scope
+                .add_creator_as_watcher(row.id, row.project_id, row.author_id)
+                .await
+            {
                 out = Err(e.into());
             }
         }
@@ -880,6 +890,52 @@ impl PgCreateScope {
     /// server discard the transaction anyway.
     pub async fn rollback(self) {
         let _ = self.tx.into_inner().rollback().await;
+    }
+
+    /// The creator becomes a watcher of the new work package: `WorkPackages::CreateService#
+    /// set_user_as_watcher` (`app/services/work_packages/create_service.rb:118-122`) runs
+    /// `Services::CreateWatcher` (`lib/services/create_watcher.rb:36-49`), which adds the watcher
+    /// unless the user already watches it, and only if the `Watcher` is valid
+    /// (`app/models/watcher.rb`): the user is not locked (`status = 3`, `validate_active_user`)
+    /// and may view the work package (`validate_user_allowed_to_watch` -> `possible_watcher?`,
+    /// `view_work_packages` in the project, `lib_static/open_project/acts/watchable.rb:99-103`;
+    /// `acts_as_watchable(permission: :view_work_packages)`, work_package.rb:136). An invalid
+    /// watcher is skipped without an error ("We don't care if it fails here"); a database error is
+    /// not, and rolls the create back. Returns whether a watcher row was written.
+    ///
+    /// The permission is read the way [`PgCreateScope::principal`] reads it: an admin, or a
+    /// project membership whose roles grant the permission. Not ported: the `WATCHER_ADDED`
+    /// notification (sent with `send_notifications: false`), non-member access to public
+    /// projects, and enabled-module checks, none of which [`PgCreateScope::principal`] models.
+    pub async fn add_creator_as_watcher(
+        &self,
+        work_package_id: Id,
+        project_id: Id,
+        user_id: Id,
+    ) -> Result<bool, StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        let written = sqlx::query(
+            "INSERT INTO watchers (watchable_type, watchable_id, user_id) \
+             SELECT 'WorkPackage', $1, u.id FROM users u \
+             WHERE u.id = $3 AND u.status <> 3 \
+               AND (u.admin OR EXISTS ( \
+                   SELECT 1 FROM members m \
+                   JOIN member_roles mr ON mr.member_id = m.id \
+                   JOIN role_permissions rp ON rp.role_id = mr.role_id \
+                   WHERE m.project_id = $2 AND m.user_id = u.id AND m.entity_type IS NULL \
+                     AND rp.permission = 'view_work_packages')) \
+               AND NOT EXISTS ( \
+                   SELECT 1 FROM watchers w \
+                   WHERE w.watchable_type = 'WorkPackage' AND w.watchable_id = $1 \
+                     AND w.user_id = u.id)",
+        )
+        .bind(work_package_id)
+        .bind(project_id)
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(db_failure)?;
+        Ok(written.rows_affected() == 1)
     }
 
     /// The creation journal of a work package, written on the open transaction.

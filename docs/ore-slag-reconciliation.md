@@ -318,7 +318,7 @@ Separate denominators. Before means #138 as it was; after means this change.
 | Callback slag by reason | AssociationNotInCheckout 15, FromGem 8, DefinedInPlugin 7, AssociationFromPlugin 5, GeneratedUndecided 4, ModelWithoutClassFile 3 | AssociationNotInCheckout 2, GeneratedUndecided 1 |
 | Callback order | 19 groups, 19 definite, 0 differ | 29 groups: 29 definite, 0 UNKNOWN, 0 differ (ruff ce96aae `hidden_complete`; 16 / 13 between the #140 review fix and this change) |
 | Callback bodies executed | 0 | 0 |
-| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 9/9, 65 rows asserted; create transactional, creation journal, default priority; update transactional with its journal (no-op, aggregated, new version, rollback); cited by the reconciliation, run separately |
+| Database effects (EXECUTED_DB, PostgreSQL 16) | journey 7/7, 13 rows asserted | journey 9/9, 70 rows asserted; create transactional, creation journal, default priority; update transactional with its journal (no-op, aggregated, new version, rollback); cited by the reconciliation, run separately |
 
 The P3b gaps are reported, not hidden:
 
@@ -355,8 +355,15 @@ The P3b gaps are reported, not hidden:
   settings table. An edit of a work package stored without a priority, that does not set
   one, is refused with `priority: blank` (`validates :priority, presence: true`,
   work_package/validations.rb:34, via `ModelContract#valid?`), as in OpenProject.
-- Open: the rest of Ruby's `after_create` (watchers, ancestor updates,
-  `apply_patterns`, reschedule) is not ported.
+- Closed: `after_create`'s `set_user_as_watcher` (create_service.rb:82, :118-122). The
+  creator becomes a watcher on the create's transaction when not locked and allowed
+  `view_work_packages` in the project (an admin always); otherwise the create succeeds
+  without one, as `Services::CreateWatcher` skips an invalid `Watcher`. EXECUTED_DB step 2
+  (watcher written), the add-only member before step 8 (none), and step 7 (rolled back with
+  the create) assert each case. Not ported: the `WATCHER_ADDED` notification (sent with
+  `send_notifications: false`), non-member access to public projects, module checks.
+- Open: the rest of Ruby's `after_create` (ancestor updates, `apply_patterns`,
+  reschedule) is not ported.
 
 A committed row in that journey is evidence about the Rust paths, not Rails
 persistence parity.
