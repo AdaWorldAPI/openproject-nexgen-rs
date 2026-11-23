@@ -18,6 +18,8 @@
 #   create retry: saved new_record=false rows=2
 #   destroy returned: false
 #   destroy rolled back: record name=b changed=["name"] stored=a destroyed=false
+#   nested: outer save true; children=0 parents=1 outers=1
+#   nested: ["parent destroy returned false", "child after_commit destroy"]
 B = File.join(ENV.fetch("OPENPROJECT_SRC"), "vendor/bundle/ruby/4.0.0/gems")
 %w[activerecord-8.1.4.1 activemodel-8.1.4.1 activesupport-8.1.4.1].each { |g| $LOAD_PATH.unshift("#{B}/#{g}/lib") }
 Dir["#{B}/{concurrent-ruby,i18n,tzinfo,minitest,base64,bigdecimal,connection_pool,drb,logger,securerandom,uri,benchmark,timeout,json}-*/lib"].each { |d| $LOAD_PATH.unshift(d) }
@@ -29,6 +31,9 @@ ActiveRecord::Schema.verbose = false
 ActiveRecord::Schema.define do
   create_table(:wps) { |t| t.string :subject; t.integer :lock_version, default: 0, null: false }
   create_table(:plains) { |t| t.string :name }
+  create_table(:children) { |t| t.string :name }
+  create_table(:parents) { |t| t.string :name }
+  create_table(:outers) { |t| t.string :name }
 end
 class Wp < ActiveRecord::Base
   attr_accessor :boom
@@ -59,3 +64,21 @@ r = Plain.create!(name: "a")
 r.name = "b"
 puts "destroy returned: #{r.destroy.inspect}"
 puts "destroy rolled back: record name=#{r.name} changed=#{r.changed.inspect} stored=#{Plain.find(r.id).name} destroyed=#{r.destroyed?}"
+
+# A destroy nested in an outer save: the parent's before_destroy destroys a
+# child, then aborts. The nested transaction has no savepoint.
+$log = []
+class Child < ActiveRecord::Base
+  after_commit(on: :destroy) { $log << "child after_commit destroy" }
+end
+class Parent < ActiveRecord::Base
+  before_destroy { Child.first.destroy; throw :abort }
+end
+class Outer < ActiveRecord::Base
+  after_save { $log << "parent destroy returned #{Parent.first.destroy.inspect}" }
+end
+Child.create!(name: "c"); Parent.create!(name: "p")
+o = Outer.new(name: "o")
+saved = o.save
+puts "nested: outer save #{saved.inspect}; children=#{Child.count} parents=#{Parent.count} outers=#{Outer.count}"
+puts "nested: #{$log.inspect}"

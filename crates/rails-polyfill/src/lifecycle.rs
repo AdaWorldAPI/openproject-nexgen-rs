@@ -229,15 +229,19 @@ pub fn save(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Resul
 
     let committed = matches!(&result, Ok(s) if s.ok);
     if !committed {
+        if !outer {
+            // A nested record transaction joins the outer one (no savepoint,
+            // `requires_new: false`): its `ActiveRecord::Rollback` is swallowed
+            // and nothing is rolled back here; only the outermost transaction
+            // rolls back (oracle/lock_rollback.rb, nested scenario).
+            ctx.store.release(snapshot);
+            return result;
+        }
         ctx.store.rollback(snapshot);
+        ctx.pending_commit.clear();
         // `rolledback!` runs after_rollback, then restores the record state
         // in an `ensure` (transactions.rb:415-423).
-        let rolled_back = if outer {
-            ctx.pending_commit.clear();
-            run_chain(ctx, model, &[Phase::AfterRollback], action, rec)
-        } else {
-            Ok(())
-        };
+        let rolled_back = run_chain(ctx, model, &[Phase::AfterRollback], action, rec);
         rec.restore_transaction_state(record_state);
         rolled_back?;
         return result;
@@ -359,16 +363,18 @@ pub fn destroy(ctx: &mut Ctx, model: &'static ModelSpec, rec: &mut Record) -> Re
     let deleted = match result {
         Ok(Some(deleted)) => deleted,
         other => {
+            if !outer {
+                // Joined to the outer transaction: nothing is rolled back here
+                // (see `save`).
+                ctx.store.release(snapshot);
+                return other.map(|_| false);
+            }
             ctx.store.rollback(snapshot);
+            ctx.pending_commit.clear();
             // `rolledback!`: after_rollback, then the record state as it was
             // when the destroy's transaction began, `@destroyed` and the dirty
             // baseline included (transactions.rb:415-423, 494-517).
-            let rolled_back = if outer {
-                ctx.pending_commit.clear();
-                run_chain(ctx, model, &[Phase::AfterRollback], Action::Destroy, rec)
-            } else {
-                Ok(())
-            };
+            let rolled_back = run_chain(ctx, model, &[Phase::AfterRollback], Action::Destroy, rec);
             rec.restore_transaction_state(record_state);
             rolled_back?;
             return other.map(|_| false);
@@ -753,6 +759,69 @@ mod tests {
         // So the retry persists it.
         assert_eq!(save(&mut ctx, &PLAIN_MODEL, &mut rec).map(|s| s.ok), Ok(true));
         assert_eq!(find(&mut ctx, &PLAIN_MODEL, 1).unwrap().unwrap().get(1), &Value::str("b"));
+    }
+
+    static OUTERS: TableSpec = TableSpec {
+        name: "outers",
+        columns: &[
+            col("id", ColumnType::Integer, false, ColDefault::None),
+            col("name", ColumnType::String, true, ColDefault::None),
+        ],
+    };
+
+    fn destroy_first_child_then_abort(ctx: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
+        let mut child = find(ctx, &CHILD, 1)?.expect("child row");
+        destroy(ctx, &CHILD, &mut child)?;
+        Err(Halt::Abort)
+    }
+
+    fn destroy_first_parent(ctx: &mut Ctx, _: &mut Record) -> Result<Value, Halt> {
+        let mut parent = find(ctx, &PARENT, 1)?.expect("parent row");
+        let destroyed = destroy(ctx, &PARENT, &mut parent)?;
+        ctx.settings.insert("parent_destroyed".into(), Value::Bool(destroyed));
+        Ok(Value::Nil)
+    }
+
+    static CHILD: ModelSpec = ModelSpec {
+        name: "Child",
+        table: &PLAIN,
+        callbacks: &[cb(Phase::AfterCommit, "child_commit_destroy", On::DESTROY, noop)],
+    };
+
+    static PARENT: ModelSpec = ModelSpec {
+        name: "Parent",
+        table: &LOCKED,
+        callbacks: &[cb(Phase::BeforeDestroy, "destroy_child_then_abort", On::ANY, destroy_first_child_then_abort)],
+    };
+
+    static OUTER: ModelSpec = ModelSpec {
+        name: "Outer",
+        table: &OUTERS,
+        callbacks: &[cb(Phase::AfterSave, "destroy_parent", On::ANY, destroy_first_parent)],
+    };
+
+    /// ActiveRecord 8.1.4.1 (oracle/lock_rollback.rb, nested scenario): a
+    /// destroy nested in an outer save joins its transaction (no savepoint),
+    /// so the parent's aborted destroy rolls nothing back. The outer save
+    /// succeeds, the child stays deleted, and its after_commit runs when the
+    /// outer save commits.
+    #[test]
+    fn an_aborted_nested_destroy_rolls_nothing_back_as_rails_does() {
+        let mut ctx = ctx_with(&PLAIN);
+        ctx.store.register(&LOCKED);
+        ctx.store.register(&OUTERS);
+        ctx.store.seed(&PLAIN, &[("name", Value::str("c"))]).unwrap();
+        ctx.store.seed(&LOCKED, &[("name", Value::str("p"))]).unwrap();
+        let mut outer = build(&mut ctx, &OUTER, &[("name", Value::str("o"))]).unwrap();
+        assert_eq!(save(&mut ctx, &OUTER, &mut outer).map(|s| s.ok), Ok(true));
+        assert_eq!(ctx.settings.get("parent_destroyed"), Some(&Value::Bool(false)));
+        assert_eq!(
+            (ctx.store.count(&PLAIN), ctx.store.count(&LOCKED), ctx.store.count(&OUTERS)),
+            (0, 1, 1),
+            "children=0 parents=1 outers=1"
+        );
+        let child_commits = ctx.journal.iter().filter(|e| e.name == "child_commit_destroy").count();
+        assert_eq!(child_commits, 1, "the child's after_commit runs");
     }
 
     /// A rolled-back create restores the pre-save id and `new_record?`
