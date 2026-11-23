@@ -558,6 +558,12 @@ The P3b gaps are reported, not hidden:
   (:377-381), `update_descendants` on a project change (update_service.rb:67-82), non-member and
   module checks of `WorkPackage.visible` for the former parent, `parent_id_changed?` of
   schedule_following (:84-90, never true after a save), notifications, `apply_patterns`.
+  Kept as in OpenProject (owner decision on #154): on a move, the soonest start still
+  includes the predecessors of the former ancestors, because `new_start_date`
+  (set_attributes_service.rb:481-494) takes `max(new_start_date_from_parent,
+  work_package.soonest_start)` and `soonest_start` (scheduling_rules.rb:68-80) reads the stored
+  hierarchy before the save. With a due date given by the same edit, the dates can end up
+  inverted (start after due), exactly as in Ruby. Diverging needs an RFC.
 
 A committed row in that journey is evidence about the Rust paths, not Rails
 persistence parity.
