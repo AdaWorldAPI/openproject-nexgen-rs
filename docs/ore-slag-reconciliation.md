@@ -328,6 +328,10 @@ The P3b gaps are reported, not hidden:
 - Closed: the create writes its creation journal on the same transaction (one
   `journals` row at version 1 and one `work_package_journals` row copied from the work
   package; EXECUTED_DB step 2, and step 7 shows a post-insert failure rolls it back).
+  The create defaults the priority as Ruby does (`IssuePriority.active.default`,
+  `set_attributes_service.rb:237-239`); with no default it fails `priority: blank`
+  (`work_package/validations.rb:34`) instead of inserting NULL, so
+  `work_package_journals.priority_id` keeps its NOT NULL.
   Not ported of that journal: the association rows (attachments, custom values,
   labels, versions: empty for every work package this create writes), the
   `JOURNAL_CREATED` notification and aggregation.

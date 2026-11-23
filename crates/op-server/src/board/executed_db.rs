@@ -63,6 +63,11 @@ const TYPE_FEATURE: i64 = 32;
 const STATUS_NEW: i64 = 40;
 /// The one status with `is_default`.
 const STATUS_DEFAULT: i64 = 41;
+/// An `IssuePriority` that is not the default, and the active default one.
+const PRIORITY_LOW: i64 = 60;
+const PRIORITY_DEFAULT: i64 = 61;
+/// Inactive and marked default: `IssuePriority.active.default` must skip it.
+const PRIORITY_INACTIVE_DEFAULT: i64 = 62;
 
 /// Counts the committed-state assertions so the summary line can say how many were made.
 #[derive(Default)]
@@ -183,6 +188,13 @@ async fn seed(pool: &PgPool) {
         format!(
             "INSERT INTO statuses (id, name, is_default, position) VALUES \
              ({STATUS_NEW}, 'New', false, 1), ({STATUS_DEFAULT}, 'Open', true, 2)"
+        ),
+        // Position 0 puts the inactive default first: only the `active` filter skips it.
+        format!(
+            "INSERT INTO enumerations (id, type, name, position, is_default, active) VALUES \
+             ({PRIORITY_INACTIVE_DEFAULT}, 'IssuePriority', 'Retired', 0, true, false), \
+             ({PRIORITY_LOW}, 'IssuePriority', 'Low', 1, false, true), \
+             ({PRIORITY_DEFAULT}, 'IssuePriority', 'Normal', 2, true, true)"
         ),
     ];
     for s in statements {
@@ -334,15 +346,16 @@ async fn journey(db_url: String) -> Tally {
         .await
         .expect("A may add work packages in project 5");
     let id = created.id;
-    let (project_id, type_id, status_id, author_id, subject, lock_version): (
+    let (project_id, type_id, status_id, author_id, subject, lock_version, priority_id): (
         i64,
         i64,
         i64,
         i64,
         String,
         i32,
+        Option<i64>,
     ) = sqlx::query_as(
-        "SELECT project_id, type_id, status_id, author_id, subject, lock_version \
+        "SELECT project_id, type_id, status_id, author_id, subject, lock_version, priority_id \
          FROM work_packages WHERE id = $1",
     )
     .bind(id)
@@ -360,6 +373,11 @@ async fn journey(db_url: String) -> Tally {
     );
     assert_eq!(status_id, STATUS_DEFAULT, "the status marked is_default");
     assert_eq!(author_id, USER_A, "the author is the caller's users.id");
+    assert_eq!(
+        priority_id,
+        Some(PRIORITY_DEFAULT),
+        "IssuePriority.active.default: the active default, not the inactive one at position 0"
+    );
     assert_eq!(subject, "Persisted journey");
     assert_eq!(lock_version, 0);
     assert_eq!(
@@ -428,6 +446,23 @@ async fn journey(db_url: String) -> Tally {
     .await
     .expect("the journal points at exactly one data row");
     assert!(data_matches, "the data row is a copy of the work package");
+    let data_priority: i64 =
+        sqlx::query_scalar("SELECT priority_id FROM work_package_journals WHERE id = $1")
+            .bind(data_id)
+            .fetch_one(&verify)
+            .await
+            .expect("the journal data row carries a priority (NOT NULL)");
+    assert_eq!(data_priority, PRIORITY_DEFAULT, "the snapshot carries the default priority");
+    // Reading the journals back decodes `priority_id` as a non-null i64; a NULL would panic here.
+    let read_back = op_db::journals::JournalRepository::new(verify.clone())
+        .find_work_package_journals_with_data(id, op_db::repository::Pagination::default())
+        .await
+        .expect("the created work package's journals read back");
+    assert_eq!(read_back.items.len(), 1);
+    assert_eq!(
+        read_back.items[0].data.as_ref().map(|d| d.priority_id),
+        Some(PRIORITY_DEFAULT)
+    );
     assert_eq!(
         count(&verify, "SELECT count(*) FROM work_package_journals").await,
         1,
@@ -720,6 +755,13 @@ impl CreationStore for FailAfterInsert {
             pool: self.pool.clone(),
         }
         .default_status()
+        .await
+    }
+    async fn default_priority(&self) -> Result<Option<i64>, StoreFailure> {
+        PgMutationStore {
+            pool: self.pool.clone(),
+        }
+        .default_priority()
         .await
     }
     async fn status_is_closed(&self, status_id: i64) -> Result<Option<bool>, StoreFailure> {

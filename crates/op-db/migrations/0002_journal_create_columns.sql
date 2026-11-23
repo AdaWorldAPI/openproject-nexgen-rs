@@ -16,8 +16,8 @@ ALTER TABLE journals ADD COLUMN IF NOT EXISTS validity_period tstzrange;
 ALTER TABLE work_package_journals ADD COLUMN IF NOT EXISTS story_points integer;
 ALTER TABLE work_package_journals ADD COLUMN IF NOT EXISTS remaining_hours double precision;
 
--- OpenProject defaults `work_packages.priority_id` before the save (the column itself is
--- nullable, structure.sql:9020) so its journal column can be NOT NULL (:8868). The Rust
--- create does not default a priority yet, so the snapshot must be able to hold the work
--- package's NULL.
-ALTER TABLE work_package_journals ALTER COLUMN priority_id DROP NOT NULL;
+-- `work_package_journals.priority_id` stays NOT NULL, as in OpenProject (structure.sql:8868). The
+-- column on `work_packages` is nullable (:9020), but the create defaults the priority before the
+-- save (`IssuePriority.active.default`, set_attributes_service.rb:237-239) and the model
+-- validation `validates :priority, presence: true` (work_package/validations.rb:34) refuses a
+-- work package without one, so the snapshot never holds NULL; the Rust create does the same.
