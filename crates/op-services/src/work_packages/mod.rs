@@ -10,6 +10,7 @@ mod create;
 mod update;
 mod delete;
 mod set_attributes;
+pub mod mutation;
 
 pub use create::CreateWorkPackageService;
 pub use update::UpdateWorkPackageService;

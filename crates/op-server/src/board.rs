@@ -41,9 +41,10 @@ use crate::nav;
 use crate::signin::Who;
 use crate::viewfilter;
 use crate::write_guard::{
-    self, actor_key, EditOptions, PgWpStore, Principal, StoreError, WpStore, CSRF_FIELD,
-    EDIT_PROJECT, EDIT_WORK_PACKAGES,
+    self, actor_key, EditOptions, PageStore, PgWpStore, Principal, StoreError, WpStore, CSRF_FIELD,
+    EDIT_PROJECT,
 };
+use op_services::work_packages::mutation::{self, MutationError};
 
 // ── Field basis + FieldMask-driven column projection ─────────────────
 //
@@ -1016,41 +1017,35 @@ fn lookup<T, E: std::fmt::Display>(
     }
 }
 
-/// Require `permission` for the work package's project (OpenProject `edit_work_packages`).
-#[expect(
-    clippy::result_large_err,
-    reason = "the Err is the ready-to-send error page, returned straight to the handler"
-)]
-async fn authorize_wp<S: WpStore>(
-    store: &S,
-    ctx: &WriteCtx<'_>,
-    wp: &op_db::work_packages::WorkPackageRow,
-    permission: &str,
-) -> Result<(), Response> {
-    let active = store
-        .project_active(wp.project_id)
-        .await
-        .map_err(internal_error)?;
-    let principal = store
-        .principal(ctx.who, wp.project_id, ctx.allow_anonymous)
-        .await
-        .map_err(internal_error)?;
-    if write_guard::may(&principal, active, permission) {
-        Ok(())
-    } else {
-        Err(forbidden("You are not allowed to edit this work package."))
+/// The page answer to a work-package mutation the boundary refused or could not perform.
+///
+/// Authorization is decided by `op_services::work_packages::mutation` (the same decision the JSON
+/// API makes): an anonymous or unauthorized caller is 403 here, an unknown record 404, a store
+/// fault 500 without the database error echoed. Nothing else reaches a page from the boundary.
+fn mutation_error_page(e: MutationError, id: i64) -> Response {
+    match e {
+        MutationError::Unauthenticated | MutationError::Forbidden => {
+            forbidden("You are not allowed to edit this work package.")
+        }
+        MutationError::NotFound => status_page(
+            StatusCode::NOT_FOUND,
+            "Work package not found",
+            &format!("Work package #{id} not found."),
+        ),
+        MutationError::Invalid(v) => internal_error(format!("{v:?}")),
+        MutationError::Unresolved(m) | MutationError::Conflict(m) | MutationError::Store(m) => {
+            internal_error(m)
+        }
     }
 }
 
 /// Core of [`work_package_edit_form`], generic over the store so it is testable without a DB.
 async fn edit_form_core<S: WpStore>(store: &S, id: i64, ctx: &WriteCtx<'_>) -> Response {
-    let wp = match lookup(store.find_wp(id).await, "Work package", id) {
-        Ok(wp) => wp,
-        Err(resp) => return resp,
+    let caller = write_guard::caller_of(ctx.who, ctx.allow_anonymous);
+    let wp = match mutation::authorize_update(&PageStore(store), &caller, id).await {
+        Ok(ticket) => ticket.existing().clone(),
+        Err(e) => return mutation_error_page(e, id),
     };
-    if let Err(resp) = authorize_wp(store, ctx, &wp, EDIT_WORK_PACKAGES).await {
-        return resp;
-    }
 
     let EditOptions {
         statuses,
@@ -1327,24 +1322,25 @@ async fn update_core<S: WpStore>(
     ctx: &WriteCtx<'_>,
     form: &HashMap<String, String>,
 ) -> Response {
-    let existing = match lookup(store.find_wp(id).await, "Work package", id) {
-        Ok(wp) => wp,
-        Err(resp) => return resp,
+    // Authorization first, through the boundary the JSON API uses; the write is reachable only
+    // through the ticket it returns, and only after CSRF and parsing pass.
+    let caller = write_guard::caller_of(ctx.who, ctx.allow_anonymous);
+    let page_store = PageStore(store);
+    let ticket = match mutation::authorize_update(&page_store, &caller, id).await {
+        Ok(ticket) => ticket,
+        Err(e) => return mutation_error_page(e, id),
     };
-    if let Err(resp) = authorize_wp(store, ctx, &existing, EDIT_WORK_PACKAGES).await {
-        return resp;
-    }
     if !ctx.csrf_ok(form) {
         return forbidden("Missing or invalid form token. Reload the edit page and try again.");
     }
-    let dto = match parse_wp_update(form, &existing) {
+    let dto = match parse_wp_update(form, ticket.existing()) {
         Ok(dto) => dto,
         Err(e) => return unprocessable(id, &e),
     };
 
-    match store.update_wp(id, dto).await {
-        Ok(()) => Redirect::to(&format!("/work_packages/{id}")).into_response(),
-        Err(e) => internal_error(e),
+    match ticket.commit(&page_store, dto).await {
+        Ok(_) => Redirect::to(&format!("/work_packages/{id}")).into_response(),
+        Err(e) => mutation_error_page(e, id),
     }
 }
 
@@ -2816,6 +2812,7 @@ mod tests {
 #[cfg(test)]
 mod write_path_tests {
     use super::*;
+    use crate::write_guard::EDIT_WORK_PACKAGES;
     use chrono::Utc;
     use http_body_util::BodyExt;
     use std::collections::HashSet;
@@ -2924,12 +2921,16 @@ mod write_path_tests {
         async fn edit_options(&self) -> EditOptions {
             EditOptions::default()
         }
-        async fn update_wp(&self, id: i64, dto: UpdateWorkPackageDto) -> Result<(), StoreError> {
+        async fn update_wp(
+            &self,
+            id: i64,
+            dto: UpdateWorkPackageDto,
+        ) -> Result<op_db::work_packages::WorkPackageRow, StoreError> {
             if self.update_fails {
                 return Err(StoreError("db down".into()));
             }
             self.updates.lock().unwrap().push((id, dto));
-            Ok(())
+            Ok(wp())
         }
     }
 
@@ -3382,6 +3383,116 @@ mod write_path_tests {
         assert!(
             html.contains("name=\"authenticity_token\" value=\"TOKEN-WP\""),
             "{html}"
+        );
+    }
+
+    // ── one rule for pages and API ───────────────────────────────────
+
+    /// What a request was told, reduced to the decision.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Decision {
+        Allowed,
+        Refused,
+        NotFound,
+    }
+
+    fn api_patch() -> op_api::handlers::work_packages::UpdateWorkPackageDto {
+        op_api::handlers::work_packages::UpdateWorkPackageDto {
+            subject: Some("New subject".into()),
+            description: None,
+            type_id: None,
+            status_id: None,
+            priority_id: None,
+            assigned_to_id: None,
+            estimated_hours: None,
+            done_ratio: None,
+            lock_version: 1,
+        }
+    }
+
+    /// The page and the JSON API answer the same decision for the same principal and record: the
+    /// page's `update_core` and the API's `update_work_package_core` run over the SAME store
+    /// (the page store seen through the boundary), with the same sign-in outcome.
+    #[tokio::test]
+    async fn the_page_and_the_api_decide_the_same_for_the_same_principal_and_record() {
+        let signed_in = alice();
+        let refused = Who::Refused {
+            actor: "oidc:eve".into(),
+        };
+        let whos: [(&str, Option<&Who>, bool); 5] = [
+            ("anonymous", None, false),
+            ("anonymous, demo opt-in", None, true),
+            ("signed in", Some(&signed_in), false),
+            ("signed in, demo opt-in", Some(&signed_in), true),
+            ("refused", Some(&refused), false),
+        ];
+        let rights: [(&str, bool, &[&str]); 4] = [
+            ("editor", false, &[EDIT_WORK_PACKAGES]),
+            ("viewer", false, &["view_work_packages"]),
+            ("no membership", false, &[]),
+            ("admin", true, &[]),
+        ];
+        let (mut allowed, mut refused_n, mut not_found) = (0, 0, 0);
+        for (who_name, who, anon) in whos {
+            for (rights_name, admin, perms) in rights {
+                for (project_active, record_exists) in [(true, true), (false, true), (true, false)]
+                {
+                    let label = format!("{who_name} / {rights_name} / active={project_active} / exists={record_exists}");
+                    let mut store = Fake::new().member_of(PROJECT, perms);
+                    store.admin = admin;
+                    store.active = Ok(project_active);
+                    if !record_exists {
+                        store.wp = Ok(None);
+                    }
+
+                    // The page.
+                    let c = cookie();
+                    let headers = headers_with_cookie(&c);
+                    let actor = actor_key(who);
+                    let resp = update_core(
+                        &store,
+                        101,
+                        &ctx(who, &headers, anon),
+                        &good_form(&c, &actor),
+                    )
+                    .await;
+                    let page = match resp.status() {
+                        StatusCode::SEE_OTHER => Decision::Allowed,
+                        StatusCode::FORBIDDEN => Decision::Refused,
+                        StatusCode::NOT_FOUND => Decision::NotFound,
+                        other => panic!("{label}: page answered {other}"),
+                    };
+
+                    // The API, over the same store and the same sign-in outcome.
+                    let caller = write_guard::caller_of(who, anon);
+                    let api = match op_api::handlers::work_packages::update_work_package_core(
+                        &PageStore(&store),
+                        &caller,
+                        101,
+                        api_patch(),
+                    )
+                    .await
+                    {
+                        Ok(_) => Decision::Allowed,
+                        Err(e) => match e.status_code().as_u16() {
+                            401 | 403 => Decision::Refused,
+                            404 => Decision::NotFound,
+                            other => panic!("{label}: api answered {other}"),
+                        },
+                    };
+                    assert_eq!(page, api, "{label}");
+                    match page {
+                        Decision::Allowed => allowed += 1,
+                        Decision::Refused => refused_n += 1,
+                        Decision::NotFound => not_found += 1,
+                    }
+                }
+            }
+        }
+        // The matrix is not vacuous: every outcome occurs.
+        assert!(
+            allowed > 0 && refused_n > 0 && not_found > 0,
+            "{allowed}/{refused_n}/{not_found}"
         );
     }
 }

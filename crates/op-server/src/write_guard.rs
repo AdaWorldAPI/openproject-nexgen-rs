@@ -17,17 +17,16 @@
 //! Everything decision-shaped here is pure and tested without a database; the DB access sits
 //! behind [`WpStore`] (real impl: [`PgWpStore`]).
 
-use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use axum::http::{header, HeaderMap};
 use hmac::{Hmac, Mac};
 use op_db::repository::Repository;
 use op_db::{
-    MemberRepository, PriorityRepository, PriorityRow, ProjectRepository, RoleRepository,
-    StatusRepository, StatusRow, TypeRepository, TypeRow, UpdateWorkPackageDto, UserRepository,
-    UserRow,
+    PriorityRepository, PriorityRow, StatusRepository, StatusRow, TypeRepository, TypeRow,
+    UpdateWorkPackageDto, UserRepository, UserRow,
 };
+use op_services::work_packages::mutation::{self, Caller, MutationStore, StoreFailure};
 use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -35,8 +34,6 @@ use sqlx::PgPool;
 
 use crate::signin::Who;
 
-/// The permission that gates a work-package edit.
-pub const EDIT_WORK_PACKAGES: &str = "edit_work_packages";
 /// The permission that gates a project edit.
 pub const EDIT_PROJECT: &str = "edit_project";
 
@@ -172,35 +169,25 @@ pub fn token_valid(secret: &[u8], cookie: Option<&str>, token: Option<&str>, act
 
 // ── Authorization ────────────────────────────────────────────────────
 
-/// Who is asking, as far as authorization is concerned.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Principal {
-    /// No signed-in person. `allowed` is the explicit `OP_ALLOW_ANONYMOUS` opt-in (the demo
-    /// posture); without it an anonymous request may not write.
-    Anonymous { allowed: bool },
-    /// Signed in, but no `users` row has this actor as its login: no memberships, no rights.
-    Unprovisioned,
-    /// A `users` row, with the permissions their roles in the *target project* grant.
-    User {
-        admin: bool,
-        active: bool,
-        permissions: HashSet<String>,
-    },
-}
+#[cfg(test)]
+pub use op_services::work_packages::mutation::EDIT_WORK_PACKAGES;
+/// The authorization rule is the work-package mutation boundary's, shared with the JSON API
+/// (`op_services::work_packages::mutation`): the same [`Principal`], the same [`may`], the same
+/// permission name. Pages and API cannot disagree about who may edit a record.
+pub use op_services::work_packages::mutation::{may, Principal};
 
-/// May `principal` exercise `permission` in a project whose `active` flag is `project_active`?
-pub fn may(principal: &Principal, project_active: bool, permission: &str) -> bool {
-    if !project_active {
-        return false;
-    }
-    match principal {
-        Principal::Anonymous { allowed } => *allowed,
-        Principal::Unprovisioned => false,
-        Principal::User {
-            admin,
-            active,
-            permissions,
-        } => *active && (*admin || permissions.contains(permission)),
+/// The boundary's [`Caller`] for a request's sign-in outcome. Only a verified person is an
+/// `Actor`; a refused or absent sign-in is anonymous and never allowed, and `allow_anonymous` (the
+/// `OP_ALLOW_ANONYMOUS` demo opt-in) applies only to a request with no sign-in at all.
+pub fn caller_of(who: Option<&Who>, allow_anonymous: bool) -> Caller {
+    match who {
+        None => Caller::Anonymous {
+            allowed: allow_anonymous,
+        },
+        Some(Who::Caller { actor, .. }) => Caller::Actor {
+            login: actor.clone(),
+        },
+        Some(_) => Caller::Anonymous { allowed: false },
     }
 }
 
@@ -243,7 +230,11 @@ pub trait WpStore {
         allow_anonymous: bool,
     ) -> Result<Principal, StoreError>;
     async fn edit_options(&self) -> EditOptions;
-    async fn update_wp(&self, id: i64, dto: UpdateWorkPackageDto) -> Result<(), StoreError>;
+    async fn update_wp(
+        &self,
+        id: i64,
+        dto: UpdateWorkPackageDto,
+    ) -> Result<op_db::work_packages::WorkPackageRow, StoreError>;
 }
 
 /// The Postgres-backed [`WpStore`].
@@ -251,7 +242,8 @@ pub struct PgWpStore {
     pub pool: PgPool,
 }
 
-/// Resolve the principal for a request against `project_id`.
+/// Resolve the principal for a request against `project_id`: the boundary's loader
+/// (`op_services::work_packages::mutation::load_principal`), the same one the API uses.
 ///
 /// The signed-in actor is `oidc:<subject>`; it is matched against `users.login` (the provisioning
 /// convention: a person's `login` is their actor string). Their permissions in the project are
@@ -263,47 +255,16 @@ pub async fn load_principal(
     project_id: i64,
     allow_anonymous: bool,
 ) -> Result<Principal, StoreError> {
-    let actor = match who {
-        None => {
-            return Ok(Principal::Anonymous {
-                allowed: allow_anonymous,
-            })
-        }
-        Some(Who::Caller { actor, .. }) => actor,
-        Some(_) => return Ok(Principal::Anonymous { allowed: false }),
-    };
-    let Some(user) = UserRepository::new(pool.clone())
-        .find_by_login(actor)
+    mutation::load_principal(pool, &caller_of(who, allow_anonymous), project_id)
         .await
-        .map_err(store_err)?
-    else {
-        return Ok(Principal::Unprovisioned);
-    };
-    let mut permissions = HashSet::new();
-    if let Some(member) = MemberRepository::new(pool.clone())
-        .find_by_project_and_user(project_id, user.id)
-        .await
-        .map_err(store_err)?
-    {
-        let roles = RoleRepository::new(pool.clone());
-        for role_id in member.role_ids {
-            permissions.extend(roles.get_permissions(role_id).await.map_err(store_err)?);
-        }
-    }
-    Ok(Principal::User {
-        admin: user.admin,
-        active: user.is_active(),
-        permissions,
-    })
+        .map_err(|e| StoreError(e.to_string()))
 }
 
 /// Whether the project exists and is active.
 pub async fn load_project_active(pool: &PgPool, project_id: i64) -> Result<bool, StoreError> {
-    Ok(ProjectRepository::new(pool.clone())
-        .find_by_id(project_id)
+    mutation::load_project_active(pool, project_id)
         .await
-        .map_err(store_err)?
-        .is_some_and(|p| p.active))
+        .map_err(|e| StoreError(e.to_string()))
 }
 
 impl WpStore for PgWpStore {
@@ -351,12 +312,59 @@ impl WpStore for PgWpStore {
         }
     }
 
-    async fn update_wp(&self, id: i64, dto: UpdateWorkPackageDto) -> Result<(), StoreError> {
+    async fn update_wp(
+        &self,
+        id: i64,
+        dto: UpdateWorkPackageDto,
+    ) -> Result<op_db::work_packages::WorkPackageRow, StoreError> {
         op_db::WorkPackageRepository::new(self.pool.clone())
             .update(id, dto)
             .await
-            .map(|_| ())
             .map_err(store_err)
+    }
+}
+
+/// A [`WpStore`] seen through the mutation boundary's store trait. The pages keep their own
+/// store seam (it also serves the edit-form lookups); this adapter lets the boundary's
+/// authorization and write run over it, so the page and the API share one decision.
+pub struct PageStore<'a, S: WpStore>(pub &'a S);
+
+fn failure(e: StoreError) -> StoreFailure {
+    StoreFailure::Other(e.0)
+}
+
+impl<S: WpStore> MutationStore for PageStore<'_, S> {
+    async fn find_wp(
+        &self,
+        id: i64,
+    ) -> Result<Option<op_db::work_packages::WorkPackageRow>, StoreFailure> {
+        self.0.find_wp(id).await.map_err(failure)
+    }
+
+    async fn project_active(&self, project_id: i64) -> Result<bool, StoreFailure> {
+        self.0.project_active(project_id).await.map_err(failure)
+    }
+
+    async fn principal(&self, caller: &Caller, project_id: i64) -> Result<Principal, StoreFailure> {
+        let result = match caller {
+            Caller::Anonymous { allowed } => self.0.principal(None, project_id, *allowed).await,
+            Caller::Actor { login } => {
+                let who = Who::Caller {
+                    actor: login.clone(),
+                    role: String::new(),
+                };
+                self.0.principal(Some(&who), project_id, false).await
+            }
+        };
+        result.map_err(failure)
+    }
+
+    async fn update_wp(
+        &self,
+        id: i64,
+        dto: UpdateWorkPackageDto,
+    ) -> Result<op_db::work_packages::WorkPackageRow, StoreFailure> {
+        self.0.update_wp(id, dto).await.map_err(failure)
     }
 }
 
