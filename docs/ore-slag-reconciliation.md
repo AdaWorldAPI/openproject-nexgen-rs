@@ -514,9 +514,18 @@ The P3b gaps are reported, not hidden:
   Fri 13; an automatic parent spanning its children (Mon 16 .. Tue 24, 7 working days); a create
   under an automatic parent (aggregated, no cause); a move recomputing the former parent; rollback
   with a committing control; a second transaction's stale save of a rescheduled row a conflict.
-  Not ported: `SetAttributesService`'s derivation of `duration` from the dates (a Rust create or
-  edit never writes it, so such a work package has a NULL duration until a rescheduling sets one
-  and keeps its due date when it is moved; rows that carry a duration are handled as Ruby does),
+  The duration is derived as Ruby's `set_calculated_attributes` does (set_attributes_service.rb:92-107,
+  :158-185) for the dates of a create (the INSERT carries it) and an update (the UPDATE writes it):
+  milestone unification and duration 1 (`types.is_milestone`), the shift of the dates to working
+  days, then the first of duration, due date and start date that was not given and whose other two
+  are present (else exactly one present) is derived, in working or calendar days by
+  `ignore_non_working_days`. A date counts as given when set on create and when it differs from the
+  stored one on update (the update carries every current value forward). Step 13 asserts a
+  Rust-created successor (Mon 9 .. Thu 12, duration 4 from the INSERT) moved to Wed 11 .. Mon 16
+  with its four working days, and edits deriving 7 and 11 working days (a Saturday due date moves to
+  Monday) and 9 calendar days. Not ported: `update_dates` on update
+  (set_attributes_service.rb:337-381), the start and due date a new work package takes from its
+  parent (:293-312), `work_package_startdate_is_adddate`,
   `update_descendants` on a project change (update_service.rb:67-82), non-member and module checks
   of `WorkPackage.visible` for the former parent, `parent_id_changed?` of schedule_following
   (:84-90, never true after a save), notifications, `apply_patterns`.

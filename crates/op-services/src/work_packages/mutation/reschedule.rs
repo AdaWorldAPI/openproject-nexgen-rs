@@ -14,12 +14,16 @@
 //!
 //! * `work_package_hierarchies`: this schema has no closure table, so the hierarchy is read from
 //!   `parent_id` (the same substitution `has_scheduling_predecessors` makes).
-//! * `SetAttributesService`'s duration derivation: nothing in the create or update path writes
-//!   `work_packages.duration` from the dates (`update_duration`/`derive_dates`,
-//!   `set_attributes_service.rb`), so a work package created or edited here carries a NULL
-//!   duration until a rescheduling sets one. A row that carries a duration (written by
-//!   OpenProject, or by a migration) is rescheduled as Ruby does (`determine_due_date` keeps the
-//!   duration), a row without one keeps its due date.
+//! * Of `SetAttributesService`'s date handling only `set_calculated_attributes`' date part is
+//!   ported ([`derive_dates`], applied by the INSERT and the UPDATE of `PgCreateScope`): milestone
+//!   unification, the shift to working days, the milestone duration and the derivation of
+//!   `duration` (or a date) from the other two. Not ported: `update_dates`
+//!   (`set_attributes_service.rb:337-381`: an automatic work package pulled to its predecessors'
+//!   soonest start, a parent taking its rescheduled children's dates, on update), the default start
+//!   and due date a new work package takes from its parent (:293-312) and
+//!   `Setting.work_package_startdate_is_adddate`. A date counts as "given" (`params.has_key?`)
+//!   when it is set on create and when it differs from the stored one on update, because the
+//!   update carries every current value forward.
 //! * `update_descendants` on a project change (`update_service.rb:67-82`).
 //! * The `WorkPackage.visible(user)` check of the former parent (`update_service.rb:155`) models
 //!   only what `add_creator_as_watcher` models: an active project and `view_work_packages`
@@ -35,7 +39,7 @@ use chrono::NaiveDate;
 
 use super::{db_failure, PgCreateScope, StoreFailure, JOURNAL_AGGREGATION_TIME_MINUTES};
 use crate::work_packages::scheduling::{
-    schedule_following, Calendar, FollowsRelation, SchedWp, ScheduleInput,
+    derive_dates, schedule_following, Calendar, DateAttrs, FollowsRelation, SchedWp, ScheduleInput,
 };
 use op_core::traits::Id;
 
@@ -221,17 +225,7 @@ impl PgCreateScope {
             .collect();
         known.extend(self.load_sched(&missing).await?);
 
-        let calendar = Calendar {
-            non_working_dates: {
-                let mut tx = self.tx.lock().await;
-                sqlx::query_scalar::<_, NaiveDate>("SELECT date FROM non_working_days")
-                    .fetch_all(&mut **tx)
-                    .await
-                    .map_err(db_failure)?
-                    .into_iter()
-                    .collect()
-            },
-        };
+        let calendar = self.load_calendar().await?;
         let originals: HashMap<Id, SchedWp> = known.iter().map(|w| (w.id, w.clone())).collect();
         let input = ScheduleInput {
             known,
@@ -292,6 +286,47 @@ impl PgCreateScope {
             saved.push(node.id);
         }
         Ok(saved)
+    }
+
+    /// `NonWorkingDay.pluck(:date)` (`working_days.rb:178-181`), read on the transaction.
+    pub(super) async fn load_calendar(&self) -> Result<Calendar, StoreFailure> {
+        let mut tx = self.tx.lock().await;
+        let dates: Vec<NaiveDate> = sqlx::query_scalar("SELECT date FROM non_working_days")
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(db_failure)?;
+        Ok(Calendar {
+            non_working_dates: dates.into_iter().collect(),
+        })
+    }
+
+    /// The dates and duration a create or an update writes, from the ones submitted
+    /// ([`derive_dates`]). `start_given` / `due_given` say which of them the request set;
+    /// `ignore_non_working_days` is the work package's own flag; the type decides `milestone`.
+    pub(super) async fn derived_dates(
+        &self,
+        type_id: Id,
+        ignore_non_working_days: bool,
+        start_given: bool,
+        due_given: bool,
+        attrs: DateAttrs,
+    ) -> Result<DateAttrs, StoreFailure> {
+        let milestone: bool =
+            sqlx::query_scalar("SELECT COALESCE(is_milestone, false) FROM types WHERE id = $1")
+                .bind(type_id)
+                .fetch_optional(&mut **self.tx.lock().await)
+                .await
+                .map_err(db_failure)?
+                .unwrap_or(false);
+        let calendar = self.load_calendar().await?;
+        Ok(derive_dates(
+            &calendar,
+            ignore_non_working_days,
+            milestone,
+            start_given,
+            due_given,
+            attrs,
+        ))
     }
 
     async fn load_sched(&self, ids: &[Id]) -> Result<Vec<SchedWp>, StoreFailure> {

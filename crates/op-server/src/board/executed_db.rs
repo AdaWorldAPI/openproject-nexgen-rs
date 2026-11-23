@@ -162,7 +162,7 @@ async fn executed_db_work_package_journey() {
 
     match outcome {
         Ok(tally) => eprintln!(
-            "EXECUTED_DB: journey steps {}/13, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7), update journal: YES (steps 4, 8, 9: no-op, aggregated, new version, closed predecessor, rollback), ancestor totals: YES (step 10: derived hours and done ratio up a 3-level chain, excluded status, caused journals, aggregation, rollback), ancestor totals on update: YES (step 11: estimate and status edits, the edited parent's own totals aggregated into its journal, a move recomputing the former and the new chains, no write for a subject edit, rollback), switch to automatic mode and ignore_non_working_days: YES (step 12: only a direct manual parent with one child and no scheduling relation switches, the scheduling relations of automatic ancestors count and a manual ancestor cuts them off, the former parent is not switched, ignore_non_working_days follows the children except for manual ancestors, the former chain is recomputed), rescheduling: YES (step 13: a successor with a lag moved across a weekend and back with an aggregated related-change journal, a manual successor and a manual parent untouched, calendar days for ignore_non_working_days, a non-working day shifting the result, a parent spanning its children, a create under an automatic parent, the former parent recomputed on a move, rollback, a stale rescheduled row a conflict)",
+            "EXECUTED_DB: journey steps {}/13, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7), update journal: YES (steps 4, 8, 9: no-op, aggregated, new version, closed predecessor, rollback), ancestor totals: YES (step 10: derived hours and done ratio up a 3-level chain, excluded status, caused journals, aggregation, rollback), ancestor totals on update: YES (step 11: estimate and status edits, the edited parent's own totals aggregated into its journal, a move recomputing the former and the new chains, no write for a subject edit, rollback), switch to automatic mode and ignore_non_working_days: YES (step 12: only a direct manual parent with one child and no scheduling relation switches, the scheduling relations of automatic ancestors count and a manual ancestor cuts them off, the former parent is not switched, ignore_non_working_days follows the children except for manual ancestors, the former chain is recomputed), rescheduling: YES (step 13: the duration a create and an edit write in working or calendar days and kept by a moved successor, a successor with a lag moved across a weekend and back with an aggregated related-change journal, a manual successor and a manual parent untouched, calendar days for ignore_non_working_days, a non-working day shifting the result, a parent spanning its children, a create under an automatic parent, the former parent recomputed on a move, rollback, a stale rescheduled row a conflict)",
             tally.steps, tally.rows
         ),
         Err(panic) => std::panic::resume_unwind(panic),
@@ -3033,7 +3033,8 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
     );
     // Nor when it is the work package that is edited: PM's own due date moves to Tue 17 and stays
     // there (it is not recomputed from D1 Mon 16 and D2 Tue 17 .. Fri 20, which would give Fri 20).
-    // A Rust edit does not derive the duration: the seeded 3 stays.
+    // The edit derives the duration from the new dates: Mon 16, Tue 17 is 2 (the seeded 3 is
+    // replaced).
     set_due(pm13, "2026-03-17")
         .await
         .expect("C moves PM's due date");
@@ -3042,7 +3043,7 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         (
             Some(day("2026-03-16")),
             Some(day("2026-03-17")),
-            Some(3),
+            Some(2),
             true,
             1
         ),
@@ -3152,6 +3153,100 @@ async fn reschedule_step(pool: &PgPool, verify: &PgPool, t: &mut Tally) {
         );
     }
     t.rows += 4;
+
+    // I. The duration a Rust create and edit write (`set_calculated_attributes`,
+    // set_attributes_service.rb:92-107, :158-185). S1 is created by A with Mon 9 .. Thu 12: four
+    // working days, so the INSERT carries duration 4 (no SQL seed). It is then made automatic and
+    // follows X1 (manual, Mon 2 .. Wed 4) with lag 2. X1's due date to Fri 6: start is Wed 11
+    // (as in A); four working days from Wed 11 are Wed 11, Thu 12, Fri 13, Mon 16, so S1 is
+    // Wed 11 .. Mon 16 and keeps its duration 4. Without the stored duration the due date would
+    // stay Tue 10 and be clamped to the start: Wed 11 .. Wed 11.
+    let x1_13 = seed_dated("resched X1", "2026-03-02", "2026-03-04", 3, true).await;
+    let mut params = WorkPackageParams::new()
+        .with_subject("resched S1")
+        .with_dates(day("2026-03-09"), day("2026-03-12"));
+    params.project_id = Some(TARGET_PROJECT);
+    let s1_13 = mutation::create(&store, &caller_a, params)
+        .await
+        .expect("A creates S1")
+        .id;
+    assert_eq!(
+        dates(&verify, s1_13).await,
+        (
+            Some(day("2026-03-09")),
+            Some(day("2026-03-12")),
+            Some(4),
+            true,
+            0
+        ),
+        "the create derived the duration: Mon 9 .. Thu 12 is 4 working days"
+    );
+    sqlx::query("UPDATE work_packages SET schedule_manually = false WHERE id = $1")
+        .bind(s1_13)
+        .execute(&pool)
+        .await
+        .expect("S1 is automatic");
+    follows_lag(s1_13, x1_13, 2).await;
+    set_due(x1_13, "2026-03-06")
+        .await
+        .expect("C moves X1's due date");
+    assert_eq!(
+        dates(&verify, s1_13).await,
+        (
+            Some(day("2026-03-11")),
+            Some(day("2026-03-16")),
+            Some(4),
+            false,
+            1
+        ),
+        "S1 keeps its four working days: Wed 11 .. Mon 16"
+    );
+    // An edit derives the duration from the dates: W1 due Mon 2 .. Tue 10 is Mon 2-6 and Mon 9,
+    // Tue 10: 7. A due date on a Saturday (Sat 14) is shifted to the Monday (16): Mon 2-6, 9-13
+    // and 16: 11. W2 ignores non-working days: Mon 2 .. Tue 10 is 9 calendar days.
+    let w1 = seed_dated("resched W1", "2026-03-02", "2026-03-04", 3, true).await;
+    let w2 = seed_dated("resched W2", "2026-03-02", "2026-03-04", 3, true).await;
+    sqlx::query("UPDATE work_packages SET ignore_non_working_days = true WHERE id = $1")
+        .bind(w2)
+        .execute(&pool)
+        .await
+        .expect("W2 ignores non-working days");
+    set_due(w1, "2026-03-10").await.expect("C edits W1");
+    assert_eq!(
+        dates(&verify, w1).await,
+        (
+            Some(day("2026-03-02")),
+            Some(day("2026-03-10")),
+            Some(7),
+            true,
+            1
+        )
+    );
+    set_due(w1, "2026-03-14").await.expect("C edits W1 again");
+    assert_eq!(
+        dates(&verify, w1).await,
+        (
+            Some(day("2026-03-02")),
+            Some(day("2026-03-16")),
+            Some(11),
+            true,
+            2
+        ),
+        "a Saturday due date moves to Monday 16"
+    );
+    set_due(w2, "2026-03-10").await.expect("C edits W2");
+    assert_eq!(
+        dates(&verify, w2).await,
+        (
+            Some(day("2026-03-02")),
+            Some(day("2026-03-10")),
+            Some(9),
+            true,
+            1
+        ),
+        "calendar days: 9"
+    );
+    t.rows += 5;
 
     // G. Rollback. AR (manual) Mon 2 .. Wed 4, BR follows it (lag 0, duration 2) at Thu 5 .. Fri 6.
     // AR's due date to Fri 6 would move BR to Mon 9 .. Tue 10; a failing statement after the

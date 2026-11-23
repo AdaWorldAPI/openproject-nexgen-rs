@@ -117,6 +117,27 @@ impl<'a> Days<'a> {
         Ok(due)
     }
 
+    /// `start_date(due_date, duration)` (`working_days.rb:68-76`, `all_days.rb:51-56`): the start
+    /// of a work package that ends on `due` and takes `duration` days. The caller has refused a
+    /// duration that is not strictly positive.
+    pub fn start_date(&self, due: NaiveDate, duration: i32) -> NaiveDate {
+        if self.ignore_non_working_days {
+            return due - Duration::days(i64::from(duration) - 1);
+        }
+        let mut remaining = duration;
+        let mut start = due;
+        while !self.working(start) {
+            start -= Duration::days(1);
+        }
+        while !(remaining <= 1 && self.working(start)) {
+            start -= Duration::days(1);
+            if self.working(start) {
+                remaining -= 1;
+            }
+        }
+        start
+    }
+
     /// `soonest_working_day` (`working_days.rb:89-97`, `all_days.rb:67-69`).
     pub fn soonest_working_day(&self, date: NaiveDate) -> NaiveDate {
         let mut date = date;
@@ -155,6 +176,84 @@ pub fn with_lag(calendar: &Calendar, date: NaiveDate, lag: Option<i32>) -> Naive
             day -= Duration::days(1);
         }
         day
+    }
+}
+
+/// The three date attributes of a work package being written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DateAttrs {
+    pub start_date: Option<NaiveDate>,
+    pub due_date: Option<NaiveDate>,
+    pub duration: Option<i32>,
+}
+
+/// The date part of `WorkPackages::SetAttributesService#set_calculated_attributes`
+/// (`set_attributes_service.rb:92-107`) for a create or an update, in Ruby's order:
+/// `unify_milestone_dates` (:383-388, a milestone has one date: the due date, else the start),
+/// `shift_dates_to_soonest_working_days` (:390-395, unless the work package ignores non-working
+/// days), `update_duration_to_one_day_for_milestones` (:397-399) and
+/// `update_derivable_date_attribute` (:158-185): of duration, due date and start date, the first
+/// (in that order) that was not given and whose other two are present is derived from them, else
+/// the first that was not given and whose other two have exactly one present
+/// (`derivable_date_attribute_by_others_presence` / `_absence`, :113-153). The duration is never a
+/// submitted attribute here, so it is always "not given". An invalid duration (zero or negative)
+/// derives neither date.
+pub fn derive_dates(
+    calendar: &Calendar,
+    ignore_non_working_days: bool,
+    milestone: bool,
+    start_given: bool,
+    due_given: bool,
+    attrs: DateAttrs,
+) -> DateAttrs {
+    let days = Days::for_work_package(ignore_non_working_days, calendar);
+    let DateAttrs {
+        mut start_date,
+        mut due_date,
+        mut duration,
+    } = attrs;
+    if milestone {
+        let unified = due_date.or(start_date);
+        start_date = unified;
+        due_date = unified;
+    }
+    if !ignore_non_working_days {
+        start_date = start_date.map(|d| days.soonest_working_day(d));
+        due_date = due_date.map(|d| days.soonest_working_day(d));
+    }
+    if milestone {
+        duration = Some(1);
+    }
+    // 0 = duration, 1 = due date, 2 = start date.
+    let given = [false, due_given, start_given];
+    let present = [duration.is_some(), due_date.is_some(), start_date.is_some()];
+    let others = |f: usize| [0usize, 1, 2].into_iter().filter(move |o| *o != f);
+    let by_presence = (0..3).find(|&f| !given[f] && others(f).all(|o| present[o]));
+    let field = by_presence
+        .or_else(|| (0..3).find(|&f| !given[f] && others(f).filter(|&o| present[o]).count() == 1));
+    let valid_duration = !duration.is_some_and(|d| d <= 0);
+    match field {
+        Some(0) => {
+            duration = if milestone {
+                Some(1)
+            } else {
+                days.duration(start_date, due_date)
+            };
+        }
+        Some(1) if valid_duration => {
+            due_date = start_date
+                .zip(duration)
+                .map(|(s, d)| days.due_date(s, d).unwrap_or(s));
+        }
+        Some(2) if valid_duration => {
+            start_date = due_date.zip(duration).map(|(u, d)| days.start_date(u, d));
+        }
+        _ => {}
+    }
+    DateAttrs {
+        start_date,
+        due_date,
+        duration,
     }
 }
 
@@ -595,6 +694,72 @@ mod tests {
         // A negative lag moves back: 1 working day back from Tue 10 is Tue 10 itself.
         assert_eq!(with_lag(&cal, d("2026-03-10"), Some(-1)), d("2026-03-10"));
         assert_eq!(with_lag(&cal, d("2026-03-10"), Some(-2)), d("2026-03-09"));
+    }
+
+    #[test]
+    fn dates_derive_the_duration_and_shift_to_working_days() {
+        let cal = Calendar::default();
+        let a = |s: &str, u: &str| DateAttrs {
+            start_date: Some(d(s)),
+            due_date: Some(d(u)),
+            duration: None,
+        };
+        // Fri 6 .. Tue 10: Fri, Mon, Tue.
+        let out = derive_dates(
+            &cal,
+            false,
+            false,
+            true,
+            true,
+            a("2026-03-06", "2026-03-10"),
+        );
+        assert_eq!(out.duration, Some(3));
+        // A Saturday start moves to Monday; Sat 7 .. Tue 10 is Mon 9 .. Tue 10: 2.
+        let out = derive_dates(
+            &cal,
+            false,
+            false,
+            true,
+            true,
+            a("2026-03-07", "2026-03-10"),
+        );
+        assert_eq!(
+            (out.start_date, out.duration),
+            (Some(d("2026-03-09")), Some(2))
+        );
+        // Calendar days keep Saturday: Sat 7 .. Tue 10 is 4.
+        let out = derive_dates(&cal, true, false, true, true, a("2026-03-07", "2026-03-10"));
+        assert_eq!(
+            (out.start_date, out.duration),
+            (Some(d("2026-03-07")), Some(4))
+        );
+        // A milestone has one date and duration 1.
+        let out = derive_dates(&cal, false, true, true, true, a("2026-03-06", "2026-03-10"));
+        assert_eq!(
+            (out.start_date, out.due_date, out.duration),
+            (Some(d("2026-03-10")), Some(d("2026-03-10")), Some(1))
+        );
+        // Only a start: nothing to derive from.
+        let only = DateAttrs {
+            start_date: Some(d("2026-03-06")),
+            due_date: None,
+            duration: None,
+        };
+        assert_eq!(
+            derive_dates(&cal, false, false, true, false, only).duration,
+            None
+        );
+    }
+
+    #[test]
+    fn a_start_date_is_derived_from_due_and_duration() {
+        let cal = Calendar::default();
+        let days = Days::for_work_package(false, &cal);
+        // 3 working days ending Tue 10: Fri 6, Mon 9, Tue 10.
+        assert_eq!(days.start_date(d("2026-03-10"), 3), d("2026-03-06"));
+        assert_eq!(days.start_date(d("2026-03-08"), 1), d("2026-03-06"));
+        let all = Days::for_work_package(true, &cal);
+        assert_eq!(all.start_date(d("2026-03-10"), 3), d("2026-03-08"));
     }
 
     fn wp(

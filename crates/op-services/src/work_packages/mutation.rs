@@ -37,6 +37,7 @@ use op_db::{
 };
 use sqlx::PgPool;
 
+use super::scheduling;
 use super::{CreateWorkPackageService, WorkPackageParams};
 
 /// The permission that gates a work-package create.
@@ -1788,6 +1789,35 @@ impl PgCreateScope {
         id: Id,
         dto: UpdateWorkPackageDto,
     ) -> Result<WorkPackageRow, StoreFailure> {
+        // `set_calculated_attributes` (`set_attributes_service.rb:92-107`): the dates and the
+        // duration the UPDATE writes. A date was "given" when it differs from the stored one.
+        let (cur_start, cur_due, ignore, cur_type): (
+            Option<chrono::NaiveDate>,
+            Option<chrono::NaiveDate>,
+            bool,
+            Id,
+        ) = sqlx::query_as(
+            "SELECT start_date, due_date, ignore_non_working_days, type_id \
+             FROM work_packages WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&mut **self.tx.lock().await)
+        .await
+        .map_err(db_failure)?
+        .ok_or_else(|| StoreFailure::NotFound(format!("work package {id}")))?;
+        let dates = self
+            .derived_dates(
+                dto.type_id.unwrap_or(cur_type),
+                ignore,
+                dto.start_date != cur_start,
+                dto.due_date != cur_due,
+                scheduling::DateAttrs {
+                    start_date: dto.start_date,
+                    due_date: dto.due_date,
+                    duration: None,
+                },
+            )
+            .await?;
         let mut tx = self.tx.lock().await;
         sqlx::query_as::<_, WorkPackageRow>(
             r#"
@@ -1806,6 +1836,7 @@ impl PgCreateScope {
                 parent_id = $12,
                 version_id = $13,
                 category_id = $14,
+                duration = $17,
                 lock_version = lock_version + 1,
                 updated_at = NOW()
             WHERE id = $15 AND lock_version = $16
@@ -1823,8 +1854,8 @@ impl PgCreateScope {
         .bind(dto.priority_id)
         .bind(dto.assigned_to_id)
         .bind(dto.responsible_id)
-        .bind(dto.start_date)
-        .bind(dto.due_date)
+        .bind(dates.start_date)
+        .bind(dates.due_date)
         .bind(dto.estimated_hours)
         .bind(dto.done_ratio)
         .bind(dto.parent_id)
@@ -1832,6 +1863,7 @@ impl PgCreateScope {
         .bind(dto.category_id)
         .bind(id)
         .bind(dto.lock_version)
+        .bind(dates.duration)
         .fetch_optional(&mut **tx)
         .await
         .map_err(db_failure)?
@@ -2250,6 +2282,22 @@ impl CreationStore for PgCreateScope {
     }
 
     async fn insert_wp(&self, dto: CreateWorkPackageDto) -> Result<WorkPackageRow, StoreFailure> {
+        // The dates and the duration the INSERT carries: `set_calculated_attributes`
+        // (`set_attributes_service.rb:92-107`), before the save. A new work package does not
+        // ignore non-working days.
+        let dates = self
+            .derived_dates(
+                dto.type_id,
+                false,
+                dto.start_date.is_some(),
+                dto.due_date.is_some(),
+                scheduling::DateAttrs {
+                    start_date: dto.start_date,
+                    due_date: dto.due_date,
+                    duration: None,
+                },
+            )
+            .await?;
         let mut tx = self.tx.lock().await;
         sqlx::query_as::<_, WorkPackageRow>(
             r#"
@@ -2258,9 +2306,9 @@ impl CreationStore for PgCreateScope {
                 priority_id, author_id, assigned_to_id, responsible_id,
                 start_date, due_date, estimated_hours, done_ratio,
                 parent_id, version_id, category_id, lock_version,
-                created_at, updated_at, remaining_hours
+                created_at, updated_at, remaining_hours, duration
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0, NOW(), NOW(), $17
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0, NOW(), NOW(), $17, $18
             )
             RETURNING id, subject, description, project_id, type_id, status_id,
                       priority_id, author_id, assigned_to_id, responsible_id,
@@ -2278,14 +2326,15 @@ impl CreationStore for PgCreateScope {
         .bind(dto.author_id)
         .bind(dto.assigned_to_id)
         .bind(dto.responsible_id)
-        .bind(dto.start_date)
-        .bind(dto.due_date)
+        .bind(dates.start_date)
+        .bind(dates.due_date)
         .bind(dto.estimated_hours)
         .bind(dto.done_ratio)
         .bind(dto.parent_id)
         .bind(dto.version_id)
         .bind(dto.category_id)
         .bind(dto.remaining_hours)
+        .bind(dates.duration)
         .fetch_one(&mut **tx)
         .await
         .map_err(db_failure)
