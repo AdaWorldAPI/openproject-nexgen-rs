@@ -15,6 +15,11 @@ pub trait UserContext: Send + Sync {
     fn is_anonymous(&self) -> bool;
     fn allowed_in_project(&self, permission: &str, project_id: Id) -> bool;
     fn allowed_globally(&self, permission: &str) -> bool;
+    /// `User#allowed_in_any_project?`: the permission is held in at least one project.
+    /// Defaults to [`UserContext::allowed_globally`] for implementers that do not track it.
+    fn allowed_in_any_project(&self, permission: &str) -> bool {
+        self.allowed_globally(permission)
+    }
     fn allowed_for_work_package(&self, permission: &str, work_package_id: Id) -> bool {
         // Default implementation - override in concrete types
         let _ = (permission, work_package_id);

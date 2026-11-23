@@ -6,11 +6,18 @@
 //! - app/contracts/work_packages/update_contract.rb
 //! - app/contracts/work_packages/delete_contract.rb
 
+mod admission;
 mod base;
+#[rustfmt::skip]
+mod generated_create_admission;
 mod create;
 mod update;
 mod delete;
 
+pub use admission::{
+    admit_create, changed_column, guard_facts, is_writable, not_evaluated_validators, AdmissionFacts,
+    AttrRule, CreateAdmission, Op, Unresolved, Verdict, Writable, WritableRule,
+};
 pub use base::{WorkPackageBaseContract, WorkPackageData};
 pub use create::CreateWorkPackageContract;
 pub use update::UpdateWorkPackageContract;

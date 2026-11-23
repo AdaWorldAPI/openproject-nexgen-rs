@@ -1,29 +1,27 @@
-//! One executed ON/WHEN/DO transition: `WorkPackages::CreateService` for the
-//! `create_member` case, evaluated on the Rust side and compared with what real
-//! OpenProject did (`oracle/work-package-service-trace.json`,
+//! One transition, executed: `WorkPackages::CreateService` for `create_member`,
+//! compared with what real OpenProject did (`oracle/work-package-service-trace.json`,
 //! `oracle/work-package-contract-trace.json`).
 //!
-//! Three layers, kept apart in the assertions and in the output:
+//! Every compared item carries one of three categories, and only the first counts
+//! towards execution parity:
 //!
-//! 1. WHEN (contract admission). `CreateContract` is evaluated: each submitted
-//!    attribute's `writable:` guard (lowered by `ruff_ruby_spo::extract_contract_guards`)
-//!    and the permission the contract declares for it, for the role the oracle
-//!    setup gave the user, plus `user_allowed_to_add`. The verdict and the
-//!    per-attribute `writable` answers are compared with the oracle.
-//! 2. Registration versus invocation. The callbacks Rails registers for a
-//!    create (the effective chain harvested by `callback_differential`) against
-//!    the ones the oracle journal shows invoked. Registration is never counted
-//!    as invocation.
-//! 3. DO (observable effects). What the Rust create path assigns and persists
-//!    against `changed_attributes`, `row_deltas`, `persisted`, `enqueued_jobs`.
-//!    Every oracle effect is either predicted (and compared) or a typed slag.
+//! - EXECUTED: production Rust (not test code) ran the rule and produced the result.
+//!   Here: `op_services::CreateWorkPackageService::call`, which runs
+//!   `op_contracts::work_packages::admit_create` over a table generated from the
+//!   Ruby contracts by ruff's lowering. Compared: the verdict, the error keys and
+//!   codes, and `writable?` per attribute.
+//! - PREDICTED: a model derived from the Ruby source (not from the trace) says what
+//!   to expect, but no Rust implementation ran it: the callback registrations
+//!   (`callback_harvest`) and the effect expectations derived from admission.
+//! - SLAG: not modeled; named, never dropped.
 //!
-//! The Rust create path that is exercised is `op_services::CreateWorkPackageService`
-//! (a stub: it validates through `op_contracts::CreateWorkPackageContract` and
-//! assigns an id, nothing else). The admission verdict does NOT come from it: its
-//! contract is hand-written, so the verdict is evaluated from the lowered guards
-//! and the scanned permission declarations. The stub supplies the entity the
-//! effect layer predicts from and a second admission opinion that is reported.
+//! Inputs are the oracle's own: user, permissions and submitted attribute names are
+//! parsed from `work_package_service.rb`; guard facts come from the contract trace.
+//! The traces record attribute NAMES for the submitted work package, not values, so
+//! no value is compared and none is invented: the service takes names only.
+//!
+//! The test also fails when the checked-in admission table differs from what the
+//! generator produces from the checkout.
 //!
 //! Needs `OPENPROJECT_SRC` (a checkout at the trace revision). Without it the
 //! test prints UNVERIFIED and passes, unless `REQUIRE_SOURCES=1`.
@@ -31,25 +29,35 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use op_codegen_pipeline::admission_gen::{self, ExtractionGap};
+use op_codegen_pipeline::callback_harvest as cb;
 use op_contracts::base::UserContext;
+use op_contracts::work_packages::{
+    changed_column, guard_facts, is_writable, not_evaluated_validators, AdmissionFacts,
+    CreateAdmission, Unresolved, Verdict, Writable,
+};
 use op_core::traits::Id;
 use op_services::work_packages::{CreateWorkPackageService, WorkPackageParams};
-use ruff_ruby_spo::{extract_contract_guards, ContractGuard, GuardExpr, GuardOutcome};
 use serde_json::Value;
-
-/// The callback harvest and the effective Rails registration order are the ones
-/// `callback_differential` measures; its items are `pub` for this reuse. Its own
-/// test also runs in this binary (same result, a few seconds).
-#[allow(dead_code)]
-#[path = "callback_differential.rs"]
-mod cb;
 
 const CASE: &str = "create_member";
 const DENIED_CASE: &str = "create_no_permission";
 const CREATE: &str = "WorkPackages::CreateContract";
-const BASE: &str = "WorkPackages::BaseContract";
 
-/// Lowered fact name -> fact key in the contract trace (as in `guard_differential`).
+/// The oracle records the permission set a user holds in the one project its case
+/// creates, not a project id. This handle stands for that project: the test user
+/// answers for it and for nothing else (asserted), so it is a name, not a value.
+const CASE_PROJECT: Id = 7;
+
+/// An id that says "this attribute is submitted" for attributes whose values the
+/// oracle does not record. Admission never reads it and no comparison uses it.
+const OPAQUE_MARKER: Id = 1;
+
+/// The checked-in table, for the drift check.
+const CHECKED_IN_TABLE: &str =
+    include_str!("../../op-contracts/src/work_packages/generated_create_admission.rs");
+
+/// Lowered fact name -> fact key in the contract trace.
 const FACT_ALIASES: &[(&str, &str)] = &[
     ("model.leaf?", "leaf?"),
     ("model.schedule_manually?", "schedule_manually"),
@@ -60,12 +68,34 @@ const FACT_ALIASES: &[(&str, &str)] = &[
         "effective_target_versions.any?(&:closed?)",
     ),
     ("model.status_id_change", "status_id_change_present"),
-    // Not a trace fact: the oracle setup says whether the user is an admin.
-    ("user.admin?", "user.admin?"),
 ];
 
 /// Measured at OpenProject 2725194 on the committed traces.
 const FLOOR_CONTRACT_COMPARED: usize = 100;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Category {
+    Executed,
+    Predicted,
+    Slag,
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+struct Score {
+    executed: usize,
+    predicted: usize,
+    slag: usize,
+}
+
+impl Score {
+    fn add(&mut self, c: Category, n: usize) {
+        match c {
+            Category::Executed => self.executed += n,
+            Category::Predicted => self.predicted += n,
+            Category::Slag => self.slag += n,
+        }
+    }
+}
 
 fn source() -> Option<PathBuf> {
     match std::env::var("OPENPROJECT_SRC") {
@@ -130,7 +160,9 @@ impl UserKind {
 /// `NAME = %i[ a b c ].freeze` -> `["a", "b", "c"]`.
 fn percent_i(text: &str, name: &str) -> Vec<String> {
     let head = format!("{name} = %i[");
-    let at = text.find(&head).unwrap_or_else(|| panic!("no {name} in the oracle script"));
+    let at = text
+        .find(&head)
+        .unwrap_or_else(|| panic!("no {name} in the oracle script"));
     let rest = &text[at + head.len()..];
     let end = rest.find(']').expect("unterminated %i[");
     rest[..end].split_whitespace().map(str::to_string).collect()
@@ -138,21 +170,23 @@ fn percent_i(text: &str, name: &str) -> Vec<String> {
 
 /// The text of one case lambda in a `CASES = { "name" => lambda { ... } }` table.
 fn case_block<'a>(rb: &'a str, name: &str) -> &'a str {
-    let start = rb
-        .find(&format!("\"{name}\" => lambda"))
-        .unwrap_or_else(|| panic!("no case {name}"));
-    let rest = &rb[start + 1..];
-    let end = rest
+    let header = format!("\"{name}\" => lambda");
+    let start = rb.find(&header).unwrap_or_else(|| panic!("no case {name}"));
+    let body = start + header.len();
+    let end = rb[body..]
         .find("\" => lambda")
-        .map_or_else(|| rest.find(".freeze").expect("end of CASES"), |e| e);
-    &rb[start..start + 1 + end]
+        .or_else(|| rb[body..].find(".freeze"))
+        .expect("end of CASES");
+    &rb[start..body + end]
 }
 
 /// Who the case runs as, read from the lambda body.
 fn user_of_block(block: &str, default_perms: &[String]) -> UserKind {
     if block.contains("create(:admin)") {
         UserKind::Admin
-    } else if block.contains("member_user(project, [])") || block.contains("member_user(wp.project, [])") {
+    } else if block.contains("member_user(project, [])")
+        || block.contains("member_user(wp.project, [])")
+    {
         UserKind::Member(Vec::new())
     } else if block.contains("member_user(project)") || block.contains("member_user(wp.project)") {
         UserKind::Member(default_perms.to_vec())
@@ -192,7 +226,8 @@ fn keys_of(list: &str) -> Vec<String> {
 /// `params_for` plus the extras the case lambda adds.
 fn submitted_of(rb: &str, block: &str) -> Vec<String> {
     let def = rb.find("def params_for").expect("params_for");
-    let body = &rb[def..];
+    // Skip the signature line (`extra = {}` holds a brace of its own).
+    let body = &rb[def + rb[def..].find('\n').expect("params_for body")..];
     let open = body.find('{').expect("hash literal") + 1;
     let close = body[open..].find("}.merge").expect("}.merge") + open;
     let mut keys = keys_of(&body[open..close]);
@@ -205,380 +240,64 @@ fn submitted_of(rb: &str, block: &str) -> Vec<String> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Contract declarations ruff does not lower: `permission:` and aliases
-// ─────────────────────────────────────────────────────────────────────────
-//
-// `extract_contract_guards` lowers `writable:` only. Which permission an
-// attribute needs is declared next to it (`attribute :x, permission: ...`,
-// `default_attribute_permission ...`), and `BaseContract#reduce_by_writable_permissions`
-// (`app/contracts/base_contract.rb:~245-265`) combines the two. The declarations
-// are read here with a line scan of the two contract files; that is a gap in
-// ruff's contract arm, named in the oracle README, not a rule written by hand.
-
-#[derive(Debug, Clone, Default)]
-struct AttrInfo {
-    /// `writable: false` written literally.
-    literal_false: bool,
-    /// The writable condition comes from a macro ruff cannot see.
-    opaque_writable: Option<String>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct ContractModel {
-    /// Canonical attribute name (no `_id`) -> declaration.
-    declared: BTreeMap<String, AttrInfo>,
-    /// Permission list as declared (`status_id`, `target_versions`, ...).
-    perms: BTreeMap<String, Vec<String>>,
-    default_perm: Option<Vec<String>>,
-    /// `attribute_alias :db, :outside` as outside canonical -> db canonical.
-    alias: BTreeMap<String, String>,
-    /// `validate :method` statements, in order.
-    validators: Vec<String>,
-}
-
-fn canon(attr: &str) -> String {
-    attr.strip_suffix("_id").unwrap_or(attr).to_string()
-}
-
-fn ident_after(s: &str, prefix: &str) -> Option<String> {
-    let rest = s.trim_start().strip_prefix(prefix)?;
-    let id: String = rest
-        .chars()
-        .take_while(|c| c.is_alphanumeric() || *c == '_')
-        .collect();
-    (!id.is_empty()).then_some(id)
-}
-
-/// `%i[a b]` or `:a` at the start of `v`.
-fn symbol_list(v: &str) -> Vec<String> {
-    let v = v.trim_start();
-    if let Some(rest) = v.strip_prefix("%i[") {
-        let end = rest.find(']').unwrap_or(rest.len());
-        rest[..end].split_whitespace().map(str::to_string).collect()
-    } else if let Some(id) = ident_after(v, ":") {
-        vec![id]
-    } else {
-        Vec::new()
-    }
-}
-
-/// Fold one contract file into `m` (later files override earlier ones, as a
-/// subclass overrides its ancestors in `collect_ancestor_attributes`).
-fn scan_contract_file(text: &str, m: &mut ContractModel) {
-    let lines: Vec<&str> = text.lines().collect();
-    let mut i = 0;
-    while i < lines.len() {
-        let t = lines[i].trim();
-        if t.starts_with("attribute ") && t.contains(':') {
-            // A statement continues while the line ends with a comma.
-            let mut stmt = t.to_string();
-            while stmt.trim_end().ends_with(',') && i + 1 < lines.len() {
-                i += 1;
-                stmt.push(' ');
-                stmt.push_str(lines[i].trim());
-            }
-            if let Some(name) = ident_after(&stmt, "attribute :") {
-                let mut info = AttrInfo::default();
-                if let Some(at) = stmt.find("writable:") {
-                    info.literal_false = stmt[at + 9..].trim_start().starts_with("false");
-                }
-                if let Some(at) = stmt.find("permission:") {
-                    let list = symbol_list(&stmt[at + 11..]);
-                    if !list.is_empty() {
-                        m.perms.insert(name.clone(), list);
-                    }
-                }
-                m.declared.insert(canon(&name), info);
-            }
-        } else if let Some(rest) = t.strip_prefix("attribute_alias ") {
-            let ids: Vec<String> = rest
-                .split(',')
-                .filter_map(|p| ident_after(p, ":"))
-                .collect();
-            if let [db, outside] = ids.as_slice() {
-                m.alias.insert(canon(outside), canon(db));
-            }
-        } else if let Some(rest) = t.strip_prefix("default_attribute_permission ") {
-            m.default_perm = Some(symbol_list(rest));
-        } else if let Some(rest) = t.strip_prefix("allow_writable_timestamps ") {
-            for name in symbol_list(rest) {
-                m.declared.insert(
-                    canon(&name),
-                    AttrInfo {
-                        literal_false: false,
-                        opaque_writable: Some(
-                            "AdminWritableTimestamps.allow_writable_timestamps".into(),
-                        ),
-                    },
-                );
-            }
-        } else if let Some(name) = ident_after(t, "validate :") {
-            m.validators.push(name);
-        }
-        i += 1;
-    }
-}
-
-fn contract_model(src: &Path) -> ContractModel {
-    let mut m = ContractModel::default();
-    for f in ["base_contract.rb", "create_contract.rb"] {
-        let text = std::fs::read_to_string(src.join("app/contracts/work_packages").join(f))
-            .unwrap_or_else(|e| panic!("{f}: {e}"));
-        scan_contract_file(&text, &mut m);
-    }
-    m
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// Guard evaluation (three-valued: a fact the oracle did not record is unknown)
+// Authorization: EXECUTED by production code
 // ─────────────────────────────────────────────────────────────────────────
 
-type Facts = BTreeMap<String, Value>;
+/// The user of an oracle case, as production code sees a user.
+struct OracleUser {
+    kind: UserKind,
+}
 
-/// Kleene evaluation. `Err(names)` lists the unrecorded facts that decided
-/// nothing; `And(false, unknown)` is still `false`.
-fn eval(e: &GuardExpr, facts: &Facts) -> Result<bool, Vec<String>> {
-    match e {
-        GuardExpr::Const(b) => Ok(*b),
-        GuardExpr::Fact(name) => {
-            let key = FACT_ALIASES.iter().find(|(f, _)| f == name).map(|(_, k)| *k);
-            match key.and_then(|k| facts.get(k)) {
-                Some(Value::Bool(b)) => Ok(*b),
-                Some(Value::Null) => Ok(false),
-                _ => Err(vec![name.clone()]),
-            }
-        }
-        GuardExpr::Not(a) => eval(a, facts).map(|b| !b),
-        GuardExpr::And(a, b) => match (eval(a, facts), eval(b, facts)) {
-            (Ok(false), _) | (_, Ok(false)) => Ok(false),
-            (Ok(true), Ok(true)) => Ok(true),
-            (x, y) => Err(x.err().into_iter().chain(y.err()).flatten().collect()),
-        },
-        GuardExpr::Or(a, b) => match (eval(a, facts), eval(b, facts)) {
-            (Ok(true), _) | (_, Ok(true)) => Ok(true),
-            (Ok(false), Ok(false)) => Ok(false),
-            (x, y) => Err(x.err().into_iter().chain(y.err()).flatten().collect()),
-        },
+impl UserContext for OracleUser {
+    fn id(&self) -> Id {
+        // The user's own id: read only as the author the service sets; the oracle
+        // does not record it and nothing compares it.
+        1
+    }
+    fn is_admin(&self) -> bool {
+        self.kind == UserKind::Admin
+    }
+    fn is_anonymous(&self) -> bool {
+        false
+    }
+    fn allowed_in_project(&self, permission: &str, project_id: Id) -> bool {
+        self.allowed_globally(permission) && project_id == CASE_PROJECT
+    }
+    fn allowed_globally(&self, permission: &str) -> bool {
+        matches!(&self.kind, UserKind::Member(held) if held.iter().any(|p| p == permission))
     }
 }
 
-fn fact_names(e: &GuardExpr, out: &mut BTreeSet<String>) {
-    match e {
-        GuardExpr::Const(_) => {}
-        GuardExpr::Fact(n) => {
-            out.insert(n.clone());
-        }
-        GuardExpr::Not(a) => fact_names(a, out),
-        GuardExpr::And(a, b) | GuardExpr::Or(a, b) => {
-            fact_names(a, out);
-            fact_names(b, out);
+/// Facts of one trace record, as production asks for them (lowered fact names).
+#[derive(Clone)]
+struct TraceFacts(BTreeMap<String, Value>);
+
+impl AdmissionFacts for TraceFacts {
+    fn fact(&self, name: &str) -> Option<bool> {
+        let key = FACT_ALIASES.iter().find(|(f, _)| *f == name)?.1;
+        match self.0.get(key)? {
+            Value::Bool(b) => Some(*b),
+            Value::Null => Some(false),
+            _ => None,
         }
     }
 }
 
-/// The guard for `attr`: `CreateContract`'s own, else `BaseContract`'s
-/// (`writable_conditions` is keyed by the attribute without `_id`).
-fn guard_for<'a>(guards: &'a [ContractGuard], canon_attr: &str) -> Option<&'a ContractGuard> {
-    let find = |class: &str| {
-        guards
-            .iter()
-            .find(|g| g.class == class && canon(&g.attribute) == canon_attr)
-    };
-    find(CREATE).or_else(|| find(BASE))
+fn facts_of(rec: &Value) -> TraceFacts {
+    TraceFacts(
+        rec["facts"]
+            .as_object()
+            .expect("facts")
+            .clone()
+            .into_iter()
+            .collect(),
+    )
 }
 
-/// Why a verdict could not be made. Closed: no catch-all.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum Unmodeled {
-    /// ruff could not lower the `writable:` value.
-    GuardUnlowered(String),
-    /// A lowered guard reads a fact the oracle did not record.
-    FactUnrecorded(String),
-    /// The writable condition is produced by a macro ruff does not expand.
-    OpaqueWritable(String),
-    /// What an admin may do is recorded by neither trace.
-    AdminNotModeled,
-    /// No `attribute` declaration in the scanned contract files: the oracle
-    /// attribute comes from an engine patch or a module contract.
-    UndeclaredInScan,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Writable {
-    Yes,
-    No,
-    Unmodeled(Unmodeled),
-}
-
-impl Writable {
-    fn of(b: bool) -> Self {
-        if b {
-            Writable::Yes
-        } else {
-            Writable::No
-        }
-    }
-}
-
-struct Rust<'a> {
-    model: &'a ContractModel,
-    guards: &'a [ContractGuard],
-}
-
-impl Rust<'_> {
-    /// `BaseContract#writable?`: the writable condition and the permission, both
-    /// must hold; a known `false` wins over an unknown other half.
-    fn writable(&self, attr: &str, user: &UserKind, facts: &Facts) -> Writable {
-        let c = self.model.alias.get(&canon(attr)).cloned().unwrap_or_else(|| canon(attr));
-        let Some(info) = self.model.declared.get(&c) else {
-            return Writable::Unmodeled(Unmodeled::UndeclaredInScan);
-        };
-        let mut facts = facts.clone();
-        facts.insert("user.admin?".into(), Value::Bool(*user == UserKind::Admin));
-
-        // Writable condition.
-        let cond: Result<bool, Unmodeled> = if info.literal_false {
-            Ok(false)
-        } else if let Some(m) = &info.opaque_writable {
-            Err(Unmodeled::OpaqueWritable(m.clone()))
-        } else {
-            match guard_for(self.guards, &c).map(|g| &g.outcome) {
-                None => Ok(true),
-                Some(GuardOutcome::Lowered(e)) => eval(e, &facts)
-                    .map_err(|n| Unmodeled::FactUnrecorded(n.join(", "))),
-                Some(GuardOutcome::Unlowered { reason }) => {
-                    Err(Unmodeled::GuardUnlowered(reason.clone()))
-                }
-            }
-        };
-
-        // Permission.
-        let perm: Result<bool, Unmodeled> = match user {
-            UserKind::Admin => Err(Unmodeled::AdminNotModeled),
-            UserKind::Member(held) => {
-                let needed = self
-                    .model
-                    .perms
-                    .get(&c)
-                    .or_else(|| self.model.perms.get(&format!("{c}_id")))
-                    .or(self.model.default_perm.as_ref());
-                Ok(needed.is_none_or(|n| n.iter().any(|p| held.contains(p))))
-            }
-        };
-
-        match (cond, perm) {
-            (Ok(false), _) | (_, Ok(false)) => Writable::No,
-            (Ok(true), Ok(true)) => Writable::Yes,
-            (Err(u), _) | (_, Err(u)) => Writable::Unmodeled(u),
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// Layer 1: WHEN (contract admission)
-// ─────────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Verdict {
-    Admit,
-    Deny,
-    Unrecorded(Unmodeled),
-}
-
-#[derive(Debug, Clone)]
-struct Admission {
-    verdict: Verdict,
-    /// Predicted `errors`, as the service result carries them: attribute (or
-    /// `base`) -> error codes.
-    errors: BTreeMap<String, Vec<String>>,
-    writable: BTreeMap<String, Writable>,
-}
-
-/// `CreateContract#valid?` for the rules the Rust side can evaluate: the
-/// `user_allowed_to_add` validation and the read-only check of every submitted
-/// attribute. Every other rule is listed by [`unevaluated_rules`].
-fn admit(
-    r: &Rust,
-    user: &UserKind,
-    cols: &[String],
-    project_given: bool,
-    facts: &Facts,
-) -> Admission {
-    let mut errors: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut writable = BTreeMap::new();
-    let mut unmodeled: Option<Unmodeled> = None;
-
-    // `user_allowed_to_add`: allowed in the model's project, and in any project.
-    match user {
-        UserKind::Member(held) => {
-            // `member_with_permissions { project => perms }`: the same grant
-            // answers both the project check and the any-project check.
-            let in_project = held.iter().any(|p| p == "add_work_packages");
-            let in_any_project = in_project;
-            if (project_given && !in_project) || !in_any_project {
-                errors
-                    .entry("base".into())
-                    .or_default()
-                    .push("error_unauthorized".into());
-            }
-        }
-        UserKind::Admin => unmodeled = Some(Unmodeled::AdminNotModeled),
-    }
-    for col in cols {
-        let w = r.writable(col, user, facts);
-        match &w {
-            Writable::No => errors
-                .entry(col.clone())
-                .or_default()
-                .push("error_readonly".into()),
-            Writable::Unmodeled(u) => unmodeled = unmodeled.take().or(Some(u.clone())),
-            Writable::Yes => {}
-        }
-        writable.insert(col.clone(), w);
-    }
-    let verdict = match unmodeled {
-        Some(u) => Verdict::Unrecorded(u),
-        None if errors.is_empty() => Verdict::Admit,
-        None => Verdict::Deny,
-    };
-    Admission {
-        verdict,
-        errors,
-        writable,
-    }
-}
-
-/// Contract rules that run in `CreateContract#valid?` and are NOT evaluated here:
-/// the `validate :x` statements of the two contract files (minus the one that is),
-/// the `attribute ... do` blocks, and the model validations `ModelContract#valid?`
-/// runs first (`app/contracts/model_contract.rb:85-88`).
-fn unevaluated_rules(m: &ContractModel) -> Vec<String> {
-    let mut v: Vec<String> = m
-        .validators
-        .iter()
-        .filter(|n| *n != "user_allowed_to_add")
-        .map(|n| format!("ContractRuleNotEvaluated:{n}"))
-        .collect();
-    v.push("ContractRuleNotEvaluated:attribute-blocks".into());
-    v.push("ModelValidationsNotEvaluated:ModelContract#valid?".into());
-    v
-}
-
-/// The attribute names the service case submits, as the contract sees them: the
-/// changed column. An association (`project`) changes its foreign key
-/// (`project_id`); the trace's `writable` map tells which names exist.
-fn columns(submitted: &[String], oracle_keys: &BTreeSet<String>) -> Vec<String> {
-    submitted
-        .iter()
-        .map(|k| {
-            let fk = format!("{k}_id");
-            if oracle_keys.contains(&fk) {
-                fk
-            } else {
-                k.clone()
-            }
-        })
-        .collect()
+/// The subject literal of `params_for` in the setup script.
+fn subject_literal(rb: &str) -> String {
+    let at = rb.find("subject: \"").expect("subject literal") + "subject: \"".len();
+    rb[at..at + rb[at..].find('"').expect("closing quote")].to_string()
 }
 
 fn codes(errors: &Value) -> BTreeMap<String, Vec<String>> {
@@ -599,10 +318,10 @@ fn codes(errors: &Value) -> BTreeMap<String, Vec<String>> {
         .collect()
 }
 
-/// A `CreateContract` record of the contract trace for a user label. The
-/// service trace records no facts; these are the facts of the closest recorded
-/// analogue (same contract, same user, a new unsaved work package).
-fn facts_for_service_case<'a>(contract: &'a Value, label: &str) -> &'a Value {
+/// The service trace records no facts. These are the facts of the closest recorded
+/// analogue: the contract trace's `CreateContract` record for the same user (a new,
+/// unsaved work package).
+fn analogue<'a>(contract: &'a Value, label: &str) -> &'a Value {
     contract["cases"]
         .as_array()
         .expect("cases")
@@ -611,112 +330,141 @@ fn facts_for_service_case<'a>(contract: &'a Value, label: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no CreateContract record for user {label}"))
 }
 
-fn facts_of(rec: &Value) -> Facts {
-    rec["facts"]
-        .as_object()
-        .expect("facts")
-        .clone()
-        .into_iter()
-        .collect()
-}
-
-struct L1 {
+/// One authorization comparison, every item EXECUTED.
+struct Auth {
     case: String,
     user: UserKind,
     borrowed_from: String,
     submitted: Vec<String>,
-    admission: Admission,
+    admission: CreateAdmission,
+    /// The REAL `CreateWorkPackageService::call` result: success and error keys/codes.
+    call_success: bool,
+    call_errors: BTreeMap<String, Vec<String>>,
     oracle_success: bool,
     oracle_errors: BTreeMap<String, Vec<String>>,
-    /// Predicted verdict agrees with the oracle `success` (None: unrecorded).
+    /// `None`: the production verdict was unresolved.
     verdict_match: Option<bool>,
-    /// Predicted `errors` equal the oracle's exactly (None: unrecorded).
     errors_match: Option<bool>,
-    /// Submitted attributes compared / matched against the oracle's `writable`.
-    sub_compared: usize,
-    sub_matched: usize,
+    writable_compared: usize,
+    writable_matched: usize,
     mismatches: Vec<String>,
 }
 
-fn layer1(
-    r: &Rust,
+fn run_auth(
     svc: &Value,
     contract: &Value,
     service_rb: &str,
     default_perms: &[String],
     case: &str,
-    facts_override: Option<&Facts>,
-) -> L1 {
+    facts_override: Option<&TraceFacts>,
+) -> Auth {
     let block = case_block(service_rb, case);
     let user = user_of_block(block, default_perms);
     let sc = service_case(svc, case);
     assert_eq!(
-        sc["user"], user.label(),
+        sc["user"],
+        user.label(),
         "the user read out of the setup script disagrees with the trace label"
     );
-    let rec = facts_for_service_case(contract, user.label());
+    let rec = analogue(contract, user.label());
     let facts = facts_override.cloned().unwrap_or_else(|| facts_of(rec));
-    let oracle_keys: BTreeSet<String> = rec["writable"]
-        .as_object()
-        .expect("writable")
-        .keys()
-        .cloned()
-        .collect();
     let submitted = submitted_of(service_rb, block);
-    let cols = columns(&submitted, &oracle_keys);
-    let admission = admit(r, &user, &cols, submitted.iter().any(|s| s == "project"), &facts);
+    let names: Vec<&str> = submitted.iter().map(String::as_str).collect();
+    let project = submitted
+        .iter()
+        .any(|s| s == "project")
+        .then_some(CASE_PROJECT);
+
+    let oracle_user = OracleUser { kind: user.clone() };
+    // The production entry point under test.
+    let admission = CreateWorkPackageService::new(&oracle_user).admit(project, &names, &facts);
+
+    // The production service path: `call` runs admission and acts on it. The params
+    // carry the submitted attributes. Admission reads which are present, never their
+    // values; the subject is the script's own literal, and the association attributes
+    // carry the case-project handle or an opaque marker id that admission does not
+    // read and no comparison uses.
+    let mut params = WorkPackageParams::new();
+    for k in &submitted {
+        match k.as_str() {
+            "subject" => params.subject = Some(subject_literal(service_rb)),
+            "project" => params.project_id = Some(CASE_PROJECT),
+            "type" => params.type_id = Some(OPAQUE_MARKER),
+            "status" => params.status_id = Some(OPAQUE_MARKER),
+            "priority" => params.priority_id = Some(OPAQUE_MARKER),
+            "parent" => params.parent_id = Some(OPAQUE_MARKER),
+            other => panic!("no service parameter for submitted attribute {other}"),
+        }
+    }
+    let called = CreateWorkPackageService::new(&oracle_user)
+        .with_facts(&facts)
+        .call(params);
+    let call_success = called.is_success();
+    let mut call_errors: BTreeMap<String, Vec<String>> =
+        called.errors().errors.clone().into_iter().collect();
+    if !called.errors().base_errors.is_empty() {
+        call_errors.insert("base".into(), called.errors().base_errors.clone());
+    }
 
     let oracle_errors = codes(&sc["errors"]);
     let oracle_success = sc["success"].as_bool().expect("success");
-    let recorded = !matches!(admission.verdict, Verdict::Unrecorded(_));
-    let verdict_match =
-        recorded.then(|| (admission.verdict == Verdict::Admit) == oracle_success);
-    let errors_match = recorded.then(|| admission.errors == oracle_errors);
+    assert!(
+        !matches!(admission.verdict, Verdict::Unresolved(_)),
+        "admission was unresolved for a recorded case"
+    );
+    // Admission behaviour: what the real `call` returned, against the oracle.
+    let verdict_match = Some(call_success == oracle_success);
+    let errors_match = Some(call_errors == oracle_errors);
 
     let (mut compared, mut matched, mut mismatches) = (0, 0, Vec::new());
-    for col in &cols {
+    for (col, w) in &admission.writable {
         let oracle_writable = !oracle_errors
             .get(col)
             .is_some_and(|c| c.iter().any(|e| e == "error_readonly"));
-        match admission.writable[col] {
-            Writable::Unmodeled(_) => {}
-            ref w => {
-                compared += 1;
-                if (*w == Writable::Yes) == oracle_writable {
-                    matched += 1;
-                } else {
-                    mismatches.push(format!("{case} {col}: rust {w:?}, oracle writable={oracle_writable}"));
-                }
+        if !matches!(w, Writable::Unresolved(_)) {
+            compared += 1;
+            if (*w == Writable::Yes) == oracle_writable {
+                matched += 1;
+            } else {
+                mismatches.push(format!(
+                    "{case} {col}: rust {w:?}, oracle writable={oracle_writable}"
+                ));
             }
         }
     }
-    L1 {
+    Auth {
         case: case.into(),
+        borrowed_from: format!(
+            "contract trace case `{}` ({CREATE}, user {})",
+            rec["name"].as_str().unwrap_or("?"),
+            rec["user"]
+        ),
         user,
-        borrowed_from: format!("contract trace case `{}` ({CREATE}, user {})", rec["name"].as_str().unwrap_or("?"), rec["user"]),
         submitted,
         admission,
+        call_success,
+        call_errors,
         oracle_success,
         oracle_errors,
         verdict_match,
         errors_match,
-        sub_compared: compared,
-        sub_matched: matched,
+        writable_compared: compared,
+        writable_matched: matched,
         mismatches,
     }
 }
 
-/// Every attribute of every `CreateContract` record in the contract trace:
-/// guard + permission against the recorded `writable?`.
+/// Every attribute of every `CreateContract` record in the contract trace, through
+/// the production `is_writable`, against the recorded `writable?`.
 #[derive(Default)]
 struct ContractWide {
     compared: usize,
     matched: usize,
     mismatches: Vec<String>,
-    unmodeled: BTreeMap<Unmodeled, usize>,
+    unresolved: BTreeMap<Unresolved, usize>,
 }
 
-fn contract_wide(r: &Rust, contract: &Value, contract_rb: &str, transform: impl Fn(&Facts) -> Facts) -> ContractWide {
+fn contract_wide(contract: &Value, contract_rb: &str) -> ContractWide {
     let default_perms = percent_i(contract_rb, "PERMISSIONS");
     let mut out = ContractWide::default();
     for rec in contract["cases"].as_array().expect("cases") {
@@ -724,19 +472,27 @@ fn contract_wide(r: &Rust, contract: &Value, contract_rb: &str, transform: impl 
             continue;
         }
         let name = rec["name"].as_str().expect("name");
-        let user = user_of_block(case_block(contract_rb, name), &default_perms);
-        assert_eq!(rec["user"], user.label(), "contract case {name}: user label");
-        let facts = transform(&facts_of(rec));
+        let user = OracleUser {
+            kind: user_of_block(case_block(contract_rb, name), &default_perms),
+        };
+        assert_eq!(
+            rec["user"],
+            user.kind.label(),
+            "contract case {name}: user label"
+        );
+        let facts = facts_of(rec);
         for (attr, want) in rec["writable"].as_object().expect("writable") {
-            match r.writable(attr, &user, &facts) {
-                Writable::Unmodeled(u) => *out.unmodeled.entry(u).or_default() += 1,
+            match is_writable(&user, Some(CASE_PROJECT), attr, &facts) {
+                Writable::Unresolved(u) => *out.unresolved.entry(u).or_default() += 1,
                 w => {
                     out.compared += 1;
                     if (w == Writable::Yes) == want.as_bool().expect("bool") {
                         out.matched += 1;
                     } else {
-                        out.mismatches
-                            .push(format!("{name} {} {attr}: rust {w:?}, oracle {want}", rec["user"]));
+                        out.mismatches.push(format!(
+                            "{name} {} {attr}: rust {w:?}, oracle {want}",
+                            rec["user"]
+                        ));
                     }
                 }
             }
@@ -745,46 +501,44 @@ fn contract_wide(r: &Rust, contract: &Value, contract_rb: &str, transform: impl 
     out
 }
 
-/// Negative control (b): find a submitted attribute whose lowered guard reads
-/// recorded facts, and the smallest change of those facts that flips it.
+/// Negative control (b): the smallest change of recorded facts that flips a
+/// submitted attribute's guard, found by asking production `is_writable`.
 /// Returns `(column, changed fact keys, perturbed facts)`.
-fn perturb(r: &Rust, user: &UserKind, cols: &[String], facts: &Facts) -> Option<(String, Vec<String>, Facts)> {
-    let mut with_user = facts.clone();
-    with_user.insert("user.admin?".into(), Value::Bool(*user == UserKind::Admin));
+fn perturb(
+    user: &OracleUser,
+    cols: &[String],
+    facts: &TraceFacts,
+) -> Option<(String, Vec<String>, TraceFacts)> {
     for col in cols {
-        let c = canon(col);
-        let Some(GuardOutcome::Lowered(e)) = guard_for(r.guards, &c).map(|g| &g.outcome) else {
+        let base = is_writable(user, Some(CASE_PROJECT), col, facts);
+        if matches!(base, Writable::Unresolved(_)) {
             continue;
-        };
-        let Ok(base) = eval(e, &with_user) else { continue };
-        let mut names = BTreeSet::new();
-        fact_names(e, &mut names);
-        let keys: Vec<&str> = names
+        }
+        let keys: Vec<&str> = guard_facts(col)
             .iter()
             .filter_map(|n| FACT_ALIASES.iter().find(|(f, _)| f == n).map(|(_, k)| *k))
-            .filter(|k| *k != "user.admin?")
             .collect();
-        let mut best: Option<(usize, Vec<String>, Facts)> = None;
+        let mut best: Option<(Vec<String>, TraceFacts)> = None;
         for mask in 0u32..(1 << keys.len()) {
             let mut f = facts.clone();
             let mut changed = Vec::new();
             for (i, k) in keys.iter().enumerate() {
-                let was = matches!(facts.get(*k), Some(Value::Bool(true)));
+                let was = matches!(facts.0.get(*k), Some(Value::Bool(true)));
                 let now = mask & (1 << i) != 0;
-                f.insert((*k).to_string(), Value::Bool(now));
+                f.0.insert((*k).to_string(), Value::Bool(now));
                 if now != was {
                     changed.push((*k).to_string());
                 }
             }
-            let mut f_user = f.clone();
-            f_user.insert("user.admin?".into(), Value::Bool(*user == UserKind::Admin));
-            if eval(e, &f_user) == Ok(!base)
-                && best.as_ref().is_none_or(|(n, ..)| changed.len() < *n)
+            let flipped = is_writable(user, Some(CASE_PROJECT), col, &f);
+            if flipped != base
+                && !matches!(flipped, Writable::Unresolved(_))
+                && best.as_ref().is_none_or(|(c, _)| changed.len() < c.len())
             {
-                best = Some((changed.len(), changed, f));
+                best = Some((changed, f));
             }
         }
-        if let Some((_, changed, f)) = best {
+        if let Some((changed, f)) = best {
             return Some((col.clone(), changed, f));
         }
     }
@@ -792,7 +546,7 @@ fn perturb(r: &Rust, user: &UserKind, cols: &[String], facts: &Facts) -> Option<
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Layer 2: registration versus invocation
+// Callbacks: registrations RECONSTRUCTED (PREDICTED), bodies never run here
 // ─────────────────────────────────────────────────────────────────────────
 
 /// Why a registered declaration does not belong to a create at all.
@@ -871,6 +625,8 @@ fn harvest(src: &Path, svc: &Value) -> Harvested {
 struct L2 {
     /// Create-applicable registered callbacks over the models the case touched.
     registered: usize,
+    /// Of those, the ones some journal entry matched.
+    registered_invoked: usize,
     /// Distinct `(model, phase, label)` journal entries.
     invoked: usize,
     /// Invoked entries with a create-applicable registration (every expansion).
@@ -995,31 +751,37 @@ fn layer2(
             if on_create_path(d).is_err() || u.contains(&i) {
                 continue;
             }
-            let why = if predicted_denied && matches!(d.chain.as_str(), "save" | "create" | "commit") {
-                RegisteredNotInvoked::ContractDeniedBeforeSave
-            } else {
-                RegisteredNotInvoked::Silent(cb::silent_reason(d, &chains))
-            };
+            let why =
+                if predicted_denied && matches!(d.chain.as_str(), "save" | "create" | "commit") {
+                    RegisteredNotInvoked::ContractDeniedBeforeSave
+                } else {
+                    RegisteredNotInvoked::Silent(cb::silent_reason(d, &chains))
+                };
             let conditions: Vec<String> = d
                 .options
                 .iter()
                 .filter(|(k, _)| matches!(k.as_str(), "if" | "unless" | "on"))
                 .map(|(k, v)| format!("{k}: {v}"))
                 .collect();
-            out.registered_not_invoked.entry(why).or_default().push(format!(
-                "{model} {}_{} {:?} (from {}){}",
-                d.kind,
-                d.chain,
-                d.filter,
-                d.origin,
-                if conditions.is_empty() {
-                    String::new()
-                } else {
-                    format!(" when {}", conditions.join(", "))
-                }
-            ));
+            out.registered_not_invoked
+                .entry(why)
+                .or_default()
+                .push(format!(
+                    "{model} {}_{} {:?} (from {}){}",
+                    d.kind,
+                    d.chain,
+                    d.filter,
+                    d.origin,
+                    if conditions.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" when {}", conditions.join(", "))
+                    }
+                ));
         }
     }
+
+    out.registered_invoked = used.values().map(BTreeSet::len).sum();
 
     // Order on the matched subset: recorded order against registration order.
     for ((model, phase), seq) in ranks {
@@ -1048,94 +810,15 @@ fn layer2(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Layer 3: DO (observable effects)
+// Effects: PREDICTED from admission, or SLAG. Nothing here is executed.
 // ─────────────────────────────────────────────────────────────────────────
+//
+// No Rust code performs a create here (the service stub assigns an id and writes no
+// row, and it needs attribute values the oracle does not record), so there is no
+// executed effect. The expectation below is derived from the admission rules and the
+// shape of the transition (an admitted create saves one work package carrying the
+// submitted attributes), not from the trace.
 
-/// A user for the existing Rust create path, built from the oracle setup.
-struct LegacyUser {
-    id: Id,
-    held: Vec<String>,
-}
-
-impl UserContext for LegacyUser {
-    fn id(&self) -> Id {
-        self.id
-    }
-    fn is_admin(&self) -> bool {
-        false
-    }
-    fn is_anonymous(&self) -> bool {
-        false
-    }
-    fn allowed_in_project(&self, permission: &str, _project_id: Id) -> bool {
-        self.held.iter().any(|p| p == permission)
-    }
-    fn allowed_globally(&self, _permission: &str) -> bool {
-        false
-    }
-}
-
-fn default_like<T: Default>(_: &T) -> T {
-    T::default()
-}
-
-/// What the existing Rust create path did with the submitted attributes.
-struct Legacy {
-    success: bool,
-    error_keys: BTreeSet<String>,
-    /// Columns the created entity holds that a blank entity does not.
-    assigned: BTreeSet<String>,
-    /// The entity got an id, i.e. the Rust path would insert one row.
-    inserted: bool,
-}
-
-/// Runs `op_services::CreateWorkPackageService` with the attributes the case
-/// submits. Values are placeholders (the oracle recorded names, not values).
-fn legacy_create(user: &UserKind, submitted: &[String]) -> Option<Legacy> {
-    let UserKind::Member(held) = user else {
-        return None;
-    };
-    let mut params = WorkPackageParams::new();
-    for k in submitted {
-        match k.as_str() {
-            "subject" => params.subject = Some("oracle subject".into()),
-            "project" => params.project_id = Some(1),
-            "type" => params.type_id = Some(1),
-            "status" => params.status_id = Some(1),
-            "priority" => params.priority_id = Some(1),
-            "parent" => params.parent_id = Some(1),
-            other => panic!("no Rust parameter for submitted attribute {other}"),
-        }
-    }
-    let u = LegacyUser { id: 2, held: held.clone() };
-    let result = CreateWorkPackageService::new(&u).call(params);
-    let mut error_keys: BTreeSet<String> = result.errors().errors.keys().cloned().collect();
-    if !result.errors().base_errors.is_empty() {
-        error_keys.insert("base".into());
-    }
-    let mut assigned = BTreeSet::new();
-    let mut inserted = false;
-    if let Some(e) = result.result() {
-        let blank = default_like(e);
-        macro_rules! differs {
-            ($($f:ident),*) => { $( if e.$f != blank.$f { assigned.insert(stringify!($f).to_string()); } )* };
-        }
-        differs!(
-            id, subject, description, project_id, type_id, status_id, priority_id, author_id,
-            assigned_to_id, responsible_id, start_date, due_date, estimated_hours, done_ratio,
-            parent_id, version_id, category_id
-        );
-        inserted = e.id.is_some();
-    }
-    Some(Legacy {
-        success: result.is_success(),
-        error_keys,
-        assigned,
-        inserted,
-    })
-}
-
-/// What Rust expects to observe. `None` where the Rust path cannot say.
 #[derive(Debug, Clone)]
 struct Predicted {
     persisted: bool,
@@ -1143,62 +826,62 @@ struct Predicted {
     deltas: BTreeMap<String, i64>,
 }
 
-fn predict(admitted: bool, legacy: Option<&Legacy>) -> Predicted {
+fn predict(a: &CreateAdmission) -> Predicted {
     let mut p = Predicted {
         persisted: false,
         changed: BTreeSet::new(),
         deltas: BTreeMap::new(),
     };
-    // A denied contract stops the create before any write.
-    if !admitted {
-        return p;
-    }
-    if let Some(l) = legacy {
-        p.persisted = l.inserted;
-        p.changed = l.assigned.clone();
-        if l.inserted {
-            // The entity is a work package; its table is `work_packages`.
-            p.deltas.insert("work_packages".into(), 1);
-        }
+    if a.verdict == Verdict::Admitted {
+        p.persisted = true;
+        p.changed = a.writable.keys().cloned().collect();
+        p.deltas.insert("work_packages".into(), 1);
     }
     p
 }
 
-/// An oracle effect the Rust side cannot predict. Closed: no catch-all.
+/// An oracle effect nothing predicts. Closed: no catch-all.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[expect(
+    clippy::enum_variant_names,
+    reason = "the shared postfix is the point: each names what is not modeled"
+)]
 enum EffectSlag {
-    /// A changed attribute the Rust entity does not assign
-    /// (timestamps, `position` from acts_as_list).
+    /// A changed attribute no rule predicts (the author the service sets, the
+    /// generated id, timestamps, `position`).
     AttributeNotModeled(String),
-    /// A table row delta the Rust create path does not write.
+    /// A table row delta nothing predicts.
     EffectNotModeled(String),
-    /// A job the Rust create path does not enqueue.
+    /// A job nothing predicts.
     JobNotModeled(String),
 }
 
 #[derive(Debug, Default)]
-struct L3 {
-    /// Oracle effects: persisted + each changed attribute + each table delta + each job.
-    oracle_effects: usize,
-    matched: usize,
-    /// Oracle effects Rust predicted with another value.
+struct Effects {
+    /// attribute state: `changed_attributes` (the oracle sorts it: compared as a set)
+    attributes: Score,
+    /// persistence: `persisted` and `row_deltas` (compared as a map)
+    persistence: Score,
+    jobs: Score,
     mismatched: Vec<String>,
-    /// Rust predicted an effect the oracle did not observe.
+    /// Predicted, absent from the oracle.
     extra: Vec<String>,
     slag: Vec<EffectSlag>,
+    oracle_effects: usize,
 }
 
-fn compare_effects(p: &Predicted, sc: &Value) -> L3 {
-    let mut out = L3::default();
+fn compare_effects(p: &Predicted, sc: &Value) -> Effects {
+    let mut out = Effects::default();
     let oracle_persisted = sc["persisted"].as_bool().expect("persisted");
     out.oracle_effects += 1;
     if p.persisted == oracle_persisted {
-        out.matched += 1;
+        out.persistence.add(Category::Predicted, 1);
     } else {
-        out.mismatched
-            .push(format!("persisted: rust {}, oracle {oracle_persisted}", p.persisted));
+        out.mismatched.push(format!(
+            "persisted: rust {}, oracle {oracle_persisted}",
+            p.persisted
+        ));
     }
-
     let oracle_changed: BTreeSet<String> = sc["changed_attributes"]
         .as_array()
         .expect("changed")
@@ -1208,15 +891,17 @@ fn compare_effects(p: &Predicted, sc: &Value) -> L3 {
     for a in &oracle_changed {
         out.oracle_effects += 1;
         if p.changed.contains(a) {
-            out.matched += 1;
+            out.attributes.add(Category::Predicted, 1);
         } else {
+            out.attributes.add(Category::Slag, 1);
             out.slag.push(EffectSlag::AttributeNotModeled(a.clone()));
         }
     }
     for a in p.changed.difference(&oracle_changed) {
-        out.extra.push(format!("changed_attributes: rust assigns {a}, oracle did not change it"));
+        out.extra.push(format!(
+            "changed_attributes: predicts {a}, oracle did not change it"
+        ));
     }
-
     let oracle_deltas: BTreeMap<String, i64> = sc["row_deltas"]
         .as_object()
         .expect("row_deltas")
@@ -1226,44 +911,30 @@ fn compare_effects(p: &Predicted, sc: &Value) -> L3 {
     for (t, n) in &oracle_deltas {
         out.oracle_effects += 1;
         match p.deltas.get(t) {
-            Some(m) if m == n => out.matched += 1,
+            Some(m) if m == n => out.persistence.add(Category::Predicted, 1),
             Some(m) => out
                 .mismatched
                 .push(format!("row_deltas.{t}: rust {m}, oracle {n}")),
-            None => out.slag.push(EffectSlag::EffectNotModeled(t.clone())),
+            None => {
+                out.persistence.add(Category::Slag, 1);
+                out.slag.push(EffectSlag::EffectNotModeled(t.clone()));
+            }
         }
     }
     for (t, n) in &p.deltas {
         if !oracle_deltas.contains_key(t) {
-            out.extra.push(format!("row_deltas.{t}: rust writes {n}, oracle wrote none"));
+            out.extra
+                .push(format!("row_deltas.{t}: predicts {n}, oracle wrote none"));
         }
     }
-
     for j in sc["enqueued_jobs"].as_array().expect("jobs") {
         out.oracle_effects += 1;
-        out.slag
-            .push(EffectSlag::JobNotModeled(j.as_str().expect("class").to_string()));
+        out.jobs.add(Category::Slag, 1);
+        out.slag.push(EffectSlag::JobNotModeled(
+            j.as_str().expect("class").to_string(),
+        ));
     }
     out
-}
-
-/// Negative control (c): the predicted names moved one place along a sorted
-/// vocabulary, so every predicted effect is attached to the wrong name.
-fn shuffled(p: &Predicted, attr_vocab: &BTreeSet<String>, table_vocab: &BTreeSet<String>) -> Predicted {
-    fn next(v: &BTreeSet<String>, k: &str) -> String {
-        let all: Vec<&String> = v.iter().collect();
-        let at = all.iter().position(|x| x.as_str() == k).expect("in vocabulary");
-        all[(at + 1) % all.len()].clone()
-    }
-    Predicted {
-        persisted: p.persisted,
-        changed: p.changed.iter().map(|a| next(attr_vocab, a)).collect(),
-        deltas: p
-            .deltas
-            .iter()
-            .map(|(t, n)| (next(table_vocab, t), *n))
-            .collect(),
-    }
 }
 
 fn tally<K: Ord + Clone>(items: impl Iterator<Item = K>) -> BTreeMap<K, usize> {
@@ -1272,4 +943,387 @@ fn tally<K: Ord + Clone>(items: impl Iterator<Item = K>) -> BTreeMap<K, usize> {
         *m.entry(i).or_default() += 1;
     }
     m
+}
+
+fn show<K: std::fmt::Debug>(m: &BTreeMap<K, usize>) -> String {
+    if m.is_empty() {
+        return "none".into();
+    }
+    m.iter()
+        .map(|(k, n)| format!("{k:?} x{n}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// The tests
+// ─────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn checked_in_admission_table_is_what_the_generator_produces() {
+    let Some(src) = source() else { return };
+    assert_eq!(
+        admission_gen::generate(&src),
+        CHECKED_IN_TABLE,
+        "generated_create_admission.rs is stale: run `cargo run -p op-codegen-pipeline --example emit_create_admission`"
+    );
+    eprintln!("{}", ExtractionGap::PermissionDeclScan.describe());
+}
+
+#[test]
+fn create_member_transition_is_executed_and_compared() {
+    let Some(src) = source() else { return };
+    let svc = json("work-package-service-trace.json");
+    let contract = json("work-package-contract-trace.json");
+    let service_rb = read("work_package_service.rb");
+    let contract_rb = read("work_package_contract.rb");
+    let default_perms = percent_i(&service_rb, "PERMISSIONS");
+
+    // ── Authorization: EXECUTED ──────────────────────────────────────────
+    let member = run_auth(&svc, &contract, &service_rb, &default_perms, CASE, None);
+    let denied = run_auth(
+        &svc,
+        &contract,
+        &service_rb,
+        &default_perms,
+        DENIED_CASE,
+        None,
+    );
+    eprintln!("== AUTHORIZATION (EXECUTED: op_services::CreateWorkPackageService::call -> op_contracts admission)");
+    eprintln!(
+        "   case {}: user {:?}, submitted {:?}",
+        member.case, member.user, member.submitted
+    );
+    eprintln!(
+        "   facts: borrowed from {} (the service trace records none)",
+        member.borrowed_from
+    );
+    eprintln!(
+        "   verdict {:?}; oracle success={}; errors {:?} vs oracle {:?}",
+        member.admission.verdict,
+        member.oracle_success,
+        member.admission.errors,
+        member.oracle_errors
+    );
+    for (col, w) in &member.admission.writable {
+        eprintln!("   writable {col}: {w:?}");
+    }
+    eprintln!(
+        "   real call(): success={}, errors {:?} (oracle success={}, errors {:?})",
+        member.call_success, member.call_errors, member.oracle_success, member.oracle_errors
+    );
+    eprintln!(
+        "   real call() denied case: success={}, errors {:?}",
+        denied.call_success, denied.call_errors
+    );
+    eprintln!("   rules not evaluated: {:?}", not_evaluated_validators());
+    eprintln!("   evaluated: user_allowed_to_add (hand-ported), read-only check per submitted attribute, generated writable guards + permissions");
+    // The test user answers for the case's project and nothing else.
+    let probe = OracleUser {
+        kind: member.user.clone(),
+    };
+    assert!(probe.allowed_in_project("add_work_packages", CASE_PROJECT));
+    assert!(!probe.allowed_in_project("add_work_packages", CASE_PROJECT + 1));
+    assert_eq!(member.admission.verdict, Verdict::Admitted);
+    assert_eq!(
+        member.verdict_match,
+        Some(true),
+        "admission differs from the oracle"
+    );
+    assert_eq!(
+        member.errors_match,
+        Some(true),
+        "error keys differ from the oracle"
+    );
+    assert!(
+        member.writable_compared >= 5,
+        "{} attributes compared",
+        member.writable_compared
+    );
+    assert!(member.mismatches.is_empty(), "{:?}", member.mismatches);
+
+    let wide = contract_wide(&contract, &contract_rb);
+    eprintln!(
+        "   contract-wide: {} (record, attribute) pairs compared, {} matched; unresolved: {}",
+        wide.compared,
+        wide.matched,
+        show(&wide.unresolved)
+    );
+    for m in &wide.mismatches {
+        eprintln!("   MISMATCH {m}");
+    }
+    assert!(
+        wide.compared >= FLOOR_CONTRACT_COMPARED,
+        "only {} pairs compared",
+        wide.compared
+    );
+    assert!(
+        wide.mismatches.is_empty(),
+        "{} mismatches",
+        wide.mismatches.len()
+    );
+
+    // ── Callbacks: registrations RECONSTRUCTED, bodies not executed ──────
+    let h = harvest(&src, &svc);
+    let admitted = member.admission.verdict == Verdict::Admitted;
+    let l2 = layer2(&h, &svc, CASE, !admitted, Clone::clone);
+    eprintln!("== CALLBACKS (PREDICTED registrations vs the oracle journal; no body is executed)");
+    eprintln!(
+        "   registered declarations for create {} (invoked {}, not invoked {}); journal entries {}, of which registered {}",
+        l2.registered,
+        l2.registered_invoked,
+        l2.registered_not_invoked.values().map(Vec::len).sum::<usize>(),
+        l2.invoked,
+        l2.both
+    );
+    for (why, rows) in &l2.invoked_not_registered {
+        eprintln!("   invoked, not registered: {why:?} x{}", rows.len());
+    }
+    for (why, rows) in &l2.registered_not_invoked {
+        eprintln!("   registered, not invoked: {why:?} x{}", rows.len());
+        for row in rows.iter().take(3) {
+            eprintln!("       {row}");
+        }
+    }
+    eprintln!(
+        "   order: compared only inside one (model, kind_chain) group, where ActiveSupport::Callbacks \
+         runs a chain's callbacks in registration order (callbacks.rb:645-663 for re-registration); \
+         across groups Rails guarantees nothing here. {} groups, {} differ, {} inversions",
+        l2.order_groups, l2.order_differing, l2.order_inversions
+    );
+    for e in &l2.order_examples {
+        eprintln!("       {e}");
+    }
+    let inr: usize = l2.invoked_not_registered.values().map(Vec::len).sum();
+    assert_eq!(
+        l2.both + inr,
+        l2.invoked,
+        "an invoked entry is neither matched nor classified"
+    );
+    assert!(l2.both > 0 && l2.registered > 0, "nothing compared");
+    assert_eq!(
+        l2.registered,
+        l2.registered_invoked
+            + l2.registered_not_invoked
+                .values()
+                .map(Vec::len)
+                .sum::<usize>(),
+        "a registered callback is neither invoked nor classified"
+    );
+    for wrong in [
+        cb::Silent::ChainNotExercised,
+        cb::Silent::OnOptionNotExercised,
+    ] {
+        assert!(
+            l2.registered_not_invoked
+                .get(&RegisteredNotInvoked::Silent(wrong))
+                .is_none_or(Vec::is_empty),
+            "registered for create but {wrong:?}"
+        );
+    }
+    assert!(
+        l2.registered_not_invoked
+            .get(&RegisteredNotInvoked::Silent(cb::Silent::Unexplained))
+            .is_none_or(Vec::is_empty),
+        "registered, unconditioned callbacks on an exercised chain that never ran"
+    );
+    assert!(
+        !l2.registered_not_invoked.is_empty(),
+        "every registered callback was invoked: registration and invocation were conflated"
+    );
+    let control_l2 = layer2(&h, &svc, CASE, false, cb::reversed);
+    eprintln!(
+        "   negative control (names reversed): both {} of {}",
+        control_l2.both, control_l2.invoked
+    );
+    assert!(
+        control_l2.both * 50 <= l2.both,
+        "the callback matcher does not discriminate"
+    );
+
+    // ── Effects: PREDICTED or SLAG ───────────────────────────────────────
+    let sc = service_case(&svc, CASE);
+    let predicted = predict(&member.admission);
+    let fx = compare_effects(&predicted, &sc);
+    let slag = tally(fx.slag.iter().cloned());
+    eprintln!("== ATTRIBUTE STATE / PERSISTENCE / JOBS (PREDICTED or SLAG; nothing executed)");
+    eprintln!(
+        "   oracle effects {}: attribute state {:?}, persistence {:?}, jobs {:?}; mismatched {}, predicted-only {}",
+        fx.oracle_effects, fx.attributes, fx.persistence, fx.jobs, fx.mismatched.len(), fx.extra.len()
+    );
+    for s in &slag {
+        eprintln!("   SLAG {:?}", s.0);
+    }
+    assert!(fx.mismatched.is_empty(), "{:?}", fx.mismatched);
+    assert!(fx.extra.is_empty(), "{:?}", fx.extra);
+    assert_eq!(
+        fx.attributes.predicted
+            + fx.attributes.slag
+            + fx.persistence.predicted
+            + fx.persistence.slag
+            + fx.jobs.slag,
+        fx.oracle_effects,
+        "an oracle effect was neither compared nor classified"
+    );
+    for job in sc["enqueued_jobs"].as_array().expect("jobs") {
+        assert!(fx.slag.contains(&EffectSlag::JobNotModeled(
+            job.as_str().expect("class").into()
+        )));
+    }
+
+    // ── Negative control (a): no permission ──────────────────────────────
+    eprintln!("== control (a): {DENIED_CASE}");
+    eprintln!(
+        "   verdict {:?}; errors {:?}; oracle errors {:?}",
+        denied.admission.verdict, denied.admission.errors, denied.oracle_errors
+    );
+    assert_eq!(denied.admission.verdict, Verdict::Denied);
+    assert!(!denied.oracle_success);
+    assert_eq!(denied.verdict_match, Some(true));
+    assert_eq!(
+        denied.errors_match,
+        Some(true),
+        "error keys differ from the oracle"
+    );
+    assert!(
+        denied.writable_compared >= 5 && denied.mismatches.is_empty(),
+        "{:?}",
+        denied.mismatches
+    );
+    assert!(denied.admission.errors.contains_key("base") && denied.admission.errors.len() > 1);
+    let denied_fx = compare_effects(
+        &predict(&denied.admission),
+        &service_case(&svc, DENIED_CASE),
+    );
+    assert!(
+        denied_fx.mismatched.is_empty() && denied_fx.extra.is_empty() && denied_fx.slag.is_empty()
+    );
+    assert_eq!(
+        denied_fx.persistence.predicted, 1,
+        "no row delta predicted, none observed"
+    );
+    let denied_l2 = layer2(&h, &svc, DENIED_CASE, true, Clone::clone);
+    let write_phases = [
+        "before_save",
+        "after_save",
+        "around_save",
+        "before_create",
+        "after_create",
+        "after_commit",
+    ];
+    assert!(
+        denied_l2
+            .invoked_phases
+            .iter()
+            .all(|p| !write_phases.contains(&p.as_str())),
+        "a save/create/commit callback ran although the contract denied"
+    );
+    let skipped = denied_l2
+        .registered_not_invoked
+        .get(&RegisteredNotInvoked::ContractDeniedBeforeSave)
+        .map_or(0, Vec::len);
+    eprintln!("   journal phases {:?}; save/create/commit callbacks not run, explained by the denial: {skipped}", denied_l2.invoked_phases);
+    assert!(skipped > 0);
+    assert!(l2
+        .invoked_phases
+        .iter()
+        .any(|p| write_phases.contains(&p.as_str())));
+
+    // ── Negative control (b): flip one submitted attribute's guard ───────
+    let facts = facts_of(analogue(&contract, member.user.label()));
+    let cols: Vec<String> = member.submitted.iter().map(|k| changed_column(k)).collect();
+    let user = OracleUser {
+        kind: member.user.clone(),
+    };
+    let (col, changed, perturbed) =
+        perturb(&user, &cols, &facts).expect("no submitted attribute has a flippable guard");
+    let flipped = run_auth(
+        &svc,
+        &contract,
+        &service_rb,
+        &default_perms,
+        CASE,
+        Some(&perturbed),
+    );
+    eprintln!("== control (b): perturb {col} by changing facts {changed:?}");
+    eprintln!(
+        "   verdict {:?} -> {:?}; writable {col}: {:?} -> {:?}; errors {:?}",
+        member.admission.verdict,
+        flipped.admission.verdict,
+        member.admission.writable[&col],
+        flipped.admission.writable[&col],
+        flipped.admission.errors
+    );
+    // `status_id_change || !closed_version_and_status?`, helper inlined by ruff: the
+    // smallest flip is an unchanged status that is closed, in a closed version.
+    assert_eq!(changed.len(), 3, "unexpected minimal flip {changed:?}");
+    assert_ne!(member.admission.verdict, flipped.admission.verdict);
+    assert_ne!(
+        member.admission.writable[&col],
+        flipped.admission.writable[&col]
+    );
+    assert_eq!(
+        flipped.admission.errors.get(&col),
+        Some(&vec!["error_readonly"])
+    );
+    assert_eq!(
+        flipped.verdict_match,
+        Some(false),
+        "the oracle saw the unperturbed input"
+    );
+    let flipped_fx = compare_effects(&predict(&flipped.admission), &sc);
+    eprintln!(
+        "   predicted effects under the perturbed denial: mismatched {:?}",
+        flipped_fx.mismatched
+    );
+    assert!(
+        !flipped_fx.mismatched.is_empty(),
+        "effects ignored the admission verdict"
+    );
+
+    // ── Acceptance report ────────────────────────────────────────────────
+    let exec_member = 1 + member.oracle_errors.len() + member.writable_compared;
+    let exec_denied = 1 + denied.oracle_errors.len() + denied.writable_compared;
+    let exec_wide = wide.compared;
+    let mut parity = Score::default();
+    parity.add(Category::Executed, exec_member + exec_denied + exec_wide);
+    assert_eq!(member.writable_matched, member.writable_compared);
+    assert_eq!(denied.writable_matched, denied.writable_compared);
+    eprintln!("== ACCEPTANCE REPORT {CASE} (OpenProject 2725194)");
+    eprintln!(
+        "   1. contract rules EXECUTED: {} items. {CASE}: verdict 1, error keys {}, writable? {} of {} submitted; {DENIED_CASE}: verdict 1, error keys {}, writable? {}; contract-wide writable? pairs {} ({} matched, {} unresolved). Execution parity: {} items (case + denied + contract-wide), 0 mismatches",
+        parity.executed,
+        member.oracle_errors.len(),
+        member.writable_compared,
+        member.submitted.len(),
+        denied.oracle_errors.len(),
+        denied.writable_compared,
+        wide.compared,
+        wide.matched,
+        wide.unresolved.values().sum::<usize>(),
+        parity.executed
+    );
+    eprintln!(
+        "   2. callback registrations RECONSTRUCTED (predicted): {} declarations for create; {} journal entries registered, {} classified slag",
+        l2.registered, l2.both, inr
+    );
+    eprintln!("   3. callback bodies EXECUTED: 0 (the journal is the oracle's; no Rust callback body runs)");
+    eprintln!("   4. DB effects PERFORMED: 0 (the service stub writes no row)");
+    eprintln!(
+        "   5. effects PREDICTED: attribute state {}, persistence {}, jobs {}",
+        fx.attributes.predicted, fx.persistence.predicted, fx.jobs.predicted
+    );
+    eprintln!(
+        "   6. effects UNRESOLVED (slag): {} ({})",
+        fx.slag.len(),
+        show(&tally(fx.slag.iter().map(|k| match k {
+            EffectSlag::AttributeNotModeled(a) => format!("AttributeNotModeled:{a}"),
+            EffectSlag::EffectNotModeled(t) => format!("EffectNotModeled:{t}"),
+            EffectSlag::JobNotModeled(j) => format!("JobNotModeled:{j}"),
+        })))
+    );
+    eprintln!(
+        "   typed extraction gap: {}",
+        ExtractionGap::PermissionDeclScan.describe()
+    );
 }

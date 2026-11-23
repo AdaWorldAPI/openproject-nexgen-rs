@@ -161,3 +161,85 @@ The slag reasons name the next extension, cheapest first:
 
 `**opts` association options are invisible to the harvest today; a ruff follow-up makes them
 `Undecided`, so some generated callbacks may later move to `GeneratedUndecided`.
+
+## P2: executed transition (`create_member`)
+
+`tests/create_transition_differential.rs` compares one transition, `WorkPackages::CreateService`
+for `create_member`, with the traces. Every compared item has one category, and only the
+first counts towards execution parity:
+
+- EXECUTED: production Rust ran the rule. `op_services::CreateWorkPackageService::call` runs
+  `op_contracts::work_packages::admit_create` over `generated_create_admission.rs`, a table
+  generated from the Ruby contracts by ruff's lowered `writable:` guards
+  (`cargo run -p op-codegen-pipeline --example emit_create_admission`). The test fails if the
+  checked-in table differs from what the generator produces from the checkout. Hand-ported
+  production rule: `user_allowed_to_add`. Compared: verdict, error keys and codes, `writable?`.
+- PREDICTED: derived from the Ruby source, not from the trace, and not run: the callback
+  registrations (`callback_harvest`) and the effect expectations derived from admission.
+- SLAG: not modeled, named.
+
+Inputs are the oracle's own: user, permissions and submitted attribute names are parsed from
+`work_package_service.rb`; guard facts come from the contract trace (the service trace records
+none, so the `CreateContract` record for the same user is borrowed). The traces record attribute
+names for the submitted work package, not values, so no value is compared and the service method
+takes names only. The permission set is held in "the case's project", an opaque handle: the test
+user answers for it and for no other id.
+
+`ExtractionGap::PermissionDeclScan` (typed, temporary): `permission:`, `default_attribute_permission`,
+`attribute_alias`, `allow_writable_timestamps`, the `validate :x` list and the permission literal in
+`user_allowed_to_add` are read by a line scan of `base_contract.rb` / `create_contract.rb`
+(`op-codegen-pipeline/src/admission_gen.rs`). Its only consumer is the generator. It goes when ruff
+lowers `permission:`.
+
+Acceptance report (OpenProject `2725194`):
+
+| section | result |
+|---|---|
+| contract rules EXECUTED | 350 items, 0 mismatches: `create_member` verdict 1, error keys 0, `writable?` 5 of 5; `create_no_permission` verdict 1, error keys 6, `writable?` 5; every attribute of every `CreateContract` record 332 compared and 332 matched |
+| contract attributes unresolved (58) | `UndeclaredAttribute` 36 (engine contracts), `FactUnavailable` 12 (`WorkPackage.work_based_mode?` x10, `Setting.apiv3_write_readonly_attributes?` x2), `OpaqueWritable` 10 (`allow_writable_timestamps`) |
+| contract rules not evaluated | the `validate :x` rules listed by `not_evaluated_validators()`, the `attribute ... do` blocks, `ModelContract#valid?` model validations |
+| callback registrations RECONSTRUCTED | 101 declarations for create (94 invoked, 7 `ConditionalOptionNotEvaluated`); 157 journal entries: 89 registered, 68 typed slag |
+| callback bodies EXECUTED | 0 |
+| DB effects PERFORMED | 0 (the stub writes no row) |
+| effects PREDICTED | attribute state 5 (`subject`, `project_id`, `type_id`, `status_id`, `priority_id`), persistence 2 (`persisted`, one `work_packages` row) |
+| effects UNRESOLVED (slag, 11) | `AttributeNotModeled` `author_id`, `id`, `created_at`, `updated_at`, `position`; `EffectNotModeled` `journals`, `work_package_journals`, `watchers`; `JobNotModeled` x3 |
+
+Sections are separate: authorization (executed), callbacks, attribute state, persistence, jobs.
+Ordering is compared only inside one `(model, kind_chain)` callback group, where ActiveSupport runs
+a chain in registration order; `changed_attributes`, `row_deltas` and `enqueued_jobs` are sorted by
+the oracle script and compared as sets or maps, claiming no order. The one order difference is the
+`file_links` / `storages` re-declaration in `modules/`.
+
+Negative controls: (a) `create_no_permission`: production denies with the oracle's exact
+`base: error_unauthorized` and `error_readonly` on the five submitted attributes, and the 46 registered
+save/create/commit callbacks that did not run are explained by the denial; (b) the smallest change of
+recorded facts that flips `status_id` (unchanged status, closed, in a closed version: 3 facts) turns
+the production verdict into a denial, the oracle disagrees, and the predicted effects follow. The
+callback matcher's reversed-names control is kept. Disabling the production permission check, the
+guard negation, or `user_allowed_to_add`, or editing the table, each fails the test.
+
+`CreateWorkPackageService::call` runs the generated admission first and acts on it: a denial ends the call
+with the contract's error keys and codes; an admitted create continues into the hand-written path (labelled
+in the code: only the validators the generated table has no rule for, plus the model validations, and the stub
+flow). Model facts (`leaf?`, status closed, ...) are explicit input through `with_facts`; with none supplied,
+a submitted attribute whose guard reads a fact is unresolved and `call` refuses with
+`admission_unresolved: <typed reason>`, never an admission. Existing `op-services` tests are unchanged and
+green (72 pass: 70 existing plus two new for the unresolved/supplied-fact paths); none relied on the old
+`is_writable` list. The test drives the real `call`; the submitted attributes carry the script's own subject
+literal, the case-project handle, and an opaque marker id for attributes whose values the oracle does not
+record (admission reads presence, not values; no comparison uses a marker).
+
+What each step is worth (the operator's evidence table):
+
+| step | parity |
+|---|---|
+| ruff extracts a writable guard | none |
+| production `op_contracts` evaluates the guard from compiled-from-ruff data | guard behaviour: 332 attribute pairs |
+| the real `CreateWorkPackageService::call` uses that decision | admission behaviour: verdict and error keys/codes of `create_member` and `create_no_permission` |
+| the stub assigns an id | none (no persistence parity) |
+| Rust independently writes and reads the expected state | none yet (0 DB effects performed) |
+| a callback name matches Ruby | none (no callback execution parity) |
+
+Disable runs proving the connection: making `call` ignore the admission verdict, replacing the evaluator
+inside the service with one that always admits, always admitting inside `call`, skipping admission in `call`, or ignoring `with_facts`, each fails the admission
+comparison (error keys differ from the oracle; verdict differs; the 3-fact perturbation no longer flips).

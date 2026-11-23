@@ -48,6 +48,12 @@ use ruff_spo_triplet::Triple as RuffTriple;
 #[cfg(feature = "ogar-emit")]
 pub mod ogar_consumer;
 
+/// Generator for the create-contract admission table in `op-contracts`.
+pub mod admission_gen;
+
+/// Callback harvest shared by the Rails-callback differentials (test support).
+pub mod callback_harvest;
+
 /// Field-set harvest bridge: mint the ViewFilter *view* mask from the ERB
 /// `ViewFieldSet` harvest — the harvested source of what op-server's skin
 /// order constants (`WP_BOARD_ORDER` …) bake by hand. Field twin of
