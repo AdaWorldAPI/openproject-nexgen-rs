@@ -147,7 +147,7 @@ async fn executed_db_work_package_journey() {
 
     match outcome {
         Ok(tally) => eprintln!(
-            "EXECUTED_DB: journey steps {}/10, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7), update journal: YES (steps 4, 8, 9: no-op, aggregated, new version, closed predecessor, rollback), ancestor totals: YES (step 10: derived hours and done ratio up a 3-level chain, excluded status, caused journals, aggregation, rollback)",
+            "EXECUTED_DB: journey steps {}/11, rows asserted {}, transactional create: YES (step 7), creation journal: YES (steps 2, 7), update journal: YES (steps 4, 8, 9: no-op, aggregated, new version, closed predecessor, rollback), ancestor totals: YES (step 10: derived hours and done ratio up a 3-level chain, excluded status, caused journals, aggregation, rollback), ancestor totals on update: YES (step 11: estimate and status edits, the edited parent's own totals aggregated into its journal, a move recomputing the former and the new chains, no write for a subject edit, rollback)",
             tally.steps, tally.rows
         ),
         Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
@@ -1773,6 +1773,521 @@ async fn journey(db_url: String) -> Tally {
     );
     t.rows += 3;
 
+    // ── 11. ancestor totals on update ────────────────────────────────
+    // `WorkPackages::UpdateService#update_related_work_packages` (update_service.rb:54-81) runs
+    // `UpdateAncestorsService` with the attributes the edit changed. The initiator, its ancestors
+    // and (after a parent change) the former parent's ancestors are re-derived; only the
+    // attributes of `modified_attributes_justify_derivation?` (update_ancestors_service.rb:239-248)
+    // start it, and `derive_attributes` (:96-121) runs only the derivations those attributes name.
+    let cause_of = |of: i64| serde_json::json!({"type": "work_package_children_changed_values", "work_package_id": of});
+    let edit =
+        |id: i64, who: Caller, f: Box<dyn FnOnce(&mut op_db::UpdateWorkPackageDto) + Send>| {
+            let store = pg_store(&pool);
+            async move {
+                let cur = store.find_wp(id).await.unwrap().unwrap();
+                let mut dto = patch_subject(&cur, &cur.subject);
+                f(&mut dto);
+                store.update_unit_of_work(&who, id, dto).await
+            }
+        };
+
+    // Tree 1: GG (100 / 100) > PP (50 / 50) > K (10 / 10).
+    // GG 160 / 160, round(0 / 160 * 100) = 0 (lock 2: saved by PP's and K's creation); PP 60 / 60,
+    // 0 (lock 1); K has no descendants. GG: v1 (cause PP, snapshot 150 / 150 / 0), v2 (cause K).
+    let gg = create_hours(&store, &caller_a, "update GG", None, 100.0, 100.0, None)
+        .await
+        .expect("GG");
+    let pp = create_hours(&store, &caller_a, "update PP", Some(gg), 50.0, 50.0, None)
+        .await
+        .expect("PP");
+    let k = create_hours(&store, &caller_a, "update K", Some(pp), 10.0, 10.0, None)
+        .await
+        .expect("K");
+    assert_eq!(
+        derived(&verify, gg).await,
+        Derived {
+            est: Some(160.0),
+            rem: Some(160.0),
+            ratio: Some(0),
+            lock_version: 2
+        }
+    );
+    assert_eq!(
+        derived(&verify, pp).await,
+        Derived {
+            est: Some(60.0),
+            rem: Some(60.0),
+            ratio: Some(0),
+            lock_version: 1
+        }
+    );
+    assert_eq!(journals(&verify, gg).await.len(), 2);
+    assert_eq!(journals(&verify, pp).await.len(), 1);
+    t.rows += 4;
+
+    // A. A sets K's estimate to 30 (remaining stays 10). PP: 50 + 30 = 80, 50 + 10 = 60,
+    // round(20 / 80 * 100) = 25, lock 2. GG: 100 + 50 + 30 = 180, 100 + 50 + 10 = 160,
+    // round(20 / 180 * 100) = round(11.11) = 11, lock 3. K's own journal is A's, empty cause,
+    // seconds old: the edit is aggregated (one journal, estimate 30), a normal edit journal with
+    // no cause. PP's last journal has A's cause of K (same cause): aggregated, still one journal.
+    // GG's last journal (v2) has the same cause: aggregated, still two; v1 keeps 150 / 150 / 0.
+    let k_row = edit(
+        k,
+        caller_a.clone(),
+        Box::new(|d| d.estimated_hours = Some(30.0)),
+    )
+    .await
+    .expect("A edits K's estimate");
+    assert_eq!(
+        k_row.lock_version, 1,
+        "K saved once; it has no totals of its own"
+    );
+    assert_eq!(
+        derived(&verify, pp).await,
+        Derived {
+            est: Some(80.0),
+            rem: Some(60.0),
+            ratio: Some(25),
+            lock_version: 2
+        },
+        "PP: 50 + 30, 50 + 10, round(0.25 * 100) = 25"
+    );
+    assert_eq!(
+        derived(&verify, gg).await,
+        Derived {
+            est: Some(180.0),
+            rem: Some(160.0),
+            ratio: Some(11),
+            lock_version: 3
+        },
+        "GG, the grandparent, too: 180, 160, round(11.11) = 11"
+    );
+    let kj = journals(&verify, k).await;
+    assert_eq!(
+        kj.len(),
+        1,
+        "K's edit is aggregated into its creation journal"
+    );
+    assert_eq!(kj[0].cause, serde_json::json!({}), "an edit has no cause");
+    assert_eq!(data_est(&verify, kj[0].data_id).await, Some(30.0));
+    let pj = journals(&verify, pp).await;
+    assert_eq!((pj.len(), &pj[0].cause), (1, &cause_of(k)));
+    assert_eq!(
+        data_derived(&verify, pj[0].data_id).await,
+        (Some(80.0), Some(60.0), Some(25))
+    );
+    let gj = journals(&verify, gg).await;
+    assert_eq!((gj.len(), &gj[1].cause), (2, &cause_of(k)));
+    assert_eq!(
+        data_derived(&verify, gj[1].data_id).await,
+        (Some(180.0), Some(160.0), Some(11))
+    );
+    assert_eq!(
+        data_derived(&verify, gj[0].data_id).await,
+        (Some(150.0), Some(150.0), Some(0)),
+        "GG's v1 keeps its totals"
+    );
+    t.rows += 11;
+
+    // B. C moves K to a status excluded from totals: K's 30 / 10 drop out of every sum. PP: own
+    // 50 / 50 only, round(0) = 0, lock 3; GG: 100 + 50 = 150 / 150, 0, lock 4. A status change alone
+    // starts the derivation. C is another user: K, PP and GG each get a new version by C
+    // (PP v2, GG v3), with the cause of K, and the predecessors' snapshots stay.
+    let k_row = edit(
+        k,
+        caller_c.clone(),
+        Box::new(|d| d.status_id = Some(STATUS_EXCLUDED)),
+    )
+    .await
+    .expect("C edits K's status");
+    assert_eq!(k_row.lock_version, 2);
+    assert_eq!(
+        derived(&verify, pp).await,
+        Derived {
+            est: Some(50.0),
+            rem: Some(50.0),
+            ratio: Some(0),
+            lock_version: 3
+        },
+        "PP: K is excluded"
+    );
+    assert_eq!(
+        derived(&verify, gg).await,
+        Derived {
+            est: Some(150.0),
+            rem: Some(150.0),
+            ratio: Some(0),
+            lock_version: 4
+        },
+        "GG: K is excluded"
+    );
+    let kj = journals(&verify, k).await;
+    assert_eq!(
+        (kj.len(), kj[1].user_id, &kj[1].cause),
+        (2, USER_C, &serde_json::json!({}))
+    );
+    let pj = journals(&verify, pp).await;
+    assert_eq!(
+        (pj.len(), pj[1].user_id, &pj[1].cause),
+        (2, USER_C, &cause_of(k))
+    );
+    assert_eq!(
+        data_derived(&verify, pj[1].data_id).await,
+        (Some(50.0), Some(50.0), Some(0))
+    );
+    assert_eq!(
+        data_derived(&verify, pj[0].data_id).await,
+        (Some(80.0), Some(60.0), Some(25))
+    );
+    let gj = journals(&verify, gg).await;
+    assert_eq!(
+        (gj.len(), gj[2].user_id, &gj[2].cause),
+        (3, USER_C, &cause_of(k))
+    );
+    assert_eq!(
+        data_derived(&verify, gj[2].data_id).await,
+        (Some(150.0), Some(150.0), Some(0))
+    );
+    assert_eq!(
+        data_derived(&verify, gj[1].data_id).await,
+        (Some(180.0), Some(160.0), Some(11))
+    );
+    t.rows += 12;
+
+    // C. A edits PP, which has a child: PP's own estimate 50 -> 70. PP is its own initiator: its
+    // totals are 70 / 50 (K excluded: only PP's own 70 and 50), round(20 / 70 * 100) =
+    // round(28.57) = 29. PP's lock_version: 3 -> 4 (the UPDATE) -> 5 (the initiator's re-save), and
+    // the answer carries 5. The update's journal is a new version 3 by A (C wrote v2) with no cause,
+    // and the re-save is aggregated into it (same user, empty cause): one journal whose snapshot has
+    // both the new estimate 70 and the derived 70 / 50 / 29. GG: 100 + 70 = 170, 100 + 50 = 150,
+    // round(20 / 170 * 100) = round(11.76) = 12, lock 5, a new version 4 by A (v3 is C's) with the
+    // cause of PP.
+    let pp_row = edit(
+        pp,
+        caller_a.clone(),
+        Box::new(|d| d.estimated_hours = Some(70.0)),
+    )
+    .await
+    .expect("A edits PP's estimate");
+    assert_eq!(
+        pp_row.lock_version, 5,
+        "UPDATE, then the initiator's own re-save"
+    );
+    assert_eq!(
+        derived(&verify, pp).await,
+        Derived {
+            est: Some(70.0),
+            rem: Some(50.0),
+            ratio: Some(29),
+            lock_version: 5
+        },
+        "PP's own totals follow its own children (K excluded): 70, 50, round(28.57) = 29"
+    );
+    let pj = journals(&verify, pp).await;
+    assert_eq!(
+        pj.len(),
+        3,
+        "the re-save is aggregated into the edit's journal"
+    );
+    assert_eq!(
+        (pj[2].version, pj[2].user_id, &pj[2].cause),
+        (3, USER_A, &serde_json::json!({}))
+    );
+    assert_eq!(data_est(&verify, pj[2].data_id).await, Some(70.0));
+    assert_eq!(
+        data_derived(&verify, pj[2].data_id).await,
+        (Some(70.0), Some(50.0), Some(29)),
+        "the one journal snapshots the edit and the derived values"
+    );
+    assert_eq!(
+        derived(&verify, gg).await,
+        Derived {
+            est: Some(170.0),
+            rem: Some(150.0),
+            ratio: Some(12),
+            lock_version: 5
+        },
+        "GG: 100 + 70, 100 + 50, round(11.76) = 12"
+    );
+    let gj = journals(&verify, gg).await;
+    assert_eq!(
+        (gj.len(), gj[3].version, gj[3].user_id, &gj[3].cause),
+        (4, 4, USER_A, &cause_of(pp))
+    );
+    assert_eq!(
+        data_derived(&verify, gj[3].data_id).await,
+        (Some(170.0), Some(150.0), Some(12))
+    );
+    t.rows += 11;
+
+    // Tree 2: R1 (100 / 100) > M1 (20 / 20) > X (10 / 4); R2 (200 / 180) > M2 (40 / 30).
+    // M1 30 / 24, round(20.0) = 20; R1 130 / 124, round(4.615) = 5; R2 240 / 210,
+    // round(12.5) = 13 (half away from zero).
+    let r1 = create_hours(&store, &caller_a, "move R1", None, 100.0, 100.0, None)
+        .await
+        .expect("R1");
+    let m1 = create_hours(&store, &caller_a, "move M1", Some(r1), 20.0, 20.0, None)
+        .await
+        .expect("M1");
+    let x = create_hours(&store, &caller_a, "move X", Some(m1), 10.0, 4.0, None)
+        .await
+        .expect("X");
+    let r2 = create_hours(&store, &caller_a, "move R2", None, 200.0, 180.0, None)
+        .await
+        .expect("R2");
+    let m2 = create_hours(&store, &caller_a, "move M2", Some(r2), 40.0, 30.0, None)
+        .await
+        .expect("M2");
+    assert_eq!(
+        derived(&verify, m1).await,
+        Derived {
+            est: Some(30.0),
+            rem: Some(24.0),
+            ratio: Some(20),
+            lock_version: 1
+        }
+    );
+    assert_eq!(
+        derived(&verify, r1).await,
+        Derived {
+            est: Some(130.0),
+            rem: Some(124.0),
+            ratio: Some(5),
+            lock_version: 2
+        }
+    );
+    assert_eq!(
+        derived(&verify, r2).await,
+        Derived {
+            est: Some(240.0),
+            rem: Some(210.0),
+            ratio: Some(13),
+            lock_version: 1
+        }
+    );
+    let counts = |ids: [i64; 4]| {
+        let verify = verify.clone();
+        async move {
+            let mut out = Vec::new();
+            for id in ids {
+                out.push(journals(&verify, id).await.len());
+            }
+            out
+        }
+    };
+    let before = counts([m1, r1, m2, r2]).await;
+    t.rows += 4;
+
+    // D. C moves X from M1 to M2 (parent_id changes). The former chain M1 > R1 is recomputed too:
+    // M1 has no descendants any more (all three derived values nil, lock 2); R1: 100 + 20 = 120,
+    // 100 + 20 = 120, round(0) = 0, lock 3. The new chain: M2: 40 + 10 = 50, 30 + 4 = 34,
+    // round(16 / 50 * 100) = 32, lock 1; R2: 250, 214, round(36 / 250 * 100) = round(14.4) = 14,
+    // lock 2. Every one of the four gets a new journal by C (their last journals are A's) with the
+    // cause of X. X itself has no descendants: its derived values stay nil and it is saved once
+    // (lock 1).
+    let x_row = edit(
+        x,
+        caller_c.clone(),
+        Box::new(move |d| d.parent_id = Some(m2)),
+    )
+    .await
+    .expect("C moves X under M2");
+    assert_eq!(x_row.lock_version, 1, "X is not re-saved: it has no totals");
+    for (id, want) in [
+        (
+            m1,
+            Derived {
+                est: None,
+                rem: None,
+                ratio: None,
+                lock_version: 2,
+            },
+        ),
+        (
+            r1,
+            Derived {
+                est: Some(120.0),
+                rem: Some(120.0),
+                ratio: Some(0),
+                lock_version: 3,
+            },
+        ),
+        (
+            m2,
+            Derived {
+                est: Some(50.0),
+                rem: Some(34.0),
+                ratio: Some(32),
+                lock_version: 1,
+            },
+        ),
+        (
+            r2,
+            Derived {
+                est: Some(250.0),
+                rem: Some(214.0),
+                ratio: Some(14),
+                lock_version: 2,
+            },
+        ),
+    ] {
+        assert_eq!(derived(&verify, id).await, want, "work package {id}");
+    }
+    let after = counts([m1, r1, m2, r2]).await;
+    for i in 0..4 {
+        assert_eq!(
+            after[i],
+            before[i] + 1,
+            "chain member {i} got one new journal"
+        );
+    }
+    for (id, snap) in [
+        (m1, (None, None, None)),
+        (r1, (Some(120.0), Some(120.0), Some(0))),
+        (m2, (Some(50.0), Some(34.0), Some(32))),
+        (r2, (Some(250.0), Some(214.0), Some(14))),
+    ] {
+        let j = journals(&verify, id).await;
+        let last = j.last().unwrap();
+        assert_eq!(
+            (last.user_id, &last.cause),
+            (USER_C, &cause_of(x)),
+            "work package {id}"
+        );
+        assert_eq!(
+            data_derived(&verify, last.data_id).await,
+            snap,
+            "work package {id}"
+        );
+    }
+    assert_eq!(
+        journals(&verify, x).await.len(),
+        2,
+        "X: creation + C's edit"
+    );
+    t.rows += 15;
+
+    // F. Rollback: A raises X's estimate 10 -> 20, and a failing statement after the ancestor
+    // writes (`update_then`'s hook, as in step 8) rolls everything back: X, M2, R2 and their
+    // journals are byte-identical. The control with a passing hook commits: M2 60 / 34,
+    // round(26 / 60 * 100) = round(43.33) = 43, lock 2; R2 260 / 214, round(46 / 260 * 100) =
+    // round(17.69) = 18, lock 3. The estimate did not change the parent, so the former chain
+    // (M1, R1) is untouched.
+    let snap = |ids: [i64; 5]| {
+        let verify = verify.clone();
+        async move {
+            let mut out = Vec::new();
+            for id in ids {
+                out.push((
+                    row_json(&verify, id).await.unwrap(),
+                    journal_state(&verify, id).await,
+                ));
+            }
+            out
+        }
+    };
+    let all5 = [x, m2, r2, m1, r1];
+    let frozen = snap(all5).await;
+    let cur = pg_store(&pool).find_wp(x).await.unwrap().unwrap();
+    let mut dto = patch_subject(&cur, &cur.subject);
+    dto.estimated_hours = Some(20.0);
+    let failed = pg_store(&pool)
+        .update_then(&caller_a, x, dto, Some("SELECT 1 / 0"))
+        .await;
+    assert!(matches!(failed, Err(MutationError::Store(_))), "{failed:?}");
+    assert_eq!(
+        snap(all5).await,
+        frozen,
+        "the rollback leaves ancestors and journals untouched"
+    );
+    let cur = pg_store(&pool).find_wp(x).await.unwrap().unwrap();
+    let mut dto = patch_subject(&cur, &cur.subject);
+    dto.estimated_hours = Some(20.0);
+    pg_store(&pool)
+        .update_then(&caller_a, x, dto, Some("SELECT 1"))
+        .await
+        .expect("the control commits");
+    assert_eq!(
+        derived(&verify, m2).await,
+        Derived {
+            est: Some(60.0),
+            rem: Some(34.0),
+            ratio: Some(43),
+            lock_version: 2
+        }
+    );
+    assert_eq!(
+        derived(&verify, r2).await,
+        Derived {
+            est: Some(260.0),
+            rem: Some(214.0),
+            ratio: Some(18),
+            lock_version: 3
+        }
+    );
+    let after_control = snap(all5).await;
+    assert_eq!(
+        after_control[3], frozen[3],
+        "M1 is not touched: the parent did not change"
+    );
+    assert_eq!(
+        after_control[4], frozen[4],
+        "R1 is not touched: the parent did not change"
+    );
+    t.rows += 6;
+
+    // E. An edit that changes none of the derivation attributes (the subject) writes no ancestor
+    // and no ancestor journal. R2's derived estimate is first corrupted by hand (999): a recompute
+    // would repair it to 260 and bump the lock, so identical rows prove no recompute ran.
+    sqlx::query("UPDATE work_packages SET derived_estimated_hours = 999 WHERE id = $1")
+        .bind(r2)
+        .execute(&pool)
+        .await
+        .expect("corrupt R2's derived estimate");
+    let frozen = snap(all5).await;
+    let cur = pg_store(&pool).find_wp(x).await.unwrap().unwrap();
+    pg_store(&pool)
+        .update_unit_of_work(&caller_a, x, patch_subject(&cur, "move X, renamed"))
+        .await
+        .expect("a subject-only edit");
+    let now = snap(all5).await;
+    assert_eq!(
+        (&now[1], &now[2], &now[3], &now[4]),
+        (&frozen[1], &frozen[2], &frozen[3], &frozen[4]),
+        "no ancestor row and no ancestor journal changed"
+    );
+    assert_eq!(
+        derived(&verify, r2).await.est,
+        Some(999.0),
+        "R2 was not recomputed"
+    );
+
+    // A done-ratio-only edit runs only `derive_done_ratio` (update_ancestors_service.rb:112-113):
+    // R2's derived ratio is recomputed from its derived hours AS LOADED (999 / 214):
+    // round(785 / 999 * 100) = round(78.58) = 79, lock 4, while its derived estimate stays 999.
+    // M2's ratio, from 60 / 34, is still 43: not saved, rows identical.
+    let m2_frozen = snap([m2, m2, m2, m2, m2]).await.remove(0);
+    edit(x, caller_a.clone(), Box::new(|d| d.done_ratio = Some(50)))
+        .await
+        .expect("a done-ratio edit");
+    assert_eq!(
+        derived(&verify, r2).await,
+        Derived {
+            est: Some(999.0),
+            rem: Some(214.0),
+            ratio: Some(79),
+            lock_version: 4
+        },
+        "only the done ratio was derived, from the loaded hours"
+    );
+    assert_eq!(
+        snap([m2, m2, m2, m2, m2]).await.remove(0),
+        m2_frozen,
+        "M2's ratio is unchanged"
+    );
+    t.rows += 5;
+    t.steps += 1;
+
     verify.close().await;
     db.close().await;
     t
@@ -1818,6 +2333,15 @@ async fn derived(verify: &PgPool, id: i64) -> Derived {
     .fetch_one(verify)
     .await
     .expect("derived values")
+}
+
+/// The `estimated_hours` a journal data row snapshots.
+async fn data_est(verify: &PgPool, data_id: i64) -> Option<f64> {
+    sqlx::query_scalar("SELECT estimated_hours FROM work_package_journals WHERE id = $1")
+        .bind(data_id)
+        .fetch_one(verify)
+        .await
+        .expect("journal data estimate")
 }
 
 /// The derived columns a journal data row snapshots.

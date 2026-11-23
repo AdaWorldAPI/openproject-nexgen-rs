@@ -755,6 +755,115 @@ pub fn derive_ancestor_totals(own: &TotalsInput, descendants: &[TotalsInput]) ->
     }
 }
 
+/// Which derivations `UpdateAncestorsService#derive_attributes` runs for a set of changed
+/// attributes (`update_ancestors_service.rb:96-121`): the derived hours for a change of
+/// `estimated_hours`, `remaining_hours`, `status`, `status_id`, the derived done ratio for those
+/// and `done_ratio`, and both for `parent` / `parent_id` (each branch also fires on a parent
+/// change). A done-ratio-only change therefore recomputes the done ratio from the derived hours
+/// *as loaded*, and leaves the derived hours alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DerivationPlan {
+    /// `derive_total_estimated_and_remaining_hours`.
+    pub totals: bool,
+    /// `derive_done_ratio`.
+    pub done_ratio: bool,
+    /// `include_former_ancestors`: the parent changed (:65-68).
+    pub former_ancestors: bool,
+}
+
+impl DerivationPlan {
+    /// Every attribute marked changed (`update_ancestors(work_package)` with no argument, as a
+    /// create does, `shared/update_ancestors.rb:43`).
+    pub const ALL: DerivationPlan = DerivationPlan {
+        totals: true,
+        done_ratio: true,
+        former_ancestors: false,
+    };
+
+    /// The plan for `changes` (attribute names), or `None` when
+    /// `modified_attributes_justify_derivation?` (:239-248) is false.
+    /// `ignore_non_working_days` justifies a derivation but selects none of the ported ones.
+    pub fn for_changes(changes: &[&str]) -> Option<DerivationPlan> {
+        let any = |names: &[&str]| changes.iter().any(|c| names.contains(c));
+        if !any(&[
+            "done_ratio",
+            "estimated_hours",
+            "ignore_non_working_days",
+            "parent",
+            "parent_id",
+            "remaining_hours",
+            "status",
+            "status_id",
+        ]) {
+            return None;
+        }
+        let parent = any(&["parent", "parent_id"]);
+        Some(DerivationPlan {
+            totals: parent
+                || any(&["estimated_hours", "remaining_hours", "status", "status_id"]),
+            done_ratio: parent
+                || any(&[
+                    "estimated_hours",
+                    "remaining_hours",
+                    "done_ratio",
+                    "status",
+                    "status_id",
+                ]),
+            former_ancestors: parent,
+        })
+    }
+}
+
+/// The attributes an edit changed that matter for a derivation (`changed_attribute_keys_before_last_save`,
+/// `update_service.rb:57`, restricted to the ones [`DerivationPlan::for_changes`] looks at, and to
+/// the ones an update can write): the values of `before` against `after` the UPDATE.
+pub fn derivation_changes(before: &WorkPackageRow, after: &WorkPackageRow) -> Vec<&'static str> {
+    let mut changes = Vec::new();
+    if before.estimated_hours != after.estimated_hours {
+        changes.push("estimated_hours");
+    }
+    if before.done_ratio != after.done_ratio {
+        changes.push("done_ratio");
+    }
+    if before.parent_id != after.parent_id {
+        changes.push("parent_id");
+    }
+    if before.status_id != after.status_id {
+        changes.push("status_id");
+    }
+    changes
+}
+
+/// The values `plan` derives for one work package: the derived hours (when `plan.totals`, else as
+/// `loaded`), then the derived done ratio (when `plan.done_ratio`, from those hours; `nil` without
+/// descendants, `compute_derived_done_ratio` :132-140; else as `loaded`).
+/// `DerivationPlan::ALL` is [`derive_ancestor_totals`].
+pub fn derive_for_plan(
+    plan: DerivationPlan,
+    own: &TotalsInput,
+    descendants: &[TotalsInput],
+    loaded: &DerivedTotals,
+) -> DerivedTotals {
+    let mut out = *loaded;
+    if plan.totals {
+        out.estimated_hours = derive_total(own, descendants, |w| w.estimated_hours);
+        out.remaining_hours = derive_total(own, descendants, |w| w.remaining_hours);
+    }
+    if plan.done_ratio {
+        out.done_ratio = if descendants.is_empty() {
+            None
+        } else {
+            match TOTAL_PERCENT_COMPLETE_MODE {
+                WORK_WEIGHTED_AVERAGE => {
+                    derive_done_ratio(out.estimated_hours, out.remaining_hours)
+                }
+                _ => None,
+            }
+        };
+    }
+    out
+}
+
 // ── Postgres store ───────────────────────────────────────────────────
 
 /// Resolve the principal of `caller` against `project_id`.
@@ -1065,7 +1174,8 @@ impl PgCreateScope {
     /// `lib_static/plugins/acts_as_journalized/lib/acts/journalized/save_hooks.rb:61-80`),
     /// through [`PgCreateScope::write_journal`] so the aggregation rules of
     /// `Journals::CreateService` apply. The save is `wp.save(validate: false)` (:78-87): it bumps
-    /// `lock_version` and `updated_at` as any save does.
+    /// `lock_version` and `updated_at` as any save does. The work is
+    /// [`PgCreateScope::update_totals_of`], shared with the update path.
     ///
     /// The new work package is itself one of the loader's candidates (`Loader#select` yields
     /// `[work_package, *ancestors]`), but it has no descendants, so every derived value is `nil`
@@ -1075,22 +1185,83 @@ impl PgCreateScope {
     /// Not ported: `switch_to_automatic_mode` (:157-181; it needs scheduling relations, which this
     /// schema does not have), `derive_ignore_non_working_days` (:183-199; no column),
     /// `simple_average` mode and the status-based done-ratio mode ([`TOTAL_PERCENT_COMPLETE_MODE`]),
-    /// former ancestors (only a change of parent has any, `Loader#former_ancestors`), the
-    /// `JOURNAL_CREATED` notification (the ancestors are saved with notifications off,
-    /// :80-84) and the update path: an edit does not recompute ancestors yet. Like Ruby's create
-    /// (`in_user_context`, not `in_mutex_context`) it takes no advisory lock on the ancestors;
-    /// a concurrent save of an ancestor is caught by its `lock_version`, as ActiveRecord's
-    /// optimistic locking catches it, and fails this create with a conflict.
+    /// former ancestors (a create has none), and the `JOURNAL_CREATED` notification (the ancestors
+    /// are saved with notifications off, :80-84). Like Ruby's create (`in_user_context`, not
+    /// `in_mutex_context`) it takes no advisory lock on the ancestors; a concurrent save of an
+    /// ancestor is caught by its `lock_version`, as ActiveRecord's optimistic locking catches it,
+    /// and fails this create with a conflict.
     pub async fn update_ancestors_of_created(
         &self,
         work_package_id: Id,
         parent_id: Option<Id>,
         user_id: Id,
     ) -> Result<Vec<Id>, StoreFailure> {
-        let Some(parent_id) = parent_id else {
+        let chain = self.parent_chain(parent_id, work_package_id).await?;
+        self.update_totals_of(
+            work_package_id,
+            &chain,
+            user_id,
+            DerivationPlan::ALL,
+            &child_values_change_cause(work_package_id),
+        )
+        .await
+    }
+
+    /// `WorkPackages::UpdateService#update_related_work_packages` (`update_service.rb:54-81`) for
+    /// the edited work package `work_package_id`, after the UPDATE and its journal: `update_ancestors`
+    /// (`shared/update_ancestors.rb:42-48`) runs `UpdateAncestorsService` with the attributes the
+    /// edit changed (`changed_attribute_keys_before_last_save`, here `changes`, computed by
+    /// [`derivation_changes`]). Nothing happens unless [`DerivationPlan::for_changes`] says the
+    /// changes justify a derivation (`modified_attributes_justify_derivation?`,
+    /// `update_ancestors_service.rb:239-248`). The candidates are those of `Loader#select`
+    /// (`loader.rb:54-60`): the edited work package itself (its totals follow its own children, and
+    /// its re-save aggregates into the edit's journal: the initiator carries no cause,
+    /// `set_journal_cause` takes the ancestors only, :123-126), its current ancestors, and, when the
+    /// parent changed (`include_former_ancestors`, :65-68), the former parent and its ancestors
+    /// (`Loader#former_ancestors`, :139-146), ordered as `Loader#ancestors` (:84-94): current
+    /// ancestors that are not former ones, then the former chain. Each saved ancestor is journaled
+    /// with the child-values-change cause of the edited work package.
+    ///
+    /// Not ported: `switch_to_automatic_mode`, `derive_ignore_non_working_days`, `simple_average`
+    /// and status-based modes, `update_related` (`reschedule_related`, `update_descendants` on a
+    /// project change, :62-81), the apply-patterns subject generation and notifications.
+    async fn update_totals_after_edit(
+        &self,
+        work_package_id: Id,
+        parent_before: Option<Id>,
+        parent_after: Option<Id>,
+        user_id: Id,
+        plan: DerivationPlan,
+    ) -> Result<Vec<Id>, StoreFailure> {
+        let current = self.parent_chain(parent_after, work_package_id).await?;
+        let former = if plan.former_ancestors {
+            self.parent_chain(parent_before, work_package_id).await?
+        } else {
+            Vec::new()
+        };
+        let mut targets = vec![work_package_id];
+        targets.extend(current.iter().filter(|id| !former.contains(id)));
+        targets.extend(former.iter());
+        self.update_totals_of(
+            work_package_id,
+            &targets,
+            user_id,
+            plan,
+            &child_values_change_cause(work_package_id),
+        )
+        .await
+    }
+
+    /// The chain `start`, its parent, ..., the root (`self_and_ancestors`), without anything past
+    /// a cycle or past `initiator`. `UNION` (not `UNION ALL`) ends a cycle.
+    async fn parent_chain(
+        &self,
+        start: Option<Id>,
+        initiator: Id,
+    ) -> Result<Vec<Id>, StoreFailure> {
+        let Some(start) = start else {
             return Ok(Vec::new());
         };
-        // The chain parent, grandparent, ... root. `UNION` (not `UNION ALL`) ends a cycle.
         let links: Vec<(Id, Option<Id>)> = {
             let mut tx = self.tx.lock().await;
             sqlx::query_as(
@@ -1100,30 +1271,47 @@ impl PgCreateScope {
                      SELECT p.id, p.parent_id FROM up JOIN work_packages p ON p.id = up.parent_id) \
                  SELECT id, parent_id FROM up",
             )
-            .bind(parent_id)
+            .bind(start)
             .fetch_all(&mut **tx)
             .await
             .map_err(db_failure)?
         };
         let parent_of: std::collections::HashMap<Id, Option<Id>> = links.into_iter().collect();
         let mut chain = Vec::new();
-        let mut next = Some(parent_id);
+        let mut next = Some(start);
         while let Some(id) = next {
-            if id == work_package_id || chain.contains(&id) || !parent_of.contains_key(&id) {
+            if id == initiator || chain.contains(&id) || !parent_of.contains_key(&id) {
                 break;
             }
             chain.push(id);
             next = parent_of[&id];
         }
+        Ok(chain)
+    }
 
-        let cause = child_values_change_cause(work_package_id);
+    /// `UpdateAncestorsService#perform` for `targets` (`update_ancestors_service.rb:40-52`, :62-69,
+    /// :83-94), in the given order: each target derives the values `plan` selects
+    /// ([`derive_for_plan`]) from itself and all its descendants, and is saved and journaled only
+    /// if they changed. The `initiator` (when it is a target) is journaled with no cause, every
+    /// other target with `cause`. The save is `UPDATE ... WHERE id = ? AND lock_version = <as
+    /// loaded>` (ActiveRecord optimistic locking): a row that changed since it was loaded is a
+    /// [`StoreFailure::Conflict`]. The initiator's own row was written by this transaction just
+    /// before, so loading it here gives its current `lock_version` and cannot conflict with itself.
+    /// Returns the saved ids in order.
+    async fn update_totals_of(
+        &self,
+        initiator: Id,
+        targets: &[Id],
+        user_id: Id,
+        plan: DerivationPlan,
+        cause: &serde_json::Value,
+    ) -> Result<Vec<Id>, StoreFailure> {
         let mut saved = Vec::new();
-        for ancestor in chain {
-            // The ancestor first, then its descendants (`[work_package] + descendants_of`),
-            // which exclude the ancestor itself even in a cycle (`where.not(id:)`).
-            // The ancestor's own row as loaded (its derived values and `lock_version`, which the
-            // save checks), then its totals inputs and those of its descendants, from one
-            // statement so they come from one snapshot.
+        for &target in targets {
+            // The target first, then its descendants (`[work_package] + descendants_of`), which
+            // exclude the target itself even in a cycle (`where.not(id:)`). The target's own row as
+            // loaded (its derived values and `lock_version`, which the save checks), then its totals
+            // inputs and those of its descendants, from one statement so they come from one snapshot.
             type Loaded = (Id, Option<f64>, Option<f64>, bool, Option<f64>, Option<f64>, Option<i32>, i32);
             let rows: Vec<Loaded> = {
                 let mut tx = self.tx.lock().await;
@@ -1140,7 +1328,7 @@ impl PgCreateScope {
                      WHERE w.id = $1 OR w.id IN (SELECT id FROM down WHERE id <> $1) \
                      ORDER BY (w.id = $1) DESC, w.id",
                 )
-                .bind(ancestor)
+                .bind(target)
                 .fetch_all(&mut **tx)
                 .await
                 .map_err(db_failure)?
@@ -1150,27 +1338,28 @@ impl PgCreateScope {
                 remaining_hours: r.2,
                 excluded_from_totals: r.3,
             };
-            let Some(own_row) = rows.iter().find(|r| r.0 == ancestor) else {
+            let Some(own_row) = rows.iter().find(|r| r.0 == target) else {
                 continue;
             };
             let own = input(own_row);
             let descendants: Vec<TotalsInput> =
-                rows.iter().filter(|r| r.0 != ancestor).map(input).collect();
-            let derived = derive_ancestor_totals(&own, &descendants);
+                rows.iter().filter(|r| r.0 != target).map(input).collect();
             let loaded = DerivedTotals {
                 estimated_hours: own_row.4,
                 remaining_hours: own_row.5,
                 done_ratio: own_row.6,
             };
+            let derived = derive_for_plan(plan, &own, &descendants, &loaded);
             // `select { ancestor.changed? }` (update_ancestors_service.rb:62-69).
-            let changed = derived != loaded;
-            if changed {
-                // `wp.save(validate: false)` (:78-87) under ActiveRecord optimistic locking:
-                // `UPDATE ... WHERE id = ? AND lock_version = <as loaded>`, and no row updated
-                // raises `ActiveRecord::StaleObjectError`. A concurrent create under the same
-                // ancestor that saved it first (its UPDATE holds the row lock until it commits)
-                // therefore fails this create instead of overwriting its totals with ones that
-                // miss its child.
+            if derived == loaded {
+                continue;
+            }
+            // `wp.save(validate: false)` (:78-87) under ActiveRecord optimistic locking: no row
+            // updated raises `ActiveRecord::StaleObjectError`. A concurrent save of the same
+            // work package that went first (its UPDATE holds the row lock until it commits)
+            // therefore fails this one instead of overwriting its totals with ones that miss
+            // its change.
+            {
                 let mut tx = self.tx.lock().await;
                 let updated = sqlx::query(
                     "UPDATE work_packages SET derived_estimated_hours = $2, \
@@ -1178,7 +1367,7 @@ impl PgCreateScope {
                          lock_version = lock_version + 1, updated_at = statement_timestamp() \
                      WHERE id = $1 AND lock_version = $5",
                 )
-                .bind(ancestor)
+                .bind(target)
                 .bind(derived.estimated_hours)
                 .bind(derived.remaining_hours)
                 .bind(derived.done_ratio)
@@ -1189,16 +1378,16 @@ impl PgCreateScope {
                 .rows_affected();
                 if updated != 1 {
                     return Err(StoreFailure::Conflict(format!(
-                        "work package {ancestor} was modified by another user while its totals \
+                        "work package {target} was modified by another user while its totals \
                          were recomputed"
                     )));
                 }
             }
-            if changed {
-                self.write_journal(ancestor, user_id, JOURNAL_AGGREGATION_TIME_MINUTES, &cause)
-                    .await?;
-                saved.push(ancestor);
-            }
+            let no_cause = serde_json::json!({});
+            let journal_cause = if target == initiator { &no_cause } else { cause };
+            self.write_journal(target, user_id, JOURNAL_AGGREGATION_TIME_MINUTES, journal_cause)
+                .await?;
+            saved.push(target);
         }
         Ok(saved)
     }
@@ -1352,14 +1541,23 @@ impl PgCreateScope {
         let mut row = self.update_row(id, dto).await?;
         self.write_update_journal(id, user_id, aggregation_minutes)
             .await?;
-        // `touch_journable` may have advanced `updated_at` past the UPDATE's value: answer with
-        // the committed timestamp, the one the journal carries.
+        // `after_perform` -> `update_related_work_packages` (`update_service.rb:54-81`): the totals
+        // of the edited work package and of its current and former ancestors, after the journal.
+        if let Some(plan) = DerivationPlan::for_changes(&derivation_changes(&existing, &row)) {
+            self.update_totals_after_edit(id, existing.parent_id, row.parent_id, user_id, plan)
+                .await?;
+        }
+        // `touch_journable` and the initiator's re-save may have advanced `updated_at` and
+        // `lock_version` past the UPDATE's values: answer with the committed ones.
         let mut tx = self.tx.lock().await;
-        row.updated_at = sqlx::query_scalar("SELECT updated_at FROM work_packages WHERE id = $1")
-            .bind(id)
-            .fetch_one(&mut **tx)
-            .await
-            .map_err(db_failure)?;
+        let (updated_at, lock_version): (chrono::DateTime<chrono::Utc>, i32) =
+            sqlx::query_as("SELECT updated_at, lock_version FROM work_packages WHERE id = $1")
+                .bind(id)
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(db_failure)?;
+        row.updated_at = updated_at;
+        row.lock_version = lock_version;
         Ok(row)
     }
 
@@ -2604,5 +2802,71 @@ mod tests {
             true,
             EDIT_WORK_PACKAGES
         ));
+    }
+    #[test]
+    fn plan_follows_update_ancestors_service_derive_attributes() {
+        // Not a derivation attribute: nothing (a subject edit).
+        assert_eq!(DerivationPlan::for_changes(&[]), None);
+        assert_eq!(DerivationPlan::for_changes(&["subject", "lock_version"]), None);
+        // Hours and status: both derivations, no former ancestors.
+        for a in ["estimated_hours", "remaining_hours", "status_id", "status"] {
+            assert_eq!(
+                DerivationPlan::for_changes(&[a]),
+                Some(DerivationPlan { totals: true, done_ratio: true, former_ancestors: false }),
+                "{a}"
+            );
+        }
+        // Done ratio alone: only the done ratio, from the derived hours as loaded.
+        assert_eq!(
+            DerivationPlan::for_changes(&["done_ratio"]),
+            Some(DerivationPlan { totals: false, done_ratio: true, former_ancestors: false })
+        );
+        // Parent: both, and the former ancestors.
+        assert_eq!(
+            DerivationPlan::for_changes(&["parent_id"]),
+            Some(DerivationPlan { totals: true, done_ratio: true, former_ancestors: true })
+        );
+        // ignore_non_working_days justifies a derivation, none of the ported ones.
+        assert_eq!(
+            DerivationPlan::for_changes(&["ignore_non_working_days"]),
+            Some(DerivationPlan { totals: false, done_ratio: false, former_ancestors: false })
+        );
+    }
+
+    #[test]
+    fn derive_for_plan_leaves_unselected_derivations_as_loaded() {
+        let own = TotalsInput { estimated_hours: Some(10.0), remaining_hours: Some(5.0), excluded_from_totals: false };
+        let child = TotalsInput { estimated_hours: Some(10.0), remaining_hours: Some(0.0), excluded_from_totals: false };
+        // Stale loaded values, so a recomputation is visible.
+        let loaded = DerivedTotals { estimated_hours: Some(1.0), remaining_hours: Some(1.0), done_ratio: Some(7) };
+        let all = DerivationPlan::ALL;
+        assert_eq!(
+            derive_for_plan(all, &own, &[child], &loaded),
+            derive_ancestor_totals(&own, &[child])
+        );
+        // Done ratio only: from the loaded hours, round((1 - 1) / 1 * 100) = 0.
+        let only_ratio = DerivationPlan { totals: false, done_ratio: true, former_ancestors: false };
+        let d = derive_for_plan(only_ratio, &own, &[child], &loaded);
+        assert_eq!((d.estimated_hours, d.remaining_hours, d.done_ratio), (Some(1.0), Some(1.0), Some(0)));
+        // Neither: untouched.
+        let none = DerivationPlan { totals: false, done_ratio: false, former_ancestors: false };
+        assert_eq!(derive_for_plan(none, &own, &[child], &loaded), loaded);
+    }
+
+    #[test]
+    fn derivation_changes_reports_only_changed_attributes() {
+        let before = row(1, 5);
+        assert!(derivation_changes(&before, &before).is_empty());
+        let mut after = row(1, 5);
+        after.subject = "other".into();
+        assert!(derivation_changes(&before, &after).is_empty(), "a subject edit changes none");
+        after.estimated_hours = Some(3.0);
+        after.parent_id = Some(9);
+        after.status_id = 2;
+        after.done_ratio = 50;
+        assert_eq!(
+            derivation_changes(&before, &after),
+            vec!["estimated_hours", "done_ratio", "parent_id", "status_id"]
+        );
     }
 }
