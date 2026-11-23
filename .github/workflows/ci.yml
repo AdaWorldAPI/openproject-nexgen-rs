@@ -17,6 +17,11 @@ jobs:
   # that these Rust paths persist the asserted rows. REQUIRE_DB=1 turns a missing database into a
   # failure instead of a skip. The test creates and drops its own database, so the role needs
   # CREATEDB (the image's superuser has it).
+  #
+  # The same run compares the journey's capture with the committed oracle/executed-db.pg.ndjson
+  # (REQUIRE_DB=1 makes the comparison mandatory): a change in what PostgreSQL answers to the
+  # journey fails the job with the first differing step and cell. After an intended change,
+  # regenerate with UPDATE_EXECUTED_DB_CAPTURE=1 and review the diff.
   executed-db:
     runs-on: ubuntu-latest
     services:
