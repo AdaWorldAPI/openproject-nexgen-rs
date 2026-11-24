@@ -301,7 +301,7 @@ mod tests {
         }
     }
 
-    const MAP: (&str, &str) = ("OP_SIGNIN_MAP_TEXT", "role=op-admin:Project admin\n");
+    const MAP: (&str, &str) = ("OP_SIGNIN_MAP_TEXT", "role=op-admin:Project admin\nrank=Project admin\n");
 
     /// FAILS IF: a blank or unset `OP_API_CLIENTS` turns anything on, or a good list is
     /// misread (duplicates must collapse, spaces around items are trimmed).
