@@ -2364,7 +2364,7 @@ mod tests {
     #[test]
     fn the_page_uses_the_brand_tokens_and_no_fixed_colours() {
         let html = page_shell("t", "<p>x</p>");
-        assert!(html.contains("--brand-accent: #2563eb;"), "{html}");
+        assert!(html.contains("--brand-accent: #c8102e;"), "{html}");
         assert!(html.contains("nav.topnav {") || html.contains("nav.topnav{"));
         assert!(html.contains("background: var(--brand-side-bg);"));
         assert!(html.contains("class=\"topnav-brand\">OpenProject RS</a>"));
