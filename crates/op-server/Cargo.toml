@@ -23,6 +23,8 @@ ogar-render-askama = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "ma
 ogar-vocab = { git = "https://github.com/AdaWorldAPI/OGAR", branch = "main" }
 lance-graph-contract = { git = "https://github.com/AdaWorldAPI/lance-graph", branch = "main" }
 a2ui-layout = { git = "https://github.com/AdaWorldAPI/a2ui-rs", branch = "main" }
+# The shared themes; the corporate palette below is read from it, not copied.
+a2ui-theme = { git = "https://github.com/AdaWorldAPI/a2ui-rs", branch = "main" }
 
 # Browser sign-in (Zitadel via ogar-oidc), lifted unchanged from zammad-rs.
 web-login = { path = "../web-login", features = ["reqwest", "axum"] }
