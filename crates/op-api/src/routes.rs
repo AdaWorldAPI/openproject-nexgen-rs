@@ -8,11 +8,7 @@ use axum::{
 };
 
 use crate::extractors::AppState;
-use crate::handlers::{
-    activities, attachments, categories, journals, memberships, news, priorities, projects,
-    queries, relations, roles, statuses, time_entries, types, users, versions, watchers,
-    work_packages,
-};
+use crate::handlers::{activities, attachments, categories, journals, memberships, news, priorities, projects, queries, relations, roles, statuses, time_entries, types, users, versions, watchers, work_packages};
 
 /// Create the complete API router
 pub fn router() -> Router<AppState> {
@@ -49,30 +45,18 @@ fn work_packages_router() -> Router<AppState> {
         .route("/:id", patch(work_packages::update_work_package))
         .route("/:id", delete(work_packages::delete_work_package))
         // Relations
-        .route(
-            "/:id/relations",
-            get(relations::list_work_package_relations),
-        )
+        .route("/:id/relations", get(relations::list_work_package_relations))
         // Watchers
         .route("/:id/watchers", get(watchers::list_work_package_watchers))
         .route("/:id/watchers", post(watchers::add_work_package_watcher))
-        .route(
-            "/:id/watchers/:user_id",
-            delete(watchers::remove_work_package_watcher),
-        )
+        .route("/:id/watchers/:user_id", delete(watchers::remove_work_package_watcher))
         .route("/:id/watching", get(watchers::is_watching_work_package))
         .route("/:id/watch", post(watchers::watch_work_package))
         .route("/:id/watch", delete(watchers::unwatch_work_package))
         // Attachments
-        .route(
-            "/:id/attachments",
-            get(attachments::list_work_package_attachments),
-        )
+        .route("/:id/attachments", get(attachments::list_work_package_attachments))
         // Activities (journals)
-        .route(
-            "/:id/activities",
-            get(journals::list_work_package_activities),
-        )
+        .route("/:id/activities", get(journals::list_work_package_activities))
         .route("/:id/revisions", get(journals::list_work_package_revisions))
 }
 
@@ -230,7 +214,8 @@ fn news_router() -> Router<AppState> {
     // NewsRepository exposes list_by_project, not a global list_all.
     // EXTRACTOR-GAP: global GET /api/v3/news (project-filtered) not emitted —
     // op-db NewsRepository lacks list_all. Resolve: add list_all + filter parse.
-    Router::new().route("/:id", get(news::get_news))
+    Router::new()
+        .route("/:id", get(news::get_news))
 }
 
 async fn api_root() -> axum::Json<serde_json::Value> {

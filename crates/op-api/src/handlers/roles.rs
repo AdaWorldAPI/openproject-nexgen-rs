@@ -104,10 +104,13 @@ pub async fn create_role(
         role_type: "Role".to_string(),
     };
 
-    let row = repo.create(create_dto).await.map_err(|e| match e {
-        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    let row = repo
+        .create(create_dto)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     // Set permissions if provided
     if let Some(permissions) = dto.permissions {
@@ -121,10 +124,7 @@ pub async fn create_role(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    Ok((
-        StatusCode::CREATED,
-        HalResponse(RoleResponse::from_row(row, permissions)),
-    ))
+    Ok((StatusCode::CREATED, HalResponse(RoleResponse::from_row(row, permissions))))
 }
 
 /// Update a role (admin only)
@@ -148,11 +148,14 @@ pub async fn update_role(
         position: dto.position,
     };
 
-    let row = repo.update(id, update_dto).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Role", id),
-        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    let row = repo
+        .update(id, update_dto)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Role", id),
+            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     // Set permissions if provided
     if let Some(permissions) = dto.permissions {
@@ -184,11 +187,13 @@ pub async fn delete_role(
     let pool = state.pool()?;
     let repo = RoleRepository::new(pool.clone());
 
-    repo.delete(id).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Role", id),
-        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    repo.delete(id)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Role", id),
+            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

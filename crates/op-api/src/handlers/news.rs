@@ -81,10 +81,13 @@ pub async fn get_news(
     // `find_by_id` surfaces a missing row as `RepositoryError::NotFound`
     // (it returns `News`, not `Option<News>`), so map that variant explicitly —
     // mirroring the error-mapping idiom in `work_packages.rs`.
-    let row = repo.find_by_id(id).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("News", id),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    let row = repo
+        .find_by_id(id)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("News", id),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     Ok(HalResponse(NewsResponse::from_row(row)))
 }

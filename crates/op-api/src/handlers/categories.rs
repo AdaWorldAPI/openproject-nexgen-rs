@@ -138,9 +138,7 @@ pub async fn create_category(
     Json(dto): Json<CreateCategoryRequest>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden(
-            "Only administrators can create categories.",
-        ));
+        return Err(ApiError::forbidden("Only administrators can create categories."));
     }
 
     let pool = state.pool()?;
@@ -152,16 +150,16 @@ pub async fn create_category(
         assigned_to_id: dto.assigned_to_id,
     };
 
-    let row = repo.create(create_dto).await.map_err(|e| match e {
-        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    let row = repo
+        .create(create_dto)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
-    Ok((
-        StatusCode::CREATED,
-        HalResponse(CategoryResponse::from_row(row)),
-    ))
+    Ok((StatusCode::CREATED, HalResponse(CategoryResponse::from_row(row))))
 }
 
 /// Update a category
@@ -174,9 +172,7 @@ pub async fn update_category(
     Json(dto): Json<UpdateCategoryRequest>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden(
-            "Only administrators can update categories.",
-        ));
+        return Err(ApiError::forbidden("Only administrators can update categories."));
     }
 
     let pool = state.pool()?;
@@ -187,12 +183,15 @@ pub async fn update_category(
         assigned_to_id: dto.assigned_to_id,
     };
 
-    let row = repo.update(id, update_dto).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Category", id),
-        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    let row = repo
+        .update(id, update_dto)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Category", id),
+            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     Ok(HalResponse(CategoryResponse::from_row(row)))
 }
@@ -206,19 +205,19 @@ pub async fn delete_category(
     Path(id): Path<Id>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden(
-            "Only administrators can delete categories.",
-        ));
+        return Err(ApiError::forbidden("Only administrators can delete categories."));
     }
 
     let pool = state.pool()?;
     let repo = CategoryRepository::new(pool.clone());
 
-    repo.delete(id).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Category", id),
-        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    repo.delete(id)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Category", id),
+            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

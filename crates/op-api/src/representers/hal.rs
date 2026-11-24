@@ -247,10 +247,7 @@ impl<T: Serialize> HalCollection<T> {
         // Self link
         self.links.add(
             "self",
-            HalLink::new(format!(
-                "{}?offset={}&pageSize={}",
-                base_url, self.offset, self.page_size
-            )),
+            HalLink::new(format!("{}?offset={}&pageSize={}", base_url, self.offset, self.page_size)),
         );
 
         // Jump to page link (templated)
@@ -270,10 +267,7 @@ impl<T: Serialize> HalCollection<T> {
             let prev_offset = (page - 2) * per_page;
             self.links.add(
                 "previousByOffset",
-                HalLink::new(format!(
-                    "{}?offset={}&pageSize={}",
-                    base_url, prev_offset, per_page
-                )),
+                HalLink::new(format!("{}?offset={}&pageSize={}", base_url, prev_offset, per_page)),
             );
         }
 
@@ -282,10 +276,7 @@ impl<T: Serialize> HalCollection<T> {
             let next_offset = page * per_page;
             self.links.add(
                 "nextByOffset",
-                HalLink::new(format!(
-                    "{}?offset={}&pageSize={}",
-                    base_url, next_offset, per_page
-                )),
+                HalLink::new(format!("{}?offset={}&pageSize={}", base_url, next_offset, per_page)),
             );
         }
 
@@ -405,7 +396,10 @@ impl HalError {
 
     /// Create a conflict error
     pub fn conflict(message: impl Into<String>) -> Self {
-        Self::new("urn:openproject-org:api:v3:errors:UpdateConflict", message)
+        Self::new(
+            "urn:openproject-org:api:v3:errors:UpdateConflict",
+            message,
+        )
     }
 }
 
@@ -458,10 +452,7 @@ mod tests {
     fn test_hal_links() {
         let links = HalLinks::new()
             .with("self", HalLink::new("/api/v3/work_packages/1"))
-            .with(
-                "project",
-                HalLink::with_title("/api/v3/projects/1", "My Project"),
-            );
+            .with("project", HalLink::with_title("/api/v3/projects/1", "My Project"));
 
         assert!(links.has("self"));
         assert!(links.has("project"));
@@ -500,11 +491,8 @@ mod tests {
         }
 
         let items = vec![Item { id: 1 }, Item { id: 2 }];
-        let collection = HalCollection::new("Items", items, 10, 20, 0).with_pagination_links(
-            "/api/v3/items",
-            1,
-            20,
-        );
+        let collection = HalCollection::new("Items", items, 10, 20, 0)
+            .with_pagination_links("/api/v3/items", 1, 20);
 
         let json = serde_json::to_value(&collection).unwrap();
         assert_eq!(json["_type"], "Items");
@@ -527,10 +515,9 @@ mod tests {
 
     #[test]
     fn test_validation_error() {
-        let error = HalError::validation_errors(vec![(
-            "subject".to_string(),
-            "can't be blank".to_string(),
-        )]);
+        let error = HalError::validation_errors(vec![
+            ("subject".to_string(), "can't be blank".to_string()),
+        ]);
         let json = serde_json::to_value(&error).unwrap();
 
         assert_eq!(json["_type"], "Error");

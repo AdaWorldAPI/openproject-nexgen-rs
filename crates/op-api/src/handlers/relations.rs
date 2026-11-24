@@ -119,16 +119,16 @@ pub async fn create_relation(
         description: dto.description,
     };
 
-    let row = repo.create(create_dto).await.map_err(|e| match e {
-        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    let row = repo
+        .create(create_dto)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
-    Ok((
-        StatusCode::CREATED,
-        HalResponse(RelationResponse::from_row(row)),
-    ))
+    Ok((StatusCode::CREATED, HalResponse(RelationResponse::from_row(row))))
 }
 
 /// Update a relation
@@ -148,11 +148,14 @@ pub async fn update_relation(
         description: dto.description,
     };
 
-    let row = repo.update(id, update_dto).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Relation", id),
-        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    let row = repo
+        .update(id, update_dto)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Relation", id),
+            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     Ok(HalResponse(RelationResponse::from_row(row)))
 }
@@ -168,10 +171,12 @@ pub async fn delete_relation(
     let pool = state.pool()?;
     let repo = RelationRepository::new(pool.clone());
 
-    repo.delete(id).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Relation", id),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    repo.delete(id)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Relation", id),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

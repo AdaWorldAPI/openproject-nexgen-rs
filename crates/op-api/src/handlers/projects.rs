@@ -88,9 +88,7 @@ pub async fn create_project(
 ) -> ApiResult<impl IntoResponse> {
     // Only admins can create projects
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden(
-            "Only administrators can create projects.",
-        ));
+        return Err(ApiError::forbidden("Only administrators can create projects."));
     }
 
     let pool = state.pool()?;
@@ -120,10 +118,7 @@ pub async fn create_project(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    Ok((
-        StatusCode::CREATED,
-        HalResponse(ProjectResponse::from_row(row)),
-    ))
+    Ok((StatusCode::CREATED, HalResponse(ProjectResponse::from_row(row))))
 }
 
 /// PATCH /api/v3/projects/:id
@@ -135,20 +130,14 @@ pub async fn update_project(
 ) -> ApiResult<impl IntoResponse> {
     // Only admins can update projects (simplified permission check)
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden(
-            "Only administrators can update projects.",
-        ));
+        return Err(ApiError::forbidden("Only administrators can update projects."));
     }
 
     let pool = state.pool()?;
     let repo = ProjectRepository::new(pool.clone());
 
     // Verify project exists
-    if !repo
-        .exists(id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-    {
+    if !repo.exists(id).await.map_err(|e| ApiError::internal(format!("Database error: {}", e)))? {
         return Err(ApiError::not_found("Project", id));
     }
 
@@ -160,10 +149,13 @@ pub async fn update_project(
         active: dto.active,
     };
 
-    let row = repo.update(id, update_dto).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Project", id),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    let row = repo
+        .update(id, update_dto)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Project", id),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     Ok(HalResponse(ProjectResponse::from_row(row)))
 }
@@ -176,19 +168,19 @@ pub async fn delete_project(
 ) -> ApiResult<impl IntoResponse> {
     // Only admins can delete projects
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden(
-            "Only administrators can delete projects.",
-        ));
+        return Err(ApiError::forbidden("Only administrators can delete projects."));
     }
 
     let pool = state.pool()?;
     let repo = ProjectRepository::new(pool.clone());
 
-    repo.delete(id).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Project", id),
-        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    repo.delete(id)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Project", id),
+            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -200,9 +192,7 @@ pub async fn archive_project(
     Path(id): Path<Id>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden(
-            "Only administrators can archive projects.",
-        ));
+        return Err(ApiError::forbidden("Only administrators can archive projects."));
     }
 
     let pool = state.pool()?;
@@ -236,9 +226,7 @@ pub async fn unarchive_project(
     Path(id): Path<Id>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden(
-            "Only administrators can unarchive projects.",
-        ));
+        return Err(ApiError::forbidden("Only administrators can unarchive projects."));
     }
 
     let pool = state.pool()?;

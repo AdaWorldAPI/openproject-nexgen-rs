@@ -128,10 +128,13 @@ pub async fn update_activity(
         notes: dto.comment.map(Some),
     };
 
-    let journal = repo.update(id, update_dto).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Activity", id),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    let journal = repo
+        .update(id, update_dto)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Activity", id),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     Ok(HalResponse(ActivityResponse::from_journal(journal)))
 }
@@ -301,15 +304,11 @@ impl ActivityResponse {
         let user_id = journal.user_id;
         let journable_id = journal.journable_id;
 
-        let comment = journal
-            .notes
-            .as_ref()
-            .filter(|n| !n.is_empty())
-            .map(|n| CommentResponse {
-                format: "markdown".into(),
-                raw: n.clone(),
-                html: format!("<p>{}</p>", n), // Simplified HTML rendering
-            });
+        let comment = journal.notes.as_ref().filter(|n| !n.is_empty()).map(|n| CommentResponse {
+            format: "markdown".into(),
+            raw: n.clone(),
+            html: format!("<p>{}</p>", n), // Simplified HTML rendering
+        });
 
         ActivityResponse {
             type_name: "Activity".into(),

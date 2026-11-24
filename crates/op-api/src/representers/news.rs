@@ -15,7 +15,7 @@ use chrono::{DateTime, Utc};
 use op_core::traits::Id;
 use serde::Serialize;
 
-use super::hal::{rels, HalCollection, HalLink, HalLinks, HalResource};
+use super::hal::{HalCollection, HalLink, HalLinks, HalResource, rels};
 
 /// News representation for API responses
 #[derive(Debug, Clone, Serialize)]
@@ -205,16 +205,12 @@ mod tests {
     fn test_news_management_links_gated() {
         let news = create_test_news();
 
-        let unmanaged =
-            serde_json::to_value(NewsRepresenter::represent(news.clone(), false)).unwrap();
+        let unmanaged = serde_json::to_value(NewsRepresenter::represent(news.clone(), false)).unwrap();
         assert!(unmanaged["_links"]["updateImmediately"].is_null());
         assert!(unmanaged["_links"]["delete"].is_null());
 
         let managed = serde_json::to_value(NewsRepresenter::represent(news, true)).unwrap();
-        assert_eq!(
-            managed["_links"]["updateImmediately"]["href"],
-            "/api/v3/news/1"
-        );
+        assert_eq!(managed["_links"]["updateImmediately"]["href"], "/api/v3/news/1");
         assert_eq!(managed["_links"]["updateImmediately"]["method"], "PATCH");
         assert_eq!(managed["_links"]["delete"]["method"], "DELETE");
     }

@@ -127,15 +127,15 @@ pub async fn create_attachment(
         status: dto.status.and_then(|s| attachment_status::from_string(&s)),
     };
 
-    let row = repo.create(create_dto).await.map_err(|e| match e {
-        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    let row = repo
+        .create(create_dto)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
-    Ok((
-        StatusCode::CREATED,
-        HalResponse(AttachmentResponse::from_row(row)),
-    ))
+    Ok((StatusCode::CREATED, HalResponse(AttachmentResponse::from_row(row))))
 }
 
 /// Update an attachment
@@ -158,9 +158,7 @@ pub async fn update_attachment(
         .ok_or_else(|| ApiError::not_found("Attachment", id))?;
 
     if existing.author_id != user.0.id && !user.0.is_admin() {
-        return Err(ApiError::forbidden(
-            "You can only update your own attachments.",
-        ));
+        return Err(ApiError::forbidden("You can only update your own attachments."));
     }
 
     let update_dto = op_db::UpdateAttachmentDto {
@@ -170,10 +168,13 @@ pub async fn update_attachment(
         status: dto.status.and_then(|s| attachment_status::from_string(&s)),
     };
 
-    let row = repo.update(id, update_dto).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Attachment", id),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    let row = repo
+        .update(id, update_dto)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Attachment", id),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     Ok(HalResponse(AttachmentResponse::from_row(row)))
 }
@@ -197,15 +198,15 @@ pub async fn delete_attachment(
         .ok_or_else(|| ApiError::not_found("Attachment", id))?;
 
     if existing.author_id != user.0.id && !user.0.is_admin() {
-        return Err(ApiError::forbidden(
-            "You can only delete your own attachments.",
-        ));
+        return Err(ApiError::forbidden("You can only delete your own attachments."));
     }
 
-    repo.delete(id).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Attachment", id),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    repo.delete(id)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Attachment", id),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

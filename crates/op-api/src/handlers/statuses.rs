@@ -82,9 +82,7 @@ pub async fn create_status(
     Json(dto): Json<CreateStatusRequest>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden(
-            "Only administrators can create statuses.",
-        ));
+        return Err(ApiError::forbidden("Only administrators can create statuses."));
     }
 
     let pool = state.pool()?;
@@ -100,16 +98,16 @@ pub async fn create_status(
         color_id: dto.color_id,
     };
 
-    let row = repo.create(create_dto).await.map_err(|e| match e {
-        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    let row = repo
+        .create(create_dto)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
-    Ok((
-        StatusCode::CREATED,
-        HalResponse(StatusResponse::from_row(row)),
-    ))
+    Ok((StatusCode::CREATED, HalResponse(StatusResponse::from_row(row))))
 }
 
 /// Update a status (admin only)
@@ -122,9 +120,7 @@ pub async fn update_status(
     Json(dto): Json<UpdateStatusRequest>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden(
-            "Only administrators can update statuses.",
-        ));
+        return Err(ApiError::forbidden("Only administrators can update statuses."));
     }
 
     let pool = state.pool()?;
@@ -140,12 +136,15 @@ pub async fn update_status(
         color_id: dto.color_id,
     };
 
-    let row = repo.update(id, update_dto).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Status", id),
-        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    let row = repo
+        .update(id, update_dto)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Status", id),
+            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     Ok(HalResponse(StatusResponse::from_row(row)))
 }
@@ -159,19 +158,19 @@ pub async fn delete_status(
     Path(id): Path<Id>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden(
-            "Only administrators can delete statuses.",
-        ));
+        return Err(ApiError::forbidden("Only administrators can delete statuses."));
     }
 
     let pool = state.pool()?;
     let repo = StatusRepository::new(pool.clone());
 
-    repo.delete(id).await.map_err(|e| match e {
-        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Status", id),
-        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-        _ => ApiError::internal(format!("Database error: {}", e)),
-    })?;
+    repo.delete(id)
+        .await
+        .map_err(|e| match e {
+            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Status", id),
+            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+            _ => ApiError::internal(format!("Database error: {}", e)),
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }
