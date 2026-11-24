@@ -1,7 +1,7 @@
 #version 1
 #schema path	fnv64
 crates/op-api/src/error.rs	5147713b293cf813
-crates/op-api/src/extractors.rs	f4f6d56973f97eee
+crates/op-api/src/extractors.rs	81b931f5cdbaca50
 crates/op-api/src/handlers/activities.rs	9df668e0ee9c0e78
 crates/op-api/src/handlers/attachments.rs	e7a352944ee41127
 crates/op-api/src/handlers/categories.rs	deca480b6805ceed
@@ -20,7 +20,7 @@ crates/op-api/src/handlers/types.rs	5c7a567092cd201f
 crates/op-api/src/handlers/users.rs	3a5b83a43bd120c6
 crates/op-api/src/handlers/versions.rs	b091181e4927b635
 crates/op-api/src/handlers/watchers.rs	159fc0e5b4e4f7a3
-crates/op-api/src/handlers/work_packages.rs	8acfe770f936e720
+crates/op-api/src/handlers/work_packages.rs	b149ef9b0c8e388f
 crates/op-api/src/lib.rs	633130cca0e5543e
 crates/op-api/src/representers/hal.rs	cea3c40fe094dd87
 crates/op-api/src/representers/mod.rs	e23e2329752bb05e

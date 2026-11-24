@@ -562,6 +562,7 @@ mod tests {
                 ..AppConfig::default()
             }),
             db: None,
+            api_tokens: None,
         })
     }
 

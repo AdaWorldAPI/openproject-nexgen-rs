@@ -89,6 +89,24 @@ following are required, and the server refuses to start if one is missing:
 | `OP_SIGNIN_MAP_TEXT` (or `OP_SIGNIN_MAP` as a file path) | the sign-in map from provider roles to OpenProject roles; see `crates/op-server/src/signin_map.rs` |
 | `OP_SIGNIN_OIDC_CLIENT_SECRET` | only for a confidential client |
 
+Optional API tokens for machine clients such as report-rs. By default `/api/v3` refuses
+every `Authorization` header. With the two variables below it accepts exactly one
+`Authorization: Bearer <token>` header whose token Zitadel signed for this app. They need
+the sign-in above; setting `OP_API_CLIENTS` without it, or without `OP_API_CALLERS`, stops
+the start and the error names the variable. Unset or blank `OP_API_CLIENTS` leaves the
+token path off.
+
+| Variable | Value |
+|---|---|
+| `OP_API_CLIENTS` | comma-separated Zitadel client ids; a token is accepted when its audience is one of them. An empty item or an item with whitespace stops the start. |
+| `OP_API_CALLERS` | comma-separated `subject=login` pairs: the OpenProject login a verified token acts as. A token whose subject is not listed, or whose login has no active user, gets 401. An empty item, a missing `=`, whitespace or a repeated subject stops the start. |
+
+Create a Zitadel machine client whose access tokens are JWTs (not opaque) with this app's
+client id in the audience, and give report-rs its tokens. The acting user needs project
+membership like any other: its roles decide what it may create. report-rs reads
+`integration/work-items.toml` from this repository to learn which `/api/v3` calls make up
+its work-item operations; a test keeps that file in step with the routes.
+
 Store secrets as Railway variables (encrypted, and injected at runtime only), never in
 `railway.toml` or the repository.
 

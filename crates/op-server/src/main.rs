@@ -27,6 +27,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use op_core::config::AppConfig;
 use op_db::{Database, DatabaseConfig};
 
+mod api_token;
 mod board;
 mod brand;
 mod desk_pages;
@@ -41,6 +42,8 @@ mod signin_map;
 #[cfg(test)]
 mod signin_tests;
 mod viewfilter;
+#[cfg(test)]
+mod work_items_tests;
 mod write_guard;
 
 use health::{AppState, HealthChecker, HealthConfig};
@@ -433,6 +436,7 @@ fn build_router_with(
             require_authentication: !env_flag("OP_ALLOW_ANONYMOUS"),
         }),
         db: state.db.clone(),
+        api_tokens: signin.as_ref().and_then(|gate| gate.api_tokens()),
     });
 
     // Main router
