@@ -21,6 +21,7 @@ use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::Router;
+use op_api::extractors::ApiTokenVerifier;
 use web_login::{routes_with, safe_return_to, urlencode, Admit, Login};
 
 use crate::signin::{op_role_of, LoginSignIn, SignIn, Who};
@@ -56,6 +57,7 @@ pub struct Gate {
     login: Arc<Login>,
     map: Arc<SigninMap>,
     sign_in: Arc<dyn SignIn>,
+    api_tokens: Option<Arc<dyn ApiTokenVerifier>>,
 }
 
 impl Gate {
@@ -65,7 +67,19 @@ impl Gate {
             login,
             map,
             sign_in,
+            api_tokens: None,
         }
+    }
+
+    /// The verifier of machine-client bearer tokens for `/api/v3`.
+    pub fn with_api_tokens(mut self, verifier: Arc<dyn ApiTokenVerifier>) -> Gate {
+        self.api_tokens = Some(verifier);
+        self
+    }
+
+    /// `None` unless `OP_API_CLIENTS` turned the token path on.
+    pub fn api_tokens(&self) -> Option<Arc<dyn ApiTokenVerifier>> {
+        self.api_tokens.clone()
     }
 
     /// `/auth/login`, `/auth/callback`, `/auth/logout`, `/auth/signed-out`, with the

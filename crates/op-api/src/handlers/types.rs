@@ -131,15 +131,15 @@ pub async fn create_type(
         description: dto.description,
     };
 
-    let row = repo
-        .create(create_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let row = repo.create(create_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
-    Ok((StatusCode::CREATED, HalResponse(TypeResponse::from_row(row))))
+    Ok((
+        StatusCode::CREATED,
+        HalResponse(TypeResponse::from_row(row)),
+    ))
 }
 
 /// Update a type (admin only)
@@ -168,14 +168,11 @@ pub async fn update_type(
         description: dto.description,
     };
 
-    let row = repo
-        .update(id, update_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Type", id),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let row = repo.update(id, update_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Type", id),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(HalResponse(TypeResponse::from_row(row)))
 }
@@ -195,13 +192,11 @@ pub async fn delete_type(
     let pool = state.pool()?;
     let repo = TypeRepository::new(pool.clone());
 
-    repo.delete(id)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Type", id),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    repo.delete(id).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Type", id),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

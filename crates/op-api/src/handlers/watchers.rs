@@ -74,20 +74,20 @@ pub async fn add_work_package_watcher(
         user_id: dto.user_id,
     };
 
-    let watcher = repo
-        .create(create_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let watcher = repo.create(create_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     // Get full watcher info
     let result = repo
         .find_by_work_package(
             work_package_id,
-            op_db::Pagination { limit: 1000, offset: 0 },
+            op_db::Pagination {
+                limit: 1000,
+                offset: 0,
+            },
         )
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
@@ -100,7 +100,10 @@ pub async fn add_work_package_watcher(
 
     Ok((
         StatusCode::CREATED,
-        HalResponse(WatcherResponse::from_watcher_with_user(watcher_with_user, work_package_id)),
+        HalResponse(WatcherResponse::from_watcher_with_user(
+            watcher_with_user,
+            work_package_id,
+        )),
     ))
 }
 
@@ -143,7 +146,9 @@ pub async fn is_watching_work_package(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    Ok(HalResponse(WatchingResponse { watching: is_watching }))
+    Ok(HalResponse(WatchingResponse {
+        watching: is_watching,
+    }))
 }
 
 /// Watch a work package as the current user
@@ -258,7 +263,10 @@ impl WatcherResponse {
             name: user_name.clone(),
             links: WatcherLinks {
                 self_link: Link {
-                    href: format!("/api/v3/work_packages/{}/watchers/{}", work_package_id, user_id),
+                    href: format!(
+                        "/api/v3/work_packages/{}/watchers/{}",
+                        work_package_id, user_id
+                    ),
                     title: None,
                 },
                 user: Link {

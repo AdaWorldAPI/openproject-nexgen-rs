@@ -6,7 +6,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use op_core::traits::Id;
 use serde::Serialize;
 
-use super::hal::{HalCollection, HalEmbedded, HalLink, HalLinks, HalResource, rels};
+use super::hal::{rels, HalCollection, HalEmbedded, HalLink, HalLinks, HalResource};
 
 /// Work package representation for API responses
 #[derive(Debug, Clone, Serialize)]
@@ -31,13 +31,19 @@ pub struct WorkPackageRepresentation {
     pub duration: Option<String>,
     #[serde(rename = "estimatedTime", skip_serializing_if = "Option::is_none")]
     pub estimated_time: Option<String>,
-    #[serde(rename = "derivedEstimatedTime", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "derivedEstimatedTime",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub derived_estimated_time: Option<String>,
     #[serde(rename = "spentTime", skip_serializing_if = "Option::is_none")]
     pub spent_time: Option<String>,
     #[serde(rename = "percentageDone")]
     pub percentage_done: i32,
-    #[serde(rename = "derivedPercentageDone", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "derivedPercentageDone",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub derived_percentage_done: Option<i32>,
     #[serde(rename = "createdAt")]
     pub created_at: DateTime<Utc>,
@@ -91,7 +97,10 @@ impl WorkPackageRepresenter {
             id: wp.id,
             lock_version: wp.lock_version,
             subject: wp.subject.clone(),
-            description: wp.description.as_ref().map(|d| FormattableText::markdown(d)),
+            description: wp
+                .description
+                .as_ref()
+                .map(|d| FormattableText::markdown(d)),
             schedule_manually: wp.schedule_manually,
             start_date: wp.start_date.map(|d| d.to_string()),
             due_date: wp.due_date.map(|d| d.to_string()),

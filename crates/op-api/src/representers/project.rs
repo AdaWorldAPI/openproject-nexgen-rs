@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use op_core::traits::Id;
 use serde::Serialize;
 
-use super::hal::{HalCollection, HalLink, HalLinks, HalResource, rels};
+use super::hal::{rels, HalCollection, HalLink, HalLinks, HalResource};
 
 /// Project representation for API responses
 #[derive(Debug, Clone, Serialize)]
@@ -70,10 +70,8 @@ impl ProjectRepresenter {
         base_url: &str,
     ) -> HalCollection<HalResource<ProjectRepresentation>> {
         let page = (offset / page_size) + 1;
-        let elements: Vec<HalResource<ProjectRepresentation>> = projects
-            .into_iter()
-            .map(|p| Self::represent(p))
-            .collect();
+        let elements: Vec<HalResource<ProjectRepresentation>> =
+            projects.into_iter().map(|p| Self::represent(p)).collect();
 
         HalCollection::new("ProjectCollection", elements, total, page_size, offset)
             .with_pagination_links(base_url, page, page_size)

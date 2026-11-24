@@ -10,7 +10,7 @@ use axum::{
 };
 use chrono::NaiveDate;
 use op_core::traits::Id;
-use op_db::{Repository, TimeEntryRepository, Pagination as DbPagination};
+use op_db::{Pagination as DbPagination, Repository, TimeEntryRepository};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ApiError, ApiResult};
@@ -142,7 +142,10 @@ pub async fn create_time_entry(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    Ok((StatusCode::CREATED, HalResponse(TimeEntryResponse::from_row(row))))
+    Ok((
+        StatusCode::CREATED,
+        HalResponse(TimeEntryResponse::from_row(row)),
+    ))
 }
 
 /// PATCH /api/v3/time_entries/:id
@@ -171,13 +174,10 @@ pub async fn update_time_entry(
         spent_on,
     };
 
-    let row = repo
-        .update(id, update_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("TimeEntry", id),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let row = repo.update(id, update_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("TimeEntry", id),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(HalResponse(TimeEntryResponse::from_row(row)))
 }
@@ -191,12 +191,10 @@ pub async fn delete_time_entry(
     let pool = state.pool()?;
     let repo = TimeEntryRepository::new(pool.clone());
 
-    repo.delete(id)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("TimeEntry", id),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    repo.delete(id).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("TimeEntry", id),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

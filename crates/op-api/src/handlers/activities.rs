@@ -91,7 +91,9 @@ pub async fn create_activity(
     Json(dto): Json<CreateActivityRequest>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden("Only administrators can create activities."));
+        return Err(ApiError::forbidden(
+            "Only administrators can create activities.",
+        ));
     }
 
     let pool = state.pool()?;
@@ -106,16 +108,16 @@ pub async fn create_activity(
         parent_id: dto.parent_id,
     };
 
-    let row = repo
-        .create(create_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let row = repo.create(create_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
-    Ok((StatusCode::CREATED, HalResponse(ActivityResponse::from_row(row))))
+    Ok((
+        StatusCode::CREATED,
+        HalResponse(ActivityResponse::from_row(row)),
+    ))
 }
 
 /// Update an activity (admin only)
@@ -128,7 +130,9 @@ pub async fn update_activity(
     Json(dto): Json<UpdateActivityRequest>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden("Only administrators can update activities."));
+        return Err(ApiError::forbidden(
+            "Only administrators can update activities.",
+        ));
     }
 
     let pool = state.pool()?;
@@ -141,15 +145,12 @@ pub async fn update_activity(
         active: dto.active,
     };
 
-    let row = repo
-        .update(id, update_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("TimeEntryActivity", id),
-            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let row = repo.update(id, update_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("TimeEntryActivity", id),
+        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(HalResponse(ActivityResponse::from_row(row)))
 }
@@ -163,19 +164,19 @@ pub async fn delete_activity(
     Path(id): Path<Id>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden("Only administrators can delete activities."));
+        return Err(ApiError::forbidden(
+            "Only administrators can delete activities.",
+        ));
     }
 
     let pool = state.pool()?;
     let repo = ActivityRepository::new(pool.clone());
 
-    repo.delete(id)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("TimeEntryActivity", id),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    repo.delete(id).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("TimeEntryActivity", id),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

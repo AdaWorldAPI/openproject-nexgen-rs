@@ -91,7 +91,9 @@ pub async fn get_membership(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Membership", id))?;
 
-    Ok(HalResponse(MembershipResponse::from_member_with_roles(member_with_roles)))
+    Ok(HalResponse(MembershipResponse::from_member_with_roles(
+        member_with_roles,
+    )))
 }
 
 /// Create a new membership
@@ -104,7 +106,9 @@ pub async fn create_membership(
 ) -> ApiResult<impl IntoResponse> {
     // Only admins can create memberships
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden("Only administrators can create memberships."));
+        return Err(ApiError::forbidden(
+            "Only administrators can create memberships.",
+        ));
     }
 
     let pool = state.pool()?;
@@ -118,14 +122,11 @@ pub async fn create_membership(
         entity_id: None,
     };
 
-    let member = repo
-        .create(create_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let member = repo.create(create_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     // Get the member with roles
     let member_with_roles = repo
@@ -134,7 +135,12 @@ pub async fn create_membership(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::internal("Failed to retrieve created membership".to_string()))?;
 
-    Ok((StatusCode::CREATED, HalResponse(MembershipResponse::from_member_with_roles(member_with_roles))))
+    Ok((
+        StatusCode::CREATED,
+        HalResponse(MembershipResponse::from_member_with_roles(
+            member_with_roles,
+        )),
+    ))
 }
 
 /// Update a membership
@@ -147,7 +153,9 @@ pub async fn update_membership(
     Json(dto): Json<UpdateMembershipRequest>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden("Only administrators can update memberships."));
+        return Err(ApiError::forbidden(
+            "Only administrators can update memberships.",
+        ));
     }
 
     let pool = state.pool()?;
@@ -157,15 +165,12 @@ pub async fn update_membership(
         role_ids: dto.role_ids,
     };
 
-    let member = repo
-        .update(id, update_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Membership", id),
-            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let member = repo.update(id, update_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Membership", id),
+        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     // Get the member with roles
     let member_with_roles = repo
@@ -174,7 +179,9 @@ pub async fn update_membership(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::internal("Failed to retrieve updated membership".to_string()))?;
 
-    Ok(HalResponse(MembershipResponse::from_member_with_roles(member_with_roles)))
+    Ok(HalResponse(MembershipResponse::from_member_with_roles(
+        member_with_roles,
+    )))
 }
 
 /// Delete a membership
@@ -186,19 +193,19 @@ pub async fn delete_membership(
     Path(id): Path<Id>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden("Only administrators can delete memberships."));
+        return Err(ApiError::forbidden(
+            "Only administrators can delete memberships.",
+        ));
     }
 
     let pool = state.pool()?;
     let repo = MemberRepository::new(pool.clone());
 
-    repo.delete(id)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Membership", id),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    repo.delete(id).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Membership", id),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

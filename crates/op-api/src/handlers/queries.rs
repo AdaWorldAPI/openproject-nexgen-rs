@@ -117,20 +117,20 @@ pub async fn create_query(
         timestamps: dto.timestamps,
     };
 
-    let query = repo
-        .create(create_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let query = repo.create(create_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     let qws = op_db::QueryWithStarred {
         query,
         starred: false,
     };
 
-    Ok((StatusCode::CREATED, HalResponse(QueryResponse::from_query_with_starred(qws))))
+    Ok((
+        StatusCode::CREATED,
+        HalResponse(QueryResponse::from_query_with_starred(qws)),
+    ))
 }
 
 /// PATCH /api/v3/queries/:id
@@ -167,14 +167,11 @@ pub async fn update_query(
         timestamps: dto.timestamps,
     };
 
-    let query = repo
-        .update(id, update_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Query", id),
-            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let query = repo.update(id, update_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Query", id),
+        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     let starred = repo
         .is_starred(id, user.0.id)
@@ -206,12 +203,10 @@ pub async fn delete_query(
         return Err(ApiError::forbidden("You can only delete your own queries."));
     }
 
-    repo.delete(id)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Query", id),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    repo.delete(id).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Query", id),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -225,12 +220,10 @@ pub async fn star_query(
     let pool = state.pool()?;
     let repo = QueryRepository::new(pool.clone());
 
-    repo.star(id, user.0.id)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Query", id),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    repo.star(id, user.0.id).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Query", id),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     let qws = repo
         .find_by_id_with_starred(id, user.0.id)

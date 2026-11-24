@@ -99,7 +99,9 @@ pub async fn create_version(
 ) -> ApiResult<impl IntoResponse> {
     // Only admins or users with manage_versions permission can create versions
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden("Only administrators can create versions."));
+        return Err(ApiError::forbidden(
+            "Only administrators can create versions.",
+        ));
     }
 
     let pool = state.pool()?;
@@ -116,16 +118,16 @@ pub async fn create_version(
         wiki_page_title: dto.wiki_page_title,
     };
 
-    let row = repo
-        .create(create_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let row = repo.create(create_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
-    Ok((StatusCode::CREATED, HalResponse(VersionResponse::from_row(row))))
+    Ok((
+        StatusCode::CREATED,
+        HalResponse(VersionResponse::from_row(row)),
+    ))
 }
 
 /// Update a version
@@ -138,7 +140,9 @@ pub async fn update_version(
     Json(dto): Json<UpdateVersionRequest>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden("Only administrators can update versions."));
+        return Err(ApiError::forbidden(
+            "Only administrators can update versions.",
+        ));
     }
 
     let pool = state.pool()?;
@@ -154,15 +158,12 @@ pub async fn update_version(
         wiki_page_title: dto.wiki_page_title,
     };
 
-    let row = repo
-        .update(id, update_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Version", id),
-            op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let row = repo.update(id, update_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Version", id),
+        op_db::RepositoryError::Validation(msg) => ApiError::bad_request(msg),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(HalResponse(VersionResponse::from_row(row)))
 }
@@ -176,19 +177,19 @@ pub async fn delete_version(
     Path(id): Path<Id>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden("Only administrators can delete versions."));
+        return Err(ApiError::forbidden(
+            "Only administrators can delete versions.",
+        ));
     }
 
     let pool = state.pool()?;
     let repo = VersionRepository::new(pool.clone());
 
-    repo.delete(id)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Version", id),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    repo.delete(id).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Version", id),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

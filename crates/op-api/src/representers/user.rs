@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use op_core::traits::Id;
 use serde::Serialize;
 
-use super::hal::{HalCollection, HalLink, HalLinks, HalResource, rels};
+use super::hal::{rels, HalCollection, HalLink, HalLinks, HalResource};
 
 /// User representation for API responses
 #[derive(Debug, Clone, Serialize)]
@@ -45,7 +45,11 @@ impl UserRepresenter {
             first_name: user.first_name.clone(),
             last_name: user.last_name.clone(),
             name,
-            email: if can_view_email { Some(user.email.clone()) } else { None },
+            email: if can_view_email {
+                Some(user.email.clone())
+            } else {
+                None
+            },
             admin: user.admin,
             avatar,
             status: Self::status_name(user.status),
@@ -98,11 +102,23 @@ impl UserRepresenter {
             )));
 
         if can_manage {
-            links.add(rels::UPDATE, HalLink::new(format!("{}/form", base)).method("POST"));
-            links.add(rels::UPDATE_IMMEDIATELY, HalLink::new(&base).method("PATCH"));
+            links.add(
+                rels::UPDATE,
+                HalLink::new(format!("{}/form", base)).method("POST"),
+            );
+            links.add(
+                rels::UPDATE_IMMEDIATELY,
+                HalLink::new(&base).method("PATCH"),
+            );
             links.add(rels::DELETE, HalLink::new(&base).method("DELETE"));
-            links.add("lock", HalLink::new(format!("{}/lock", base)).method("POST"));
-            links.add("unlock", HalLink::new(format!("{}/unlock", base)).method("DELETE"));
+            links.add(
+                "lock",
+                HalLink::new(format!("{}/lock", base)).method("POST"),
+            );
+            links.add(
+                "unlock",
+                HalLink::new(format!("{}/unlock", base)).method("DELETE"),
+            );
         }
 
         links

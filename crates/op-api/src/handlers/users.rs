@@ -89,7 +89,9 @@ pub async fn get_user(
 
     // Non-admins can only view themselves
     if !is_self && !is_admin {
-        return Err(ApiError::forbidden("You are not authorized to access this resource."));
+        return Err(ApiError::forbidden(
+            "You are not authorized to access this resource.",
+        ));
     }
 
     let pool = state.pool()?;
@@ -101,7 +103,10 @@ pub async fn get_user(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::not_found("User", id))?;
 
-    Ok(HalResponse(UserResponse::from_row(row, is_self || is_admin)))
+    Ok(HalResponse(UserResponse::from_row(
+        row,
+        is_self || is_admin,
+    )))
 }
 
 /// Get current user (me)
@@ -192,7 +197,10 @@ pub async fn create_user(
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
-    Ok((StatusCode::CREATED, HalResponse(UserResponse::from_row(row, true))))
+    Ok((
+        StatusCode::CREATED,
+        HalResponse(UserResponse::from_row(row, true)),
+    ))
 }
 
 /// Update a user
@@ -208,14 +216,20 @@ pub async fn update_user(
     let is_admin = user.0.is_admin();
 
     if !is_self && !is_admin {
-        return Err(ApiError::forbidden("You are not authorized to update this user."));
+        return Err(ApiError::forbidden(
+            "You are not authorized to update this user.",
+        ));
     }
 
     let pool = state.pool()?;
     let repo = UserRepository::new(pool.clone());
 
     // Verify user exists
-    if !repo.exists(id).await.map_err(|e| ApiError::internal(format!("Database error: {}", e)))? {
+    if !repo
+        .exists(id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+    {
         return Err(ApiError::not_found("User", id));
     }
 
@@ -263,13 +277,10 @@ pub async fn update_user(
         salt,
     };
 
-    let row = repo
-        .update(id, update_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("User", id),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let row = repo.update(id, update_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("User", id),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(HalResponse(UserResponse::from_row(row, true)))
 }
@@ -293,12 +304,10 @@ pub async fn delete_user(
     let pool = state.pool()?;
     let repo = UserRepository::new(pool.clone());
 
-    repo.delete(id)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("User", id),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    repo.delete(id).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("User", id),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

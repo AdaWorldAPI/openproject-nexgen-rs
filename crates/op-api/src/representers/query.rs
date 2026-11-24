@@ -10,7 +10,7 @@ use op_queries::{
 };
 use serde::Serialize;
 
-use super::hal::{HalCollection, HalLink, HalLinks, HalResource, rels};
+use super::hal::{rels, HalCollection, HalLink, HalLinks, HalResource};
 
 /// Query representation for API responses
 #[derive(Debug, Clone, Serialize)]
@@ -111,11 +111,23 @@ impl QueryRepresenter {
         if let Some(id) = query.id {
             let base = format!("/api/v3/queries/{}", id);
             links.add(rels::SELF, HalLink::new(&base));
-            links.add(rels::UPDATE, HalLink::new(format!("{}/form", base)).method("POST"));
-            links.add(rels::UPDATE_IMMEDIATELY, HalLink::new(&base).method("PATCH"));
+            links.add(
+                rels::UPDATE,
+                HalLink::new(format!("{}/form", base)).method("POST"),
+            );
+            links.add(
+                rels::UPDATE_IMMEDIATELY,
+                HalLink::new(&base).method("PATCH"),
+            );
             links.add(rels::DELETE, HalLink::new(&base).method("DELETE"));
-            links.add("star", HalLink::new(format!("{}/star", base)).method("PATCH"));
-            links.add("unstar", HalLink::new(format!("{}/unstar", base)).method("PATCH"));
+            links.add(
+                "star",
+                HalLink::new(format!("{}/star", base)).method("PATCH"),
+            );
+            links.add(
+                "unstar",
+                HalLink::new(format!("{}/unstar", base)).method("PATCH"),
+            );
         } else {
             // Unsaved query
             links.add(rels::SELF, HalLink::templated("/api/v3/queries/new"));
@@ -252,7 +264,10 @@ impl QueryRepresenter {
     fn values_to_links(attribute: &str, values: &FilterValue) -> Vec<HalLink> {
         match values {
             FilterValue::Id(id) => vec![Self::value_link(attribute, *id)],
-            FilterValue::Ids(ids) => ids.iter().map(|id| Self::value_link(attribute, *id)).collect(),
+            FilterValue::Ids(ids) => ids
+                .iter()
+                .map(|id| Self::value_link(attribute, *id))
+                .collect(),
             FilterValue::Me => vec![HalLink::with_title("/api/v3/users/me", "Me")],
             _ => vec![],
         }

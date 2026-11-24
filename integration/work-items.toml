@@ -1,0 +1,66 @@
+# How report-rs's four work-item calls (create, find by marker, item, comments) map onto this
+# server's /api/v3. report-rs reads this file at start (WORK_ITEMS_MAP, or WORK_ITEMS_MAP_TEXT
+# with the text itself) and contains no OpenProject-specific code. This repository owns it: the
+# pointers below are the request and response shapes of crates/op-api/src/handlers/
+# work_packages.rs and journals.rs, and the test
+# `the_work_item_mapping_names_served_routes` (crates/op-server/src/work_items_tests.rs) checks that
+# the router serves each route and that the create body names the fields the handler reads.
+#
+# Auth: `Authorization: Bearer <token>` of a Zitadel machine client listed in OP_API_CLIENTS,
+# acting as the login OP_API_CALLERS gives its subject (docs/deploy-railway.md). No secret and
+# no host are named here.
+
+schema = 1
+name = "openproject"
+
+# POST /api/v3/work_packages answers 201 with one work package (CreateWorkPackageDto,
+# camelCase: subject, description, projectId).
+[create]
+method = "POST"
+path = "/api/v3/work_packages"
+body = { projectId = "{project}", subject = "{title}", description = "{description}" }
+
+# GET /api/v3/work_packages has no project filter: it takes only pageSize and offset, so the
+# project is filtered here, on the client. The page is a collection whose `_embedded` IS the
+# array of work packages (WorkPackageCollection renames `elements` to `_embedded`).
+[list]
+method = "GET"
+path = "/api/v3/work_packages"
+query = { }
+page_size_param = "pageSize"
+offset_param = "offset"
+page_size = 50
+max_pages = 20
+elements = "/_embedded"
+filter_project_client_side = true
+
+[item]
+method = "GET"
+path = "/api/v3/work_packages/{id}"
+
+# GET /api/v3/work_packages/{id}/activities: a collection like the list above; an activity has
+# a `comment` object (format, raw, html) only when its journal has notes.
+[comments]
+method = "GET"
+path = "/api/v3/work_packages/{id}/activities"
+elements = "/_embedded"
+skip_empty_text = true
+
+[item_fields]
+id = "/id"
+project = "/projectId"
+title = "/subject"
+description = "/description"
+identifier = "#{id}"
+# `done` is left out: a work package carries `statusId` but no closed flag, so there is no
+# source for it (the schema reads a missing `done` as false).
+due = "/dueDate"
+# assignedToId is a user id, not a name, so there is no source for assignee usernames.
+assignees = ""
+
+[comment_fields]
+id = "/id"
+# An activity names its author only as a link (`/api/v3/users/<id>`), not by name.
+author = "/_links/user/href"
+text = "/comment/raw"
+created = "/createdAt"

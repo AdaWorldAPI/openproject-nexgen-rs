@@ -24,7 +24,10 @@ pub enum ApiError {
 
 impl ApiError {
     pub fn not_found(resource: &'static str, id: impl std::fmt::Display) -> Self {
-        ApiError::NotFound { resource, id: id.to_string() }
+        ApiError::NotFound {
+            resource,
+            id: id.to_string(),
+        }
     }
 
     pub fn unauthorized(msg: impl Into<String>) -> Self {
@@ -80,7 +83,8 @@ impl IntoResponse for ApiError {
             },
             ApiError::Validation(errors) => HalError {
                 type_name: "Error".into(),
-                error_identifier: "urn:openproject-org:api:v3:errors:PropertyConstraintViolation".into(),
+                error_identifier: "urn:openproject-org:api:v3:errors:PropertyConstraintViolation"
+                    .into(),
                 message: errors.full_messages().join(", "),
             },
             ApiError::Unauthorized(msg) => HalError {

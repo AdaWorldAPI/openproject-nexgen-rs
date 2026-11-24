@@ -82,7 +82,9 @@ pub async fn create_priority(
     Json(dto): Json<CreatePriorityRequest>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden("Only administrators can create priorities."));
+        return Err(ApiError::forbidden(
+            "Only administrators can create priorities.",
+        ));
     }
 
     let pool = state.pool()?;
@@ -97,15 +99,15 @@ pub async fn create_priority(
         project_id: None, // Priorities created via API are shared
     };
 
-    let row = repo
-        .create(create_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let row = repo.create(create_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
-    Ok((StatusCode::CREATED, HalResponse(PriorityResponse::from_row(row))))
+    Ok((
+        StatusCode::CREATED,
+        HalResponse(PriorityResponse::from_row(row)),
+    ))
 }
 
 /// Update a priority (admin only)
@@ -118,7 +120,9 @@ pub async fn update_priority(
     Json(dto): Json<UpdatePriorityRequest>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden("Only administrators can update priorities."));
+        return Err(ApiError::forbidden(
+            "Only administrators can update priorities.",
+        ));
     }
 
     let pool = state.pool()?;
@@ -132,14 +136,11 @@ pub async fn update_priority(
         color_id: dto.color_id,
     };
 
-    let row = repo
-        .update(id, update_dto)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Priority", id),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    let row = repo.update(id, update_dto).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Priority", id),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(HalResponse(PriorityResponse::from_row(row)))
 }
@@ -153,19 +154,19 @@ pub async fn delete_priority(
     Path(id): Path<Id>,
 ) -> ApiResult<impl IntoResponse> {
     if !user.0.is_admin() {
-        return Err(ApiError::forbidden("Only administrators can delete priorities."));
+        return Err(ApiError::forbidden(
+            "Only administrators can delete priorities.",
+        ));
     }
 
     let pool = state.pool()?;
     let repo = PriorityRepository::new(pool.clone());
 
-    repo.delete(id)
-        .await
-        .map_err(|e| match e {
-            op_db::RepositoryError::NotFound(_) => ApiError::not_found("Priority", id),
-            op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
-            _ => ApiError::internal(format!("Database error: {}", e)),
-        })?;
+    repo.delete(id).await.map_err(|e| match e {
+        op_db::RepositoryError::NotFound(_) => ApiError::not_found("Priority", id),
+        op_db::RepositoryError::Conflict(msg) => ApiError::conflict(msg),
+        _ => ApiError::internal(format!("Database error: {}", e)),
+    })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

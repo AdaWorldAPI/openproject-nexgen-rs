@@ -10,5 +10,5 @@ pub mod handlers;
 pub mod representers;
 pub mod routes;
 
-pub use routes::router;
 pub use representers::{HalCollection, HalError, HalLink, HalLinks, HalResource};
+pub use routes::router;
