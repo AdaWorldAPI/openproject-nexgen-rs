@@ -1,8 +1,10 @@
 //! Company identity (corporate design) for the page chrome, as configuration.
 //!
-//! The defaults are a neutral identity: a blue accent, a slate navigation
-//! bar, grey text and the soft card shadow. A company's identity is never
-//! committed here; it is deployment configuration.
+//! The defaults are the corporate theme report-rs ships (`templates/themes.css`):
+//! brand red `#C8102E`, grey `#4A4A4A`, black `#1A1A1A`, the Hub-blue navigation
+//! `#0D3A64`, border `#E0E6EC`, radius 14px, the soft card shadow and a 2px red
+//! focus ring.
+//! The values are copied, not shared through a dependency.
 //!
 //! Another company sets its own identity as TOML, either in a file named by
 //! `OP_BRAND_FILE` or inline in `OP_BRAND_TOML` (for hosts such as Railway
@@ -13,8 +15,8 @@
 //! [brand]
 //! name = "OpenProject RS"
 //! logo_url = "https://example.com/logo.svg"
-//! accent = "#005a9c"
-//! side_bg = "#14325a"
+//! accent = "#c8102e"
+//! side_bg = "#0d3a64"
 //! ```
 //!
 //! Values are written into a stylesheet and an `<img src>`, so they are
@@ -75,13 +77,13 @@ impl Default for Brand {
             bg: "#f5f5f5".into(),
             fg: "#1a1a1a".into(),
             h1: "#1a1a1a".into(),
-            muted: "#4b5563".into(),
-            accent: "#2563eb".into(),
+            muted: "#4a4a4a".into(),
+            accent: "#c8102e".into(),
             on_accent: "#ffffff".into(),
             border: "#e0e6ec".into(),
             card_bg: "#ffffff".into(),
             subtle_bg: "#eef1f4".into(),
-            side_bg: "#1f2937".into(),
+            side_bg: "#0d3a64".into(),
             side_fg: "#ffffff".into(),
             side_hover: "rgba(255,255,255,.08)".into(),
             radius: "14px".into(),
@@ -307,13 +309,13 @@ pub fn current() -> &'static Brand {
 mod tests {
     use super::*;
 
-    /// The default identity is neutral; a company identity comes from configuration.
+    /// The default is report-rs's corporate theme (templates/themes.css).
     #[test]
-    fn the_default_identity_is_neutral() {
+    fn the_default_is_the_corporate_theme() {
         let b = Brand::default();
-        assert_eq!(b.accent, "#2563eb", "blue accent");
-        assert_eq!(b.side_bg, "#1f2937", "slate navigation");
-        assert_eq!(b.muted, "#4b5563", "grey text");
+        assert_eq!(b.accent, "#c8102e", "brand red");
+        assert_eq!(b.side_bg, "#0d3a64", "Hub-blue navigation");
+        assert_eq!(b.muted, "#4a4a4a", "grey text");
         assert_eq!(b.fg, "#1a1a1a", "near-black text");
         assert_eq!(b.border, "#e0e6ec");
         assert_eq!((b.radius.as_str(), b.radius_sm.as_str()), ("14px", "10px"));
@@ -434,7 +436,7 @@ mod tests {
             );
         }
         for ok in [
-            "#2563eb",
+            "#c8102e",
             "hsl(210, 50%, 40%)",
             "RGBA(1,2,3,.5)",
             "\"Segoe UI\", Roboto, sans-serif",
@@ -483,8 +485,8 @@ mod tests {
     fn css_vars_carry_every_token() {
         let css = Brand::default().css_vars();
         for name in [
-            "--brand-accent: #2563eb;",
-            "--brand-side-bg: #1f2937;",
+            "--brand-accent: #c8102e;",
+            "--brand-side-bg: #0d3a64;",
             "--brand-radius-sm: 10px;",
             "--brand-font-family:",
         ] {
