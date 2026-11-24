@@ -24,6 +24,7 @@ use axum::Router;
 use op_api::extractors::ApiTokenVerifier;
 use web_login::{routes_with, safe_return_to, urlencode, Admit, Login};
 
+use crate::provision::Provisioner;
 use crate::signin::{op_role_of, LoginSignIn, SignIn, Who};
 use crate::signin_map::SigninMap;
 
@@ -69,6 +70,18 @@ impl Gate {
             sign_in,
             api_tokens: None,
         }
+    }
+
+    /// Provision every person the map admits, in `pool`, when the map has `admin=` or
+    /// `projects=` rows; otherwise the gate is returned as it is.
+    pub fn with_provisioning(mut self, pool: sqlx::PgPool) -> Gate {
+        if let Some(provisioner) = Provisioner::new(pool, self.map.clone()) {
+            self.sign_in = Arc::new(
+                LoginSignIn::new(self.login.clone(), self.map.clone())
+                    .with_provisioner(Arc::new(provisioner)),
+            );
+        }
+        self
     }
 
     /// The verifier of machine-client bearer tokens for `/api/v3`.

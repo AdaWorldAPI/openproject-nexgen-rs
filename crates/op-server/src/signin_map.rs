@@ -12,6 +12,16 @@
 //!   Every role a `role=` row names must be listed.
 //! - `role.default=<role>` (optional): the role of a person none of whose role keys is
 //!   mapped. Without it such a person has no access.
+//! - `admin=<OpenProject role>` (optional): a person whose resolved role is this one is
+//!   provisioned with `users.admin = true` (and no memberships). The role must be named by a
+//!   `role=` row or by `role.default`.
+//! - `projects=<identifier>,<identifier>,…` or `projects=*` (optional): the projects in which
+//!   a person who is not an admin is provisioned with a membership holding their resolved
+//!   OpenProject role (looked up by name in the `roles` table). `*` is every project and
+//!   cannot be mixed with identifiers.
+//!
+//! Without `admin=` and `projects=` nobody is provisioned: a signed-in person is a user
+//! row only if someone created it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,11 +50,33 @@ fn names(value: &str) -> Vec<String> {
         .collect()
 }
 
+/// The projects a `projects=` row names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProjectScope {
+    /// `projects=*`: every project.
+    All,
+    /// Project identifiers, in the order of the row.
+    Listed(Vec<String>),
+}
+
+/// What the map asks to provision for a person holding one OpenProject role.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Provisioning {
+    /// The person is an OpenProject admin (and gets no membership).
+    pub admin: bool,
+    /// The role of the memberships in `scope`: set for a non-admin when `projects=` is set.
+    pub member_role: Option<String>,
+    /// The projects the map manages for this person, `None` without a `projects=` row.
+    pub scope: Option<ProjectScope>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SigninMap {
     roles: BTreeMap<String, String>,
     rank: Vec<String>,
     default: Option<String>,
+    admin: Option<String>,
+    projects: Option<ProjectScope>,
 }
 
 impl SigninMap {
@@ -52,6 +84,8 @@ impl SigninMap {
         let mut roles = BTreeMap::new();
         let mut rank: Option<Vec<String>> = None;
         let mut default: Option<String> = None;
+        let mut admin: Option<String> = None;
+        let mut projects: Option<ProjectScope> = None;
         for (i, raw) in text.lines().enumerate() {
             let line = i + 1;
             let row = raw.split('#').next().unwrap_or("").trim();
@@ -95,6 +129,31 @@ impl SigninMap {
                         return err(line, "`role.default` is set twice");
                     }
                 }
+                "admin" => {
+                    if admin.replace(value.to_owned()).is_some() {
+                        return err(line, "`admin` is set twice");
+                    }
+                }
+                "projects" => {
+                    let list = names(value);
+                    if list.is_empty() {
+                        return err(line, "`projects` names no project");
+                    }
+                    if list.iter().collect::<BTreeSet<_>>().len() != list.len() {
+                        return err(line, "`projects` names a project twice");
+                    }
+                    let scope = if list.iter().any(|p| p == "*") {
+                        if list.len() != 1 {
+                            return err(line, "`projects=*` cannot be mixed with identifiers");
+                        }
+                        ProjectScope::All
+                    } else {
+                        ProjectScope::Listed(list)
+                    };
+                    if projects.replace(scope).is_some() {
+                        return err(line, "`projects` is set twice");
+                    }
+                }
                 other => return err(line, format!("unknown key `{other}`")),
             }
         }
@@ -102,10 +161,13 @@ impl SigninMap {
             roles,
             rank: rank.unwrap_or_default(),
             default,
+            admin,
+            projects,
         })
     }
 
-    /// Whether the map holds together: every role a `role=` row names is ranked. (Zammad's
+    /// Whether the map holds together: every role a `role=` row names is ranked, and the
+    /// `admin=` role is one the map can give. (Zammad's
     /// map is also checked against `desk.conf`; OpenProject has no such list here, the
     /// names live in the rows only.)
     pub fn check(&self) -> Result<(), MapError> {
@@ -116,7 +178,34 @@ impl SigninMap {
                 )));
             }
         }
+        let given = |admin: &String| {
+            self.roles.values().any(|r| r == admin) || self.default.as_ref() == Some(admin)
+        };
+        if let Some(admin) = self.admin.as_ref().filter(|a| !given(a)) {
+            return Err(MapError(format!(
+                "`admin` names role `{admin}` but no `role=` row or `role.default` gives it"
+            )));
+        }
         Ok(())
+    }
+
+    /// Whether the map has an `admin=` or a `projects=` row.
+    pub fn provisions(&self) -> bool {
+        self.admin.is_some() || self.projects.is_some()
+    }
+
+    /// What to provision for a person who holds OpenProject role `role`; `None` when the map
+    /// has neither `admin=` nor `projects=` (nobody is provisioned).
+    pub fn provisioning_for(&self, role: &str) -> Option<Provisioning> {
+        if !self.provisions() {
+            return None;
+        }
+        let admin = self.admin.as_deref() == Some(role);
+        Some(Provisioning {
+            admin,
+            member_role: (!admin && self.projects.is_some()).then(|| role.to_owned()),
+            scope: self.projects.clone(),
+        })
     }
 
     /// The OpenProject role of a person with these provider role keys: the best ranked
@@ -158,6 +247,65 @@ mod tests {
         ] {
             assert!(SigninMap::parse(bad).is_err(), "{bad:?}");
         }
+    }
+
+    /// FAILS IF: an `admin=` or `projects=` row is not read, a non-admin does not get the
+    /// member role and the scope, or an admin gets a member role.
+    #[test]
+    fn admin_and_projects_rows_are_read() {
+        let map = SigninMap::parse(
+            "role=a:Boss\nrole=b:Member\nrank=Boss,Member\nadmin=Boss\nprojects=alpha, beta\n",
+        )
+        .unwrap();
+        map.check().unwrap();
+        assert_eq!(
+            map.provisioning_for("Boss"),
+            Some(Provisioning {
+                admin: true,
+                member_role: None,
+                scope: Some(ProjectScope::Listed(vec!["alpha".into(), "beta".into()])),
+            })
+        );
+        assert_eq!(
+            map.provisioning_for("Member")
+                .unwrap()
+                .member_role
+                .as_deref(),
+            Some("Member")
+        );
+        let all = SigninMap::parse("role=b:Member\nrank=Member\nprojects=*\n").unwrap();
+        let p = all.provisioning_for("Member").unwrap();
+        assert!(!p.admin);
+        assert_eq!(p.scope, Some(ProjectScope::All));
+    }
+
+    /// FAILS IF: a map with neither row yields a provisioning wish for anyone.
+    #[test]
+    fn without_admin_and_projects_rows_nobody_is_provisioned() {
+        let map = SigninMap::parse("role=a:x\nrank=x\n").unwrap();
+        assert_eq!(map.provisioning_for("x"), None);
+    }
+
+    /// FAILS IF: a repeated, empty, duplicated or `*`-mixed row parses, or `check` accepts an
+    /// `admin=` role no `role=` row or `role.default` gives.
+    #[test]
+    fn a_bad_admin_or_projects_row_is_refused() {
+        for bad in [
+            "admin=x\nadmin=y",
+            "projects=a\nprojects=b",
+            "projects=a,a",
+            "projects=*,a",
+            "projects=",
+            "projects=,",
+            "admin=",
+        ] {
+            assert!(SigninMap::parse(bad).is_err(), "{bad:?}");
+        }
+        // Parses, but `check` refuses an admin role no row gives.
+        let unknown = SigninMap::parse("role=a:x\nrank=x\nadmin=ghost\n").unwrap();
+        assert!(unknown.check().is_err());
+        let by_default = SigninMap::parse("role=a:x\nrank=x\nrole.default=y\nadmin=y\n").unwrap();
+        assert!(by_default.check().is_ok());
     }
 
     #[test]
