@@ -1,10 +1,10 @@
 //! Company identity (corporate design) for the page chrome, as configuration.
 //!
-//! The defaults are the corporate theme report-rs ships (`templates/themes.css`):
-//! brand red `#C8102E`, grey `#4A4A4A`, black `#1A1A1A`, the Hub-blue navigation
-//! `#0D3A64`, border `#E0E6EC`, radius 14px, the soft card shadow and a 2px red
-//! focus ring.
-//! The values are copied, not shared through a dependency.
+//! The defaults are the corporate theme, read from the shared `a2ui-theme` crate
+//! (`a2ui_theme::brand`), so every app uses one copy of the palette.
+//! `OP_DEFAULT_THEME` picks another shared theme as the base (`dark`, `aqua`, …):
+//! its colours and radii replace the defaults, the tokens it does not define
+//! keep them.
 //!
 //! Another company sets its own identity as TOML, either in a file named by
 //! `OP_BRAND_FILE` or inline in `OP_BRAND_TOML` (for hosts such as Railway
@@ -25,6 +25,9 @@
 
 use serde::Deserialize;
 use std::sync::OnceLock;
+
+/// The shared theme the defaults are taken from; the corporate theme when unset.
+pub const DEFAULT_THEME_VAR: &str = "OP_DEFAULT_THEME";
 
 /// The company identity the pages render with.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -70,25 +73,26 @@ pub struct Brand {
 
 impl Default for Brand {
     fn default() -> Self {
+        use a2ui_theme::brand as b;
         Self {
             name: "OpenProject RS".into(),
             logo_url: None,
-            font_family: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif".into(),
-            bg: "#f5f5f5".into(),
-            fg: "#1a1a1a".into(),
-            h1: "#1a1a1a".into(),
-            muted: "#4a4a4a".into(),
-            accent: "#c8102e".into(),
-            on_accent: "#ffffff".into(),
-            border: "#e0e6ec".into(),
-            card_bg: "#ffffff".into(),
-            subtle_bg: "#eef1f4".into(),
-            side_bg: "#0d3a64".into(),
-            side_fg: "#ffffff".into(),
-            side_hover: "rgba(255,255,255,.08)".into(),
-            radius: "14px".into(),
-            radius_sm: "10px".into(),
-            elevation: "0 4px 16px rgba(0,0,0,.08)".into(),
+            font_family: b::FONT_FAMILY.into(),
+            bg: b::BG.into(),
+            fg: b::FG.into(),
+            h1: b::H1.into(),
+            muted: b::MUTED.into(),
+            accent: b::ACCENT.into(),
+            on_accent: b::ON_ACCENT.into(),
+            border: b::BORDER.into(),
+            card_bg: b::CARD_BG.into(),
+            subtle_bg: b::SUBTLE_BG.into(),
+            side_bg: b::SIDE_BG.into(),
+            side_fg: b::SIDE_FG.into(),
+            side_hover: b::SIDE_HOVER.into(),
+            radius: b::RADIUS.into(),
+            radius_sm: b::RADIUS_SM.into(),
+            elevation: b::ELEVATION.into(),
         }
     }
 }
@@ -102,6 +106,8 @@ pub enum BrandError {
     Both,
     /// The file is not valid TOML for a `[brand]` table.
     Parse(String),
+    /// `OP_DEFAULT_THEME` names a theme that does not exist.
+    Theme(String),
     /// A value would leave its CSS declaration or attribute.
     Value { key: &'static str, value: String },
 }
@@ -112,6 +118,9 @@ impl std::fmt::Display for BrandError {
             BrandError::Read(e) => write!(f, "OP_BRAND_FILE: {e}"),
             BrandError::Both => write!(f, "set OP_BRAND_FILE or OP_BRAND_TOML, not both"),
             BrandError::Parse(e) => write!(f, "brand: {e}"),
+            BrandError::Theme(key) => {
+                write!(f, "{DEFAULT_THEME_VAR} names an unknown theme: {key:?}")
+            }
             BrandError::Value { key, value } => write!(f, "brand.{key} = {value:?} is not allowed"),
         }
     }
@@ -135,16 +144,82 @@ impl Brand {
     /// neither is set.
     pub fn from_env(get: impl Fn(&str) -> Option<String>) -> Result<Brand, BrandError> {
         let set = |k: &str| get(k).filter(|v| !v.trim().is_empty());
-        match (set("OP_BRAND_FILE"), set("OP_BRAND_TOML")) {
-            (Some(_), Some(_)) => Err(BrandError::Both),
-            (None, None) => Ok(Brand::default()),
-            (None, Some(text)) => Brand::from_toml(&text),
+        let theme = a2ui_theme::default_theme(&get, DEFAULT_THEME_VAR)
+            .map_err(|e| BrandError::Theme(e.key))?;
+        let base = Brand::themed(theme.key);
+        let text = match (set("OP_BRAND_FILE"), set("OP_BRAND_TOML")) {
+            (Some(_), Some(_)) => return Err(BrandError::Both),
+            (None, None) => return Ok(base),
+            (None, Some(text)) => text,
             (Some(path), None) => {
                 let path = path.trim();
-                let text = std::fs::read_to_string(path)
-                    .map_err(|e| BrandError::Read(format!("{path}: {e}")))?;
-                Brand::from_toml(&text)
+                std::fs::read_to_string(path)
+                    .map_err(|e| BrandError::Read(format!("{path}: {e}")))?
             }
+        };
+        let mut brand = Brand::from_toml(&text)?;
+        let set_in_file = toml::from_str::<toml::Table>(&text)
+            .ok()
+            .and_then(|t| t.get("brand").and_then(|b| b.as_table()).cloned())
+            .unwrap_or_default();
+        for (key, value) in base.tokens() {
+            if !set_in_file.contains_key(key) {
+                *brand.token_mut(key) = value.to_string();
+            }
+        }
+        Ok(brand)
+    }
+
+    /// The default brand with the colours and radii of a shared theme. Tokens the
+    /// theme does not define, or defines with a value this module refuses (a
+    /// `var(…)` reference, say), keep the corporate default.
+    #[must_use]
+    pub fn themed(key: &str) -> Brand {
+        let mut brand = Brand::default();
+        if key == a2ui_theme::BRAND_KEY {
+            return brand;
+        }
+        let Some(rule) = a2ui_theme::token_rule(key) else {
+            return brand;
+        };
+        for (prop, token) in [
+            ("--bg", "bg"),
+            ("--fg", "fg"),
+            ("--h1", "h1"),
+            ("--accent", "accent"),
+            ("--border", "border"),
+            ("--card-bg", "card_bg"),
+            ("--side-bg", "side_bg"),
+            ("--side-fg", "side_fg"),
+            ("--side-hover", "side_hover"),
+            ("--radius", "radius"),
+            ("--radius-sm", "radius_sm"),
+        ] {
+            if let Some(v) = css_property(rule, prop).filter(|v| css_value_ok(v)) {
+                *brand.token_mut(token) = v.to_string();
+            }
+        }
+        brand
+    }
+
+    fn token_mut(&mut self, key: &str) -> &mut String {
+        match key {
+            "font_family" => &mut self.font_family,
+            "bg" => &mut self.bg,
+            "fg" => &mut self.fg,
+            "h1" => &mut self.h1,
+            "muted" => &mut self.muted,
+            "accent" => &mut self.accent,
+            "on_accent" => &mut self.on_accent,
+            "border" => &mut self.border,
+            "card_bg" => &mut self.card_bg,
+            "subtle_bg" => &mut self.subtle_bg,
+            "side_bg" => &mut self.side_bg,
+            "side_fg" => &mut self.side_fg,
+            "side_hover" => &mut self.side_hover,
+            "radius" => &mut self.radius,
+            "radius_sm" => &mut self.radius_sm,
+            _ => &mut self.elevation,
         }
     }
 
@@ -220,6 +295,15 @@ impl Brand {
             esc(&self.name)
         )
     }
+}
+
+/// The value of `prop` in a `{--a:x;--b:y}` rule.
+fn css_property<'a>(rule: &'a str, prop: &str) -> Option<&'a str> {
+    let body = &rule[rule.find('{')? + 1..rule.rfind('}')?];
+    body.split(';').find_map(|d| {
+        let (k, v) = d.split_once(':')?;
+        (k.trim() == prop).then(|| v.trim())
+    })
 }
 
 /// A CSS value that cannot close its declaration, block or style element, and
@@ -310,6 +394,37 @@ mod tests {
     use super::*;
 
     /// The default is report-rs's corporate theme (templates/themes.css).
+    #[test]
+    fn op_default_theme_picks_the_base_and_a_brand_file_still_overrides_it() {
+        let env = |vars: &'static [(&'static str, &'static str)]| {
+            move |k: &str| {
+                vars.iter()
+                    .find(|(n, _)| *n == k)
+                    .map(|(_, v)| v.to_string())
+            }
+        };
+        assert_eq!(Brand::from_env(env(&[])).unwrap(), Brand::default());
+        let dark = Brand::from_env(env(&[("OP_DEFAULT_THEME", "dark")])).unwrap();
+        assert_eq!(dark.bg, "#111318");
+        assert_eq!(dark.accent, "#7aa2f7");
+        assert_eq!(
+            dark.muted,
+            Brand::default().muted,
+            "a token dark does not set keeps the default"
+        );
+        let both = Brand::from_env(env(&[
+            ("OP_DEFAULT_THEME", "dark"),
+            ("OP_BRAND_TOML", "[brand]\naccent = \"#00aa00\"\n"),
+        ]))
+        .unwrap();
+        assert_eq!(both.accent, "#00aa00");
+        assert_eq!(both.bg, "#111318");
+        assert_eq!(
+            Brand::from_env(env(&[("OP_DEFAULT_THEME", "hollo")])),
+            Err(BrandError::Theme("hollo".into()))
+        );
+    }
+
     #[test]
     fn the_default_is_the_corporate_theme() {
         let b = Brand::default();
