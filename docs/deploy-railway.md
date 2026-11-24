@@ -89,6 +89,38 @@ following are required, and the server refuses to start if one is missing:
 | `OP_SIGNIN_MAP_TEXT` (or `OP_SIGNIN_MAP` as a file path) | the sign-in map from provider roles to OpenProject roles; see `crates/op-server/src/signin_map.rs` |
 | `OP_SIGNIN_OIDC_CLIENT_SECRET` | only for a confidential client |
 
+A signed-in person can read the pages but cannot write until they have a user row
+`oidc:<subject>` and, unless they are an admin, a membership in the project they edit. The
+sign-in map can create both when the person makes their first request, with two optional rows:
+
+- `admin=<OpenProject role>`: a person whose resolved role is this one becomes an OpenProject
+  admin (`users.admin = true`) and gets no membership.
+- `projects=<identifier>,<identifier>,…` or `projects=*`: the projects in which every other
+  person gets one membership holding their resolved role. The role is looked up by name in the
+  `roles` table; a name it does not hold (or a built-in role) grants nothing and is logged once.
+
+Without these rows nobody is provisioned. A change of role in Zitadel takes effect when the
+person signs in again: memberships in the listed projects are
+replaced, memberships in other projects and other users are never touched. An existing user
+keeps their name and status, so a locked person stays locked; a new one is named by the subject
+and gets the verified email of the token, or none. An example for op.msgraph.de (the role keys,
+OpenProject role names and project identifiers are placeholders; the role names must exist in
+the `roles` table):
+
+```text
+OP_SIGNIN_MAP_TEXT=
+role=op-admin:Administrator
+role=op-editor:Member
+role=op-reader:Reader
+rank=Administrator,Member,Reader
+admin=Administrator
+projects=project-one,project-two
+```
+
+Anyone with `op-admin` is an admin; anyone with `op-editor` is a `Member` of `project-one` and
+`project-two` and can edit work packages there if that role has `edit_work_packages`; anyone
+with `op-reader` is a `Reader` there and can edit nothing. Anonymous requests never write.
+
 Optional API tokens for machine clients such as report-rs. By default `/api/v3` refuses
 every `Authorization` header. With the two variables below it accepts exactly one
 `Authorization: Bearer <token>` header whose token Zitadel signed for this app. They need

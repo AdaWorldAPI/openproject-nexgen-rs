@@ -35,6 +35,7 @@ mod health;
 mod layout;
 mod metrics;
 mod nav;
+mod provision;
 mod signin;
 mod signin_config;
 mod signin_gate;
@@ -340,6 +341,10 @@ fn build_router_with(
     metrics: Arc<Metrics>,
     signin: Option<signin_gate::Gate>,
 ) -> Router {
+    let signin = match (signin, &state.db) {
+        (Some(gate), Some(pool)) => Some(gate.with_provisioning(pool.clone())),
+        (gate, _) => gate,
+    };
     // The rendered pages — the only routes the page sign-in covers.
     let page_routes = Router::new()
         // The OGAR render-bake kanban board — a server-rendered HTML view

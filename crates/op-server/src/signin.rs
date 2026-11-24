@@ -13,6 +13,7 @@ use std::sync::Arc;
 use axum::http::HeaderMap;
 use web_login::{signed_in_from_headers, Login, SignedIn};
 
+use crate::provision::Provisioner;
 use crate::signin_map::SigninMap;
 
 /// Where an anonymous request is sent; the gate appends `?return_to=<the page asked for>`.
@@ -42,11 +43,23 @@ pub trait SignIn: Send + Sync {
 pub struct LoginSignIn {
     login: Arc<Login>,
     map: Arc<SigninMap>,
+    provisioner: Option<Arc<Provisioner>>,
 }
 
 impl LoginSignIn {
     pub fn new(login: Arc<Login>, map: Arc<SigninMap>) -> LoginSignIn {
-        LoginSignIn { login, map }
+        LoginSignIn {
+            login,
+            map,
+            provisioner: None,
+        }
+    }
+
+    /// Provision each person the map admits (user row and memberships) before their request
+    /// is served, so the first write after signing in is already authorized.
+    pub fn with_provisioner(mut self, provisioner: Arc<Provisioner>) -> LoginSignIn {
+        self.provisioner = Some(provisioner);
+        self
     }
 }
 
@@ -64,10 +77,15 @@ impl SignIn for LoginSignIn {
                 };
             };
             match op_role_of(&self.map, &who) {
-                Some(role) => Who::Caller {
-                    actor: format!("oidc:{}", who.subject),
-                    role: role.to_owned(),
-                },
+                Some(role) => {
+                    if let Some(provisioner) = &self.provisioner {
+                        provisioner.ensure(&who, role).await;
+                    }
+                    Who::Caller {
+                        actor: format!("oidc:{}", who.subject),
+                        role: role.to_owned(),
+                    }
+                }
                 None => Who::Refused {
                     actor: format!("oidc:{}", who.subject),
                 },
